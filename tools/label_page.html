@@ -1,0 +1,292 @@
+<title>Flake Triage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#f3f2f6;--panel:#ffffff;--ink:#1d1b24;--muted:#625e70;--rule:#dcd8e3;--soft:#ebe9f0;
+  --accent:#4b36b8;--accent-ink:#ffffff;--focus:#4b36b8;
+  --good:#1a7f37;--good-bg:#dff3e4;--maybe:#9a6700;--maybe-bg:#fbf0d6;--bad:#b42318;--bad-bg:#fbe3df;
+  --stage:#17151d;--outline:#ffffff;
+  --sans:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  color-scheme:dark;--bg:#121118;--panel:#1a1922;--ink:#ecebf2;--muted:#a19db0;--rule:#2f2d3a;--soft:#24222e;
+  --accent:#9d8cff;--accent-ink:#15121f;--focus:#b3a6ff;
+  --good:#56d37a;--good-bg:#173524;--maybe:#e8b64c;--maybe-bg:#3a2e12;--bad:#ff7b6b;--bad-bg:#3d1a17;--stage:#0b0a0f;}}
+:root[data-theme="dark"]{
+  color-scheme:dark;--bg:#121118;--panel:#1a1922;--ink:#ecebf2;--muted:#a19db0;--rule:#2f2d3a;--soft:#24222e;
+  --accent:#9d8cff;--accent-ink:#15121f;--focus:#b3a6ff;
+  --good:#56d37a;--good-bg:#173524;--maybe:#e8b64c;--maybe-bg:#3a2e12;--bad:#ff7b6b;--bad-bg:#3d1a17;--stage:#0b0a0f;}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--sans);padding-inline:16px}
+.wrap{max-width:1240px;margin:0 auto;padding-block:14px 28px;display:grid;gap:12px}
+header{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:space-between}
+h1{font-size:18px;margin:0;font-weight:600;letter-spacing:.1px;text-wrap:balance}
+.sub{color:var(--muted);font-size:12.5px}
+.progress{display:flex;align-items:center;gap:10px;min-width:260px;flex:1;max-width:520px}
+.bar{flex:1;height:8px;background:var(--soft);border-radius:4px;overflow:hidden;display:flex}
+.bar span{display:block;height:100%}
+.counts{font:500 12px var(--mono);color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:7px;overflow:hidden;background:var(--panel)}
+.seg button{border:0;background:transparent;color:var(--muted);padding:5px 10px;font:500 12.5px var(--sans);cursor:pointer}
+.seg button+button{border-left:1px solid var(--rule)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+select,input[type=text],textarea{font:13px var(--sans);color:var(--ink);background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:5px 8px}
+button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:12px;align-items:start}
+@media (max-width:900px){.main{grid-template-columns:1fr}}
+.stagebox{background:var(--stage);border-radius:10px;padding:12px;display:grid;gap:8px}
+.stage{position:relative;width:100%;max-width:620px;aspect-ratio:1;margin:0 auto;border-radius:4px;overflow:hidden;background-repeat:no-repeat;image-rendering:auto}
+.stage svg{position:absolute;inset:0;width:100%;height:100%}
+.stage polygon{fill:none;stroke:var(--outline);stroke-width:1.4;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}
+.stage svg.frame polygon{stroke:#ffb020;stroke-width:2;stroke-dasharray:none;filter:drop-shadow(0 0 1.5px #000)}
+.stage svg.frame circle{fill:none;stroke:#ffb020;stroke-width:2;vector-effect:non-scaling-stroke;filter:drop-shadow(0 0 1.5px #000)}
+.scalebar{position:absolute;right:12px;bottom:10px;color:#fff;font:500 11px var(--mono);text-align:center;text-shadow:0 0 3px #000}
+.scalebar i{display:block;height:3px;background:#fff;margin-bottom:3px;box-shadow:0 0 2px #000}
+.stagectl{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;color:#c9c5d6;font-size:12px}
+.stagectl button{background:#26242f;color:#e8e6ef;border:1px solid #3a3746;border-radius:6px;padding:4px 10px;font:500 12px var(--sans);cursor:pointer}
+.stagectl button[aria-pressed="true"]{background:#e8e6ef;color:#17151d}
+kbd{font:500 10.5px var(--mono);border:1px solid var(--rule);border-bottom-width:2px;border-radius:4px;padding:0 4px;color:var(--muted);background:var(--soft)}
+.stagectl kbd{border-color:#3a3746;background:#201e28;color:#aaa6b8}
+aside{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:14px;display:grid;gap:14px}
+.idline{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.idline b{font:600 15px var(--mono)}
+.pill{font:500 11.5px var(--sans);padding:2px 8px;border-radius:999px;border:1px solid var(--rule);color:var(--muted);white-space:nowrap}
+.pill.good{background:var(--good-bg);color:var(--good);border-color:transparent}
+.pill.maybe{background:var(--maybe-bg);color:var(--maybe);border-color:transparent}
+.pill.not{background:var(--bad-bg);color:var(--bad);border-color:transparent}
+dl{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:0;font-size:13px}
+dt{color:var(--muted)}dd{margin:0;font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.label{font:600 11px var(--sans);letter-spacing:.6px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.verdicts{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.verdicts button{padding:9px 6px;border-radius:8px;border:1px solid var(--rule);background:var(--panel);color:var(--ink);font:600 13px var(--sans);cursor:pointer;display:grid;gap:2px;justify-items:center}
+.verdicts button kbd{font-weight:400}
+.verdicts button[data-v="useful"][aria-pressed="true"]{background:var(--good-bg);border-color:var(--good);color:var(--good)}
+.verdicts button[data-v="maybe"][aria-pressed="true"]{background:var(--maybe-bg);border-color:var(--maybe);color:var(--maybe)}
+.verdicts button[data-v="not"][aria-pressed="true"]{background:var(--bad-bg);border-color:var(--bad);color:var(--bad)}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tags button{border:1px solid var(--rule);background:var(--panel);color:var(--ink);border-radius:999px;padding:4px 9px;font:13px var(--sans);cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.tags button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.tags button[aria-pressed="true"] kbd{background:transparent;color:inherit;border-color:currentColor}
+textarea{width:100%;min-height:54px;resize:vertical}
+.nav{display:flex;gap:6px;justify-content:space-between}
+.nav button{flex:1;padding:7px;border:1px solid var(--rule);border-radius:7px;background:var(--soft);color:var(--ink);font:500 13px var(--sans);cursor:pointer}
+.status{font-size:12px;color:var(--muted);min-height:1.2em}
+.status.err{color:var(--bad)}
+.strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px}
+.thumb{position:relative;aspect-ratio:1;border-radius:5px;overflow:hidden;cursor:pointer;border:2px solid transparent;background-repeat:no-repeat;padding:0}
+.thumb.cur{border-color:var(--accent)}
+.thumb::after{content:"";position:absolute;right:3px;top:3px;width:9px;height:9px;border-radius:50%;background:var(--dot,transparent);box-shadow:0 0 0 1.5px rgba(0,0,0,.55)}
+.foot{display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;color:var(--muted);font-size:12.5px}
+.foot button{border:1px solid var(--rule);background:var(--panel);color:var(--ink);border-radius:6px;padding:5px 10px;font:500 12.5px var(--sans);cursor:pointer}
+.help{color:var(--muted);font-size:12.5px;max-width:70ch}
+details summary{cursor:pointer;color:var(--ink);font-weight:500}
+@media (prefers-reduced-motion:no-preference){.bar span{transition:width .3s}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Flake Triage</h1>
+      <div class="sub" id="sub"></div>
+    </div>
+    <div class="progress" aria-label="Labelling progress">
+      <div class="bar"><span id="pg" style="background:var(--good)"></span><span id="pm" style="background:var(--maybe)"></span><span id="pn" style="background:var(--bad)"></span></div>
+      <div class="counts" id="counts"></div>
+    </div>
+  </header>
+
+  <div class="filters">
+    <div class="seg" id="fStatus" role="group" aria-label="Show">
+      <button data-f="all" aria-pressed="true">All</button><button data-f="open" aria-pressed="false">Unlabelled</button>
+      <button data-f="useful" aria-pressed="false">Useful</button><button data-f="maybe" aria-pressed="false">Maybe</button><button data-f="not" aria-pressed="false">Not useful</button>
+    </div>
+    <div class="seg" id="fMat" role="group" aria-label="Material">
+      <button data-m="all" aria-pressed="true">Both</button><button data-m="graphite" aria-pressed="false">Graphite</button><button data-m="hbn" aria-pressed="false">hBN</button>
+    </div>
+    <select id="fScan" aria-label="Scan"><option value="all">All scans</option></select>
+    <label class="sub"><input type="checkbox" id="showPipe"> show pipeline decision</label>
+  </div>
+
+  <div class="main">
+    <div class="stagebox">
+      <div class="stage" id="stage" role="img" aria-label="Flake crop"><svg id="svg" viewBox="0 0 256 256" preserveAspectRatio="none"></svg><div class="scalebar" id="scale"><i></i><span></span></div></div>
+      <div class="stagectl">
+        <span id="field"></span>
+        <span><button id="bOutline" aria-pressed="true">Outline <kbd>O</kbd></button></span>
+      </div>
+    </div>
+
+    <aside>
+      <div class="idline"><b id="iid"></b><span class="pill" id="ipill">unlabelled</span></div>
+      <dl id="facts"></dl>
+      <div>
+        <div class="label">Worth high-resolution imaging?</div>
+        <div class="verdicts" id="verdicts">
+          <button data-v="useful" aria-pressed="false">Useful<kbd>1</kbd></button>
+          <button data-v="maybe" aria-pressed="false">Maybe<kbd>2</kbd></button>
+          <button data-v="not" aria-pressed="false">Not useful<kbd>3</kbd></button>
+        </div>
+      </div>
+      <div>
+        <div class="label">Problems (any number)</div>
+        <div class="tags" id="tags"></div>
+      </div>
+      <div>
+        <div class="label"><label for="note">Note</label></div>
+        <textarea id="note" placeholder="e.g. looks bilayer, not 5 nm; residue on the right half"></textarea>
+      </div>
+      <div class="nav"><button id="prev">← Previous</button><button id="nextOpen">Next unlabelled <kbd>U</kbd></button><button id="next">Next →</button></div>
+      <div class="status" id="status" role="status"></div>
+    </aside>
+  </div>
+
+  <div class="strip" id="strip" aria-label="All crops"></div>
+
+  <div class="foot">
+    <details class="help">
+      <summary>How to label</summary>
+      <p>Judge whether you would spend time taking a high-magnification image of the outlined region (dashed line). Press <kbd>1</kbd> useful, <kbd>2</kbd> maybe or <kbd>3</kbd> not useful; the next crop opens automatically. Toggle problem tags with the letter keys before or after choosing, and add a note when something is off, such as a thickness that looks wrong.</p>
+      <p>About one crop in five was rejected by the pipeline; they are mixed in so that missed flakes can be counted too. The pipeline's decision is hidden unless you tick "show pipeline decision". Labels save as you go, and Claude reads them to retune the thresholds.</p>
+    </details>
+    <button id="copy">Copy labels as CSV</button>
+  </div>
+</div>
+
+<script>
+const DATA=__ITEMS__;
+const ITEMS=DATA.items, CELL=DATA.cell, GRID=DATA.grid;
+const TAGS=[["r","residue","tape residue / film"],["d","dendritic","dendritic / fragment cluster"],["s","smudge","smudge / contamination on top"],
+ ["m","multi","several thicknesses / not uniform"],["t","small","too small"],["k","thick","too thick / bulk"],
+ ["c","damage","cracks, folds, bubbles"],["w","wrongt","thickness estimate looks wrong"],["b","boundary","outline wrong"],
+ ["f","focus","out of focus"],["p","crowded","crowded / touching other flakes"],["x","artefact","not a flake / artefact"]];
+const $=id=>document.getElementById(id);
+const labels={};            // id -> {verdict,tags,note}
+let db=null, cur=0, view=[], fStatus="all", fMat="all", fScan="all", outline=true, local=false, closeup=false;
+
+// atlas geometry
+const perAtlas=GRID*GRID;
+const atlasRows=[];{const n=Math.ceil(ITEMS.length/perAtlas);for(let a=0;a<n;a++){const k=Math.min(perAtlas,ITEMS.length-a*perAtlas);atlasRows.push(Math.ceil(k/GRID))}}
+function bg(el,it){const r=Math.floor(it.cell/GRID),c=it.cell%GRID,rows=atlasRows[it.atlas];
+ el.style.backgroundImage=`url(atlas_${String(it.atlas).padStart(2,"0")}.jpg)`;
+ el.style.backgroundSize=`${GRID*100}% ${rows*100}%`;
+ el.style.backgroundPosition=`${GRID>1?c/(GRID-1)*100:0}% ${rows>1?r/(rows-1)*100:0}%`}
+
+// scan filter options
+[...new Set(ITEMS.map(i=>i.scan))].forEach(s=>{const o=document.createElement("option");o.value=s;o.textContent=s;$("fScan").appendChild(o)});
+$("sub").textContent=DATA.subtitle||`${ITEMS.length} flake regions from ${new Set(ITEMS.map(i=>i.scan)).size} scans · BX51, 6.3x · SiO₂ 90 nm (graphite), 285 nm (hBN)`;
+if(DATA.title){document.title=DATA.title;const h=document.querySelector("h1");if(h)h.textContent=DATA.title}
+
+// tags
+TAGS.forEach(([k,id,txt])=>{const b=document.createElement("button");b.dataset.t=id;b.setAttribute("aria-pressed","false");
+ b.innerHTML=`<kbd>${k.toUpperCase()}</kbd>${txt}`;b.onclick=()=>toggleTag(id);$("tags").appendChild(b)});
+
+function verdictOf(id){return labels[id]&&labels[id].verdict||null}
+function filtered(){return ITEMS.filter(it=>{if(fMat!=="all"&&it.material!==fMat)return false;if(fScan!=="all"&&it.scan!==fScan)return false;
+ const v=verdictOf(it.id);if(fStatus==="open")return !v;if(fStatus==="all")return true;return v===fStatus})}
+
+function fmtT(it){let s=`${it.t} nm`;if(it.material==="graphite"&&it.t<3)s+=` (${it.layers} L)`;if(it.alt)s+=` · alt ${it.alt.replace(/;/g,", ")} nm`;return s}
+function renderCurrent(){
+ const it=view[cur];
+ if(!it){$("iid").textContent="—";$("facts").innerHTML="<dt>No crops match</dt><dd>Change the filters above.</dd>";$("stage").style.backgroundImage="none";$("svg").innerHTML="";return}
+ const F=closeup?null:it.frame, st=$("stage");
+ $("svg").classList.toggle("frame",!!F);
+ if($("bClose"))$("bClose").setAttribute("aria-pressed",String(closeup));
+ if(F){st.style.backgroundImage=`url(${F.file})`;st.style.backgroundSize="100% 100%";st.style.backgroundPosition="0 0";
+  st.style.aspectRatio=`${F.w} / ${F.h}`;st.style.maxWidth="1100px";$("svg").setAttribute("viewBox",`0 0 ${F.w} ${F.h}`)}
+ else{bg(st,it);st.style.aspectRatio="";st.style.maxWidth="";$("svg").setAttribute("viewBox","0 0 256 256")}
+ const polys=F?F.poly:it.poly, fieldUm=F?F.field_um:it.field_um;
+ $("svg").innerHTML=(outline?polys.map(p=>{const pts=[];for(let i=0;i<p.length;i+=2)pts.push(p[i]+","+p[i+1]);return `<polygon points="${pts.join(" ")}"/>`}).join(""):"")
+  +(F?`<circle cx="${F.w/2}" cy="${F.h/2}" r="${Math.max(45,0.75*it.L/fieldUm*F.w+20)}"/>`:"");
+ // scale bar
+ const umPerCell=fieldUm/CELL;const nice=[5,10,20,50,100,200,500];const L=nice.find(v=>v/umPerCell>=40)||500;
+ $("scale").querySelector("i").style.width=(L/fieldUm*100)+"%";$("scale").querySelector("span").textContent=L+" µm";
+ $("scale").style.width=(L/fieldUm*100)+"%";
+ $("field").textContent=`${it.scan} · field ${Math.round(fieldUm)} µm${F?" (one 10x frame)":""} · ${cur+1} / ${view.length}`;
+ $("iid").textContent=it.id;
+ const l=labels[it.id]||{};const v=l.verdict;
+ $("ipill").className="pill "+(v||"");$("ipill").textContent=v==="useful"?"useful":v==="maybe"?"maybe":v==="not"?"not useful":"unlabelled";
+ const rows=[["material",it.material==="hbn"?"hBN":"graphite"],["thickness",fmtT(it)],["range",`${it.tlo}–${it.thi} nm`],
+  ["size",`${it.L} × ${it.Wd} µm`],["area",`${Math.round(it.area)} µm²`],["inscribed Ø",`${it.d} µm`],
+  ["position",`x ${Math.round(it.x)}, y ${Math.round(it.y)} µm`+(it.sx!=null?` · stage ${Math.round(it.sx)}, ${Math.round(it.sy)}`:"")],
+  ["contrast RGB",it.c.map(x=>(x>=0?"+":"")+x.toFixed(2)).join("  ")]];
+ if($("showPipe").checked){rows.push(["pipeline",it.accepted?"accepted":"rejected"]);rows.push(["flags",it.quality.replace(/;/g,", ")]);
+  const m=it.metrics;rows.push(["metrics",`fill ${m.fill} · solidity ${m.fr_sol} · edge ${m.ew==null?"–":m.ew} µm · haze ${m.haze}`])}
+ $("facts").innerHTML=rows.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join("");
+ document.querySelectorAll("#verdicts button").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.v===v)));
+ const tg=new Set(l.tags||[]);document.querySelectorAll("#tags button").forEach(b=>b.setAttribute("aria-pressed",String(tg.has(b.dataset.t))));
+ if(document.activeElement!==$("note"))$("note").value=l.note||"";
+ document.querySelectorAll(".thumb").forEach(t=>t.classList.toggle("cur",t.dataset.id===it.id));
+ keepVisible(document.querySelector(`.thumb[data-id="${it.id}"]`),$("strip"),$("stage"),it.id);
+}
+let lastShown=null;
+function keepVisible(el,host,stage,id){            // scroll the thumbnail strip only, never the page to it;
+ if(el&&host){                                   // then bring the large image back to the top of the window
+  if(host.scrollWidth>host.clientWidth+1){const l=el.offsetLeft-host.offsetLeft;if(l<host.scrollLeft||l+el.offsetWidth>host.scrollLeft+host.clientWidth)host.scrollLeft=l-host.clientWidth/2+el.offsetWidth/2}
+  if(host.scrollHeight>host.clientHeight+1){const t=el.offsetTop-host.offsetTop;if(t<host.scrollTop||t+el.offsetHeight>host.scrollTop+host.clientHeight)host.scrollTop=t-host.clientHeight/2+el.offsetHeight/2}}
+ if(stage&&lastShown===null){lastShown=id;return}
+ if(stage&&id!==lastShown){lastShown=id;const r=stage.getBoundingClientRect();if(r.top<0||r.top>window.innerHeight*0.4)window.scrollTo({top:Math.max(0,window.scrollY+r.top-12),behavior:"auto"})}}
+function dotColor(id){const v=verdictOf(id);return v==="useful"?"var(--good)":v==="maybe"?"var(--maybe)":v==="not"?"var(--bad)":"transparent"}
+function renderStrip(){const s=$("strip");s.innerHTML="";view.forEach((it,i)=>{const b=document.createElement("button");b.className="thumb";b.dataset.id=it.id;
+ b.setAttribute("aria-label",`${it.id}, ${verdictOf(it.id)||"unlabelled"}`);bg(b,it);b.style.setProperty("--dot",dotColor(it.id));b.onclick=()=>{cur=i;renderCurrent()};s.appendChild(b)})}
+function refreshDots(){document.querySelectorAll(".thumb").forEach(t=>t.style.setProperty("--dot",dotColor(t.dataset.id)))}
+function renderCounts(){const n=ITEMS.length;let g=0,m=0,x=0;ITEMS.forEach(it=>{const v=verdictOf(it.id);if(v==="useful")g++;else if(v==="maybe")m++;else if(v==="not")x++});
+ $("pg").style.width=(g/n*100)+"%";$("pm").style.width=(m/n*100)+"%";$("pn").style.width=(x/n*100)+"%";
+ $("counts").textContent=`${g+m+x}/${n} labelled · ${g} useful · ${m} maybe · ${x} not`}
+function rebuild(keepId){const id=keepId||(view[cur]&&view[cur].id);view=filtered();const k=view.findIndex(it=>it.id===id);cur=k>=0?k:Math.min(cur,Math.max(view.length-1,0));renderStrip();renderCurrent();renderCounts()}
+
+// ---- persistence
+const queue={};                      // one write at a time per document
+function save(id){const it=ITEMS.find(i=>i.id===id);const l=labels[id];
+ const body={verdict:l.verdict||null,tags:l.tags||[],note:l.note||"",scan:it.scan,csv_flake_id:it.csv_flake_id,accepted:it.accepted,updated:Date.now()};
+ if(!db){try{localStorage.setItem("flaketriage:"+id,JSON.stringify(body))}catch(e){}status(local?"Saved in this browser only.":"Saved.");return}
+ const run=()=>db.collection("labels").doc(id).set(body).then(()=>status("Saved.")).catch(e=>{status(e&&e.code==="invalid_argument"?"You can view these labels but not change them.":"Could not save: "+(e&&e.message||e),true)});
+ queue[id]=(queue[id]||Promise.resolve()).then(run,run)}
+function status(t,err){const s=$("status");s.textContent=t;s.className="status"+(err?" err":"")}
+function setVerdict(v){const it=view[cur];if(!it)return;const l=labels[it.id]=labels[it.id]||{};l.verdict=(l.verdict===v)?null:v;save(it.id);
+ renderCounts();refreshDots();if(l.verdict&&fStatus==="all"){cur=Math.min(cur+1,view.length-1)}else if(fStatus!=="all"){rebuild(it.id);return}renderCurrent()}
+function toggleTag(t){const it=view[cur];if(!it)return;const l=labels[it.id]=labels[it.id]||{};const s=new Set(l.tags||[]);s.has(t)?s.delete(t):s.add(t);l.tags=[...s];save(it.id);renderCurrent()}
+let noteTimer=null;
+$("note").addEventListener("input",()=>{const it=view[cur];if(!it)return;const l=labels[it.id]=labels[it.id]||{};l.note=$("note").value;clearTimeout(noteTimer);const id=it.id;noteTimer=setTimeout(()=>save(id),700)});
+$("note").addEventListener("keydown",e=>{if(e.key==="Escape")$("note").blur();e.stopPropagation()});
+
+// ---- controls
+document.querySelectorAll("#verdicts button").forEach(b=>b.onclick=()=>setVerdict(b.dataset.v));
+$("prev").onclick=()=>{cur=Math.max(cur-1,0);renderCurrent()};$("next").onclick=()=>{cur=Math.min(cur+1,view.length-1);renderCurrent()};
+function nextOpen(){for(let k=1;k<=view.length;k++){const i=(cur+k)%view.length;if(!verdictOf(view[i].id)){cur=i;renderCurrent();return}}status("Everything in this view is labelled.")}
+$("nextOpen").onclick=nextOpen;
+if($("bOutline")&&!$("bClose")&&ITEMS.some(i=>i.frame)){const b=document.createElement("button");b.id="bClose";b.className=$("bOutline").className;
+ b.setAttribute("aria-pressed","false");b.innerHTML='Close-up <kbd>Z</kbd>';b.title="Switch between the whole 10x frame (same scale for every flake) and a close-up";
+ b.onclick=()=>{closeup=!closeup;renderCurrent()};$("bOutline").parentNode.insertBefore(b,$("bOutline"));
+ document.addEventListener("keydown",e=>{if((e.key==="z"||e.key==="Z")&&!/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)){closeup=!closeup;renderCurrent()}})}
+$("bOutline").onclick=()=>{outline=!outline;$("bOutline").setAttribute("aria-pressed",String(outline));renderCurrent()};
+$("showPipe").onchange=renderCurrent;
+function seg(id,attr,set){document.querySelectorAll(`#${id} button`).forEach(b=>b.onclick=()=>{document.querySelectorAll(`#${id} button`).forEach(x=>x.setAttribute("aria-pressed",String(x===b)));set(b.dataset[attr]);rebuild()})}
+seg("fStatus","f",v=>fStatus=v);seg("fMat","m",v=>fMat=v);$("fScan").onchange=e=>{fScan=e.target.value;rebuild()};
+document.addEventListener("keydown",e=>{if(e.metaKey||e.ctrlKey||e.altKey)return;const t=e.target;if(t&&(t.tagName==="TEXTAREA"||t.tagName==="INPUT"||t.tagName==="SELECT"))return;
+ const k=e.key.toLowerCase();
+ if(k==="1")setVerdict("useful");else if(k==="2")setVerdict("maybe");else if(k==="3")setVerdict("not");
+ else if(k==="arrowright"||k==="j"){$("next").click()}else if(k==="arrowleft"||k==="h"){$("prev").click()}
+ else if(k==="u")nextOpen();else if(k==="o")$("bOutline").click();else if(k==="n"){e.preventDefault();$("note").focus()}
+ else{const tg=TAGS.find(x=>x[0]===k);if(tg)toggleTag(tg[1]);else return}e.preventDefault()});
+$("copy").onclick=()=>{const hdr="id,scan,csv_flake_id,material,pipeline_accepted,thickness_nm,area_um2,verdict,tags,note";
+ const rows=ITEMS.filter(it=>labels[it.id]).map(it=>{const l=labels[it.id];return [it.id,it.scan,(it.csv_flake_id==null?"":it.csv_flake_id),it.material,it.accepted,it.t,Math.round(it.area),l.verdict||"",(l.tags||[]).join(";"),JSON.stringify(l.note||"")].join(",")});
+ const txt=[hdr,...rows].join("\n");
+ navigator.clipboard.writeText(txt).then(()=>status(`Copied ${rows.length} labels.`)).catch(()=>{$("note").value=txt;$("note").select();status("Clipboard blocked: the CSV is in the note box, selected.")})};
+
+// ---- start
+rebuild();
+(async()=>{
+ try{db=window.claude&&window.claude.use?await window.claude.use("db"):null}catch(e){db=null}
+ if(!db){local=true;try{ITEMS.forEach(it=>{const s=localStorage.getItem("flaketriage:"+it.id);if(s)labels[it.id]=JSON.parse(s)})}catch(e){}
+  status("Shared storage is unavailable here; labels are kept in this browser. Use “Copy labels as CSV” to hand them over.");rebuild();return}
+ db.collection("labels").onSnapshot(snap=>{snap.docs.forEach(d=>{if(!d.exists)return;const b=d.data();const mine=labels[d.id];
+   // keep the local note while it is being typed
+   const typing=document.activeElement===$("note")&&view[cur]&&view[cur].id===d.id;
+   labels[d.id]={verdict:b.verdict||null,tags:Array.isArray(b.tags)?[...b.tags]:[],note:typing&&mine?mine.note:(b.note||"")}});
+  renderCounts();refreshDots();renderCurrent()},e=>status("Live updates stopped: "+(e&&e.message||e.code),true));
+})();
+</script>

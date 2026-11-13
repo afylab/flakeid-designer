@@ -1,0 +1,103 @@
+{
+ "camera": {
+  "lamp_temp_k": 3100.0,
+  "centers_nm": [
+   613.1653,
+   542.4851,
+   493.0816
+  ],
+  "fwhm_nm": [
+   61.6561,
+   70.8304,
+   97.6026
+  ],
+  "ir_cut_nm": 690.8326369278593,
+  "gamma": 1.0,
+  "ccm": null,
+  "flare": [
+   0.0598,
+   0.0452,
+   0.1004
+  ]
+ },
+ "na": 0.95,
+ "notes": "Young Lab BX51, XIMEA XC10 RAW16, 100x objective (MPLFLN100xBD): GRAPHITE at 100x (2026-11-12). The camera's channel centres / widths and graphite's optical constants of bx51_xc10_mm_raw16_graphite (fitted at 10x), with the 100x stray light per channel and NA fitted to 1141 terrace colours of GR11'-GR15' (84 / 84.5 nm SiO2; 100x regions files, t100.contrast), the 1-4 layer flakes (476, labelled by layer count) as anchors of known thickness (matched within 0.003). Fitted oxide 84.3 nm (the chips' own: no shift). Median distance of the colours to the curve 0.008 (90 % within 0.022); the 3-channel thickness agrees with the 10x label (within max(1 nm, 20 %)) for 97 % (was 49 % with the hBN-calibrated camera: 4-6 nm purple flakes read ~10 nm, the colour of 9-10 nm blue ones). Darkest green at ~5 nm (purple); ~8-10 nm blue. Above 1.34 nm the thickness scale is the thin-film model's (no AFM yet).",
+ "materials": {
+  "graphite": {
+   "index_table": [
+    [
+     380.0,
+     2.8249,
+     0.8078
+    ],
+    [
+     400.0,
+     2.8494,
+     0.8572
+    ],
+    [
+     450.0,
+     2.9106,
+     0.9805
+    ],
+    [
+     500.0,
+     2.9718,
+     1.1038
+    ],
+    [
+     550.0,
+     3.033,
+     1.2272
+    ],
+    [
+     600.0,
+     3.0942,
+     1.3506
+    ],
+    [
+     650.0,
+     3.1554,
+     1.4739
+    ],
+    [
+     700.0,
+     3.2166,
+     1.5972
+    ],
+    [
+     780.0,
+     3.3145,
+     1.7946
+    ]
+   ]
+  }
+ },
+ "calibration": {
+  "fit": "scratchpad fit100.py: oxide, NA (<= 0.95), flare R G B; orthogonal distance to the curve (capped 0.1) + 4 x anchors",
+  "oxide_fitted": 84.33,
+  "n_colours": 1141,
+  "anchors_1_4L": [
+   [
+    -0.076,
+    -0.097,
+    -0.077
+   ],
+   [
+    -0.147,
+    -0.186,
+    -0.148
+   ],
+   [
+    -0.213,
+    -0.265,
+    -0.209
+   ],
+   [
+    -0.271,
+    -0.334,
+    -0.259
+   ]
+  ]
+ }
+}

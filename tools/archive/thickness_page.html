@@ -1,0 +1,190 @@
+<title>__TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#eef1f2;--panel:#fff;--ink:#172024;--muted:#58676e;--rule:#d3dbdf;--soft:#e4eaed;--accent:#2a5bd7;--view:#101417;
+ --thin:#1d8a5a;--mid:#b07a12;--thick:#c2410c;--unsure:#6b7280;
+ --sans:"IBM Plex Sans",system-ui,-apple-system,sans-serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#0f1417;--panel:#171e22;--ink:#e2e9ec;--muted:#93a2a9;--rule:#2a353b;--soft:#1f282d;--accent:#7aa2ff;--view:#07090a;
+ --thin:#4cc38a;--mid:#e0ac45;--thick:#fb8c4f;--unsure:#a3aab5}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#0f1417;--panel:#171e22;--ink:#e2e9ec;--muted:#93a2a9;--rule:#2a353b;--soft:#1f282d;--accent:#7aa2ff;--view:#07090a;
+ --thin:#4cc38a;--mid:#e0ac45;--thick:#fb8c4f;--unsure:#a3aab5}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans);padding-inline:16px;padding-block:18px 40px}
+main{max-width:1240px;margin:0 auto;display:grid;gap:16px}
+h1{margin:0;font-size:22px;font-weight:600;line-height:1.2;text-wrap:balance}
+p{margin:0;max-width:75ch}
+.muted{color:var(--muted)}
+kbd{font:500 11px var(--mono);border:1px solid var(--rule);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--panel);color:var(--ink)}
+header{display:grid;gap:6px}
+.eyebrow{font:500 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.bar{display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--soft)}
+.bar span{display:block;height:100%}
+.counts{font:13px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.work{display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,340px);gap:16px;align-items:start}
+@media (max-width:820px){.work{grid-template-columns:1fr}}
+.stage{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:12px;display:grid;gap:10px}
+.cell{position:relative;width:100%;max-width:min(640px,72vh);aspect-ratio:1;overflow:hidden;background:var(--view);border-radius:6px;margin:0 auto}
+.cell img{position:absolute;left:0;top:0;max-width:none;image-rendering:auto}
+.cell svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.scale{position:absolute;left:12px;bottom:10px;display:grid;gap:2px;font:500 11px var(--mono);color:#fff;text-shadow:0 0 3px #000}
+.scale i{display:block;height:3px;background:#fff;box-shadow:0 0 2px #000}
+.meta{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;font:13px var(--mono);color:var(--muted)}
+.meta b{color:var(--ink);font-weight:600}
+.side{display:grid;gap:12px}
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:12px;display:grid;gap:10px}
+.card h2{margin:0;font-size:14px;font-weight:600;color:var(--muted)}
+.choices{display:grid;gap:8px}
+.choice{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:center;text-align:left;font:inherit;color:var(--ink);background:var(--panel);
+ border:1.5px solid var(--rule);border-radius:8px;padding:8px 10px;cursor:pointer}
+.choice .k{grid-row:span 2;font:600 15px var(--mono);width:26px;height:26px;display:grid;place-items:center;border-radius:6px;background:var(--soft)}
+.choice b{font-weight:600}.choice small{color:var(--muted);font-size:12px}
+.choice[aria-pressed="true"]{border-color:var(--c);box-shadow:inset 0 0 0 1px var(--c)}
+.choice[aria-pressed="true"] .k{background:var(--c);color:#fff}
+.choice:focus-visible,.nav button:focus-visible,.dots button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.nav{display:flex;flex-wrap:wrap;gap:8px}
+.nav button{font:13px var(--sans);color:var(--ink);background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:5px 10px;cursor:pointer}
+.nav button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+textarea{width:100%;min-height:56px;resize:vertical;font:13px var(--sans);color:var(--ink);background:var(--bg);border:1px solid var(--rule);border-radius:6px;padding:6px 8px}
+.ctx{position:relative;width:100%;aspect-ratio:1;overflow:hidden;background:var(--view);border-radius:6px}
+.ctx img{position:absolute;left:0;top:0;max-width:none}
+.ctx svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.dots{display:grid;grid-template-columns:repeat(auto-fill,minmax(14px,1fr));gap:3px}
+.dots button{aspect-ratio:1;border:0;border-radius:3px;padding:0;background:var(--soft);cursor:pointer}
+.dots button.cur{outline:2px solid var(--ink);outline-offset:1px}
+.status{font-size:12px;color:var(--muted);min-height:1.2em}.status.err{color:var(--thick)}
+.help{font-size:13px;color:var(--muted);display:block}
+</style>
+<main>
+ <header>
+  <div class="eyebrow" id="eyebrow"></div>
+  <h1 id="title"></h1>
+  <p class="muted">At 10x these flakes have colours that fit both ~20 nm and ~150 nm hBN. Label the outlined terrace (solid line) as you would at the microscope; the rest of the flake is dashed. The analysis's thickness is hidden so it can't sway you. A few clearly thin flakes of similar colour are mixed in as references. Labels save as you go.</p>
+  <div class="bar" aria-hidden="true"><span id="p1" style="background:var(--thin)"></span><span id="p2" style="background:var(--mid)"></span><span id="p3" style="background:var(--thick)"></span><span id="p4" style="background:var(--unsure)"></span></div>
+  <div class="counts" id="counts"></div>
+ </header>
+ <div class="work">
+  <section class="stage" aria-label="Current flake">
+   <div class="cell" id="close"><div id="zoomBox" style="position:absolute;inset:0;transition:transform .15s"><img id="closeImg" alt=""><svg id="closeSvg" aria-hidden="true"></svg></div><div class="scale" id="closeScale"></div></div>
+   <div class="meta" id="meta"></div>
+   <div class="nav">
+    <button id="prev">← Previous</button><button id="next">Next →</button><button id="open">Next unlabelled <kbd>U</kbd></button>
+    <button id="outline" aria-pressed="true">Outline <kbd>O</kbd></button><button id="zoom" aria-pressed="false">Zoom on terrace <kbd>Z</kbd></button>
+   </div>
+  </section>
+  <aside class="side">
+   <div class="card">
+    <h2>Thickness</h2>
+    <div class="choices" id="choices">
+     <button class="choice" data-v="thin" style="--c:var(--thin)" aria-pressed="false"><span class="k">1</span><b>Thin</b><small>below ~50 nm</small></button>
+     <button class="choice" data-v="mid" style="--c:var(--mid)" aria-pressed="false"><span class="k">2</span><b>In between</b><small>~50–100 nm</small></button>
+     <button class="choice" data-v="thick" style="--c:var(--thick)" aria-pressed="false"><span class="k">3</span><b>Thick</b><small>above ~100 nm</small></button>
+     <button class="choice" data-v="unsure" style="--c:var(--unsure)" aria-pressed="false"><span class="k">4</span><b>Can't tell</b><small>or not a usable flake</small></button>
+    </div>
+    <label class="help" for="note">Note (optional; what gave it away?) <kbd>N</kbd></label>
+    <textarea id="note"></textarea>
+    <div class="status" id="status" role="status"></div>
+   </div>
+   <div class="card">
+    <h2>Context, 600 µm field</h2>
+    <div class="ctx"><img id="ctxImg" alt=""><svg id="ctxSvg" aria-hidden="true"></svg></div>
+   </div>
+   <div class="card">
+    <h2>All flakes</h2>
+    <div class="dots" id="dots"></div>
+    <div class="nav"><button id="copy">Copy labels as CSV</button></div>
+    <div class="help"><span><kbd>1</kbd>–<kbd>4</kbd> label and move on · <kbd>←</kbd> <kbd>→</kbd> step · <kbd>U</kbd> next unlabelled · <kbd>O</kbd> outline · <kbd>Z</kbd> zoom</span></div>
+   </div>
+  </aside>
+ </div>
+</main>
+<script>
+const DATA=__DATA__;
+const ITEMS=DATA.items, G=DATA.grid;
+const $=id=>document.getElementById(id);
+const COL={thin:"var(--thin)",mid:"var(--mid)",thick:"var(--thick)",unsure:"var(--unsure)"};
+const NAME={thin:"thin",mid:"in between",thick:"thick",unsure:"can't tell"};
+let labels={}, cur=0, outline=true, zoom=false, db=null, local=false;
+$("title").textContent=DATA.title;
+$("eyebrow").textContent=`FlakeIdentifier · ${DATA.scan} · BX51 10x + XC10 RAW16 · hBN on ${DATA.oxide_nm} nm SiO₂ (fit)`;
+document.title=DATA.title;
+
+function place(box,img,svg,it,kind){
+ const cell=kind==="close"?DATA.close:DATA.ctx;
+ const nCells=ITEMS.filter(x=>x.atlas===it.atlas).length, rows=Math.ceil(nCells/G);
+ const col=it.cell%G,row=Math.floor(it.cell/G);
+ img.src=`${kind}_${String(it.atlas).padStart(2,"0")}.jpg`;
+ img.style.width=(G*100)+"%";img.style.height=(rows*100)+"%";
+ img.style.left=(-col*100)+"%";img.style.top=(-row*100)+"%";
+ const pts=p=>{let s="";for(let i=0;i<p.length;i+=2)s+=(i?" ":"")+p[i]+","+p[i+1];return s};
+ svg.setAttribute("viewBox",`0 0 ${cell} ${cell}`);
+ if(!outline){svg.innerHTML="";return}
+ const fl=kind==="close"?(it.fpoly||[]).map(p=>`<polygon points="${pts(p)}" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="1" stroke-dasharray="4 4"/>`).join(""):"";
+ const tr=(kind==="close"?it.poly:it.cpoly).map(p=>`<polygon points="${pts(p)}" fill="none" stroke="#fff" stroke-opacity=".9" stroke-width="${kind==="close"?1.8:1.3}"/>`).join("");
+ svg.innerHTML=fl+tr;
+}
+function scaleBar(it){const um=it.field_um, opts=[10,20,50,100,200];const L=opts.find(v=>v>=um*0.18)||200;
+ $("closeScale").innerHTML=`<i style="width:${L/um*100}%"></i><span>${L} µm</span>`;$("closeScale").style.width="100%"}
+function render(){
+ const it=ITEMS[cur];if(!it)return;
+ place($("close"),$("closeImg"),$("closeSvg"),it,"close");
+ {let xs=[],ys=[];it.poly.forEach(p=>{for(let i=0;i<p.length;i+=2){xs.push(p[i]);ys.push(p[i+1])}});
+  const cx=(Math.min(...xs)+Math.max(...xs))/2/DATA.close*100, cy=(Math.min(...ys)+Math.max(...ys))/2/DATA.close*100;
+  const zb=$("zoomBox");zb.style.transformOrigin=`${cx}% ${cy}%`;zb.style.transform=zoom?"scale(2.5)":"none";
+  $("closeScale").style.visibility=zoom?"hidden":"visible"}place(null,$("ctxImg"),$("ctxSvg"),it,"ctx");scaleBar(it);
+ $("closeImg").alt=`10x close-up of flake ${it.flake}, ${it.field_um} µm field`;$("ctxImg").alt=`600 µm context around flake ${it.flake}`;
+ const l=labels[it.id]||{};
+ $("meta").innerHTML=`<span><b>${cur+1}</b> / ${ITEMS.length}</span><span>flake <b>F${it.flake}</b></span><span>terrace ${Math.round(it.d)} µm across</span><span>field ${it.field_um} µm</span>`+
+  (it.coverage<0.95?`<span>edge of a camera frame: part of the view is blank</span>`:"")+(l.label?`<span>labelled <b>${NAME[l.label]}</b></span>`:"");
+ document.querySelectorAll(".choice").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.v===l.label)));
+ if(document.activeElement!==$("note"))$("note").value=l.note||"";
+ document.querySelectorAll(".dots button").forEach((b,i)=>b.classList.toggle("cur",i===cur));
+ // preload the next atlas
+ const nx=ITEMS[cur+1];if(nx){new Image().src=`close_${String(nx.atlas).padStart(2,"0")}.jpg`}
+}
+function renderDots(){const d=$("dots");d.innerHTML="";ITEMS.forEach((it,i)=>{const b=document.createElement("button");
+ const l=labels[it.id];b.style.background=l&&l.label?COL[l.label]:"";b.setAttribute("aria-label",`Flake ${it.flake}: ${l&&l.label?NAME[l.label]:"unlabelled"}`);
+ b.onclick=()=>{cur=i;render()};d.appendChild(b)});render()}
+function counts(){const n=ITEMS.length,c={thin:0,mid:0,thick:0,unsure:0};ITEMS.forEach(it=>{const l=labels[it.id];if(l&&l.label)c[l.label]++});
+ const done=c.thin+c.mid+c.thick+c.unsure;
+ ["thin","mid","thick","unsure"].forEach((k,i)=>$("p"+(i+1)).style.width=(c[k]/n*100)+"%");
+ $("counts").textContent=`${done}/${n} labelled · ${c.thin} thin · ${c.mid} in between · ${c.thick} thick · ${c.unsure} can't tell`}
+
+const queue={};
+function status(t,err){$("status").textContent=t;$("status").className="status"+(err?" err":"")}
+function save(id){const it=ITEMS.find(x=>x.id===id),l=labels[id];
+ const body={label:l.label||null,note:l.note||"",flake:it.flake,scan:DATA.scan,updated:Date.now()};
+ if(!db){try{localStorage.setItem("thicklabel:"+id,JSON.stringify(body))}catch(e){}status(local?"Saved in this browser only.":"Saved.");return}
+ const run=()=>db.collection("thickness_labels").doc(id).set(body).then(()=>status("Saved.")).catch(e=>status(e&&e.code==="invalid_argument"?"You can view these labels but not change them.":"Could not save: "+(e&&e.message||e),true));
+ queue[id]=(queue[id]||Promise.resolve()).then(run,run)}
+function setLabel(v){const it=ITEMS[cur];const l=labels[it.id]=labels[it.id]||{};l.label=l.label===v?null:v;save(it.id);counts();
+ const b=$("dots").children[cur];if(b)b.style.background=l.label?COL[l.label]:"";
+ if(l.label&&cur<ITEMS.length-1)cur++;render()}
+function nextOpen(){for(let k=1;k<=ITEMS.length;k++){const i=(cur+k)%ITEMS.length;const l=labels[ITEMS[i].id];if(!l||!l.label){cur=i;render();return}}status("Every flake is labelled. Thank you!")}
+let noteTimer=null;
+$("note").addEventListener("input",()=>{const it=ITEMS[cur];const l=labels[it.id]=labels[it.id]||{};l.note=$("note").value;clearTimeout(noteTimer);const id=it.id;noteTimer=setTimeout(()=>save(id),700)});
+$("note").addEventListener("keydown",e=>{if(e.key==="Escape")$("note").blur();e.stopPropagation()});
+document.querySelectorAll(".choice").forEach(b=>b.onclick=()=>setLabel(b.dataset.v));
+$("prev").onclick=()=>{cur=Math.max(cur-1,0);render()};$("next").onclick=()=>{cur=Math.min(cur+1,ITEMS.length-1);render()};
+$("open").onclick=nextOpen;
+$("zoom").onclick=()=>{zoom=!zoom;$("zoom").setAttribute("aria-pressed",String(zoom));render()};
+$("outline").onclick=()=>{outline=!outline;$("outline").setAttribute("aria-pressed",String(outline));render()};
+document.addEventListener("keydown",e=>{if(e.metaKey||e.ctrlKey||e.altKey)return;const t=e.target;if(t&&/TEXTAREA|INPUT|SELECT/.test(t.tagName))return;
+ const k=e.key.toLowerCase();const m={"1":"thin","2":"mid","3":"thick","4":"unsure"};
+ if(m[k])setLabel(m[k]);else if(k==="arrowright"||k==="j")$("next").click();else if(k==="arrowleft"||k==="h")$("prev").click();
+ else if(k==="u")nextOpen();else if(k==="o")$("outline").click();else if(k==="z")$("zoom").click();else if(k==="n")$("note").focus();else return;e.preventDefault()});
+$("copy").onclick=()=>{const rows=ITEMS.filter(it=>labels[it.id]&&labels[it.id].label).map(it=>[it.id,it.flake,labels[it.id].label,JSON.stringify(labels[it.id].note||"")].join(","));
+ const txt=["id,flake,label,note",...rows].join("\n");
+ navigator.clipboard.writeText(txt).then(()=>status(`Copied ${rows.length} labels.`)).catch(()=>{$("note").value=txt;$("note").select();status("Clipboard blocked: the CSV is in the note box, selected.")})};
+
+renderDots();counts();
+(async()=>{
+ try{db=window.claude&&window.claude.use?await window.claude.use("db"):null}catch(e){db=null}
+ if(!db){local=true;try{ITEMS.forEach(it=>{const s=localStorage.getItem("thicklabel:"+it.id);if(s)labels[it.id]=JSON.parse(s)})}catch(e){}
+  status("Shared storage is unavailable here; labels are kept in this browser. Use “Copy labels as CSV” to hand them over.");renderDots();counts();return}
+ db.collection("thickness_labels").onSnapshot(snap=>{snap.docs.forEach(d=>{if(!d.exists)return;const b=d.data();const mine=labels[d.id];
+   const typing=document.activeElement===$("note")&&ITEMS[cur]&&ITEMS[cur].id===d.id;
+   labels[d.id]={label:b.label||null,note:typing&&mine?mine.note:(b.note||"")}});
+  renderDots();counts()},e=>status("Live updates stopped: "+(e&&e.message||e.code),true));
+})();
+</script>

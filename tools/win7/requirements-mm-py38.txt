@@ -1,0 +1,10 @@
+# Micro-Manager from Python on the microscope PC (Python 3.8, Windows 7): the last versions for Python 3.8.
+# pymmcore 11.1.1.71.x loads device drivers of device interface 71 = Micro-Manager 2.0.3's.
+pymmcore==11.1.1.71.2
+pymmcore-plus==0.11.1
+# Windows-only dependency of click (used by pymmcore-plus): pip on the Mac skips it when downloading the kit
+colorama==0.4.6
+# serial ports (the Olympus U-CBS coded nosepiece box; tools/win7/ucbs_probe.py)
+pyserial==3.5
+# window theme for the scan program (flakeid/scope/theme_demo.py preview): Sun Valley, pure Python + Tcl
+sv-ttk==2.6.0

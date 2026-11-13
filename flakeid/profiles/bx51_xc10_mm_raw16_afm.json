@@ -1,0 +1,225 @@
+{
+  "camera": {
+    "lamp_temp_k": 3100.0,
+    "centers_nm": [
+      619.8627164059835,
+      549.9711589756398,
+      473.589931031823
+    ],
+    "fwhm_nm": [
+      89.89396667046985,
+      66.4021149507283,
+      78.15598140058262
+    ],
+    "ir_cut_nm": 671.3981560452753,
+    "gamma": 1.0,
+    "ccm": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "flare": [
+      0.009018472783747341,
+      0.050095166339078165,
+      0.031819902424168885
+    ]
+  },
+  "na": 0.3,
+  "notes": "Young Lab BX51, XIMEA XC10 via Micro-Manager, RAW16 12-bit (linear, dark-subtracted, flat-fielded), MPLFLN10xBD + 0.63x (1.091 um/px), halogen lamp. Unsupervised fit (python -m flakeid.calibrate --tone flare --no-ccm) to hBN on nominal 285 nm SiO2 (tiles_v3_1 3 ms, tiles_v2_1 6 ms; fitted oxide 301-305 nm). No colour matrix (raw sensor). Median distance of flat-flake contrasts to the model curve 0.044. hBN only: graphite on this camera not yet calibrated. AFM-refined (15 AFM-measured hBN terraces on bigbntest_2, tools/calibrate_afm.py): thickness rms 2.00 -> 1.04 nm; hBN index offset +0.014; fitted oxide 298.4 nm.",
+  "materials": {
+    "hbn": {
+      "index_table": [
+        [
+          380.0,
+          2.24693,
+          0.0
+        ],
+        [
+          400.0,
+          2.23687,
+          0.0
+        ],
+        [
+          420.0,
+          2.22821,
+          0.0
+        ],
+        [
+          440.0,
+          2.22071,
+          0.0
+        ],
+        [
+          460.0,
+          2.21416,
+          0.0
+        ],
+        [
+          480.0,
+          2.20841,
+          0.0
+        ],
+        [
+          500.0,
+          2.20334,
+          0.0
+        ],
+        [
+          520.0,
+          2.19885,
+          0.0
+        ],
+        [
+          540.0,
+          2.19484,
+          0.0
+        ],
+        [
+          560.0,
+          2.19126,
+          0.0
+        ],
+        [
+          580.0,
+          2.18804,
+          0.0
+        ],
+        [
+          600.0,
+          2.18513,
+          0.0
+        ],
+        [
+          620.0,
+          2.18251,
+          0.0
+        ],
+        [
+          640.0,
+          2.18012,
+          0.0
+        ],
+        [
+          660.0,
+          2.17795,
+          0.0
+        ],
+        [
+          680.0,
+          2.17597,
+          0.0
+        ],
+        [
+          700.0,
+          2.17415,
+          0.0
+        ],
+        [
+          720.0,
+          2.17249,
+          0.0
+        ],
+        [
+          740.0,
+          2.17095,
+          0.0
+        ],
+        [
+          760.0,
+          2.16954,
+          0.0
+        ],
+        [
+          780.0,
+          2.16823,
+          0.0
+        ]
+      ]
+    }
+  },
+  "calibration": {
+    "images": [
+      [
+        "tiles_v3_1",
+        "hbn",
+        "285"
+      ],
+      [
+        "tiles_v2_1",
+        "hbn",
+        "285"
+      ]
+    ],
+    "same_settings": false,
+    "fitted_oxide_nm": {
+      "tiles_v3_1": 304.5,
+      "tiles_v2_1": 301.4
+    },
+    "params": {
+      "f_r": 0.0113,
+      "f_g": 0.0285,
+      "f_b": 0.0073,
+      "c_r": 628.9566,
+      "c_g": 549.7711,
+      "c_b": 479.1887,
+      "w_r": 91.6739,
+      "w_g": 83.2976,
+      "w_b": 86.8244,
+      "ir_cut": 690.8326,
+      "gr_n550": 2.8181,
+      "gr_k550": 1.2022,
+      "gr_kslope": 0.2323,
+      "oxide_0": 1.0686,
+      "oxide_1": 1.0574
+    },
+    "afm": {
+      "sites": "testing images/bigbntest_2_afm_set/data.json",
+      "steps": "testing_afm/bigbn2_all_results/steps.csv",
+      "excluded": [
+        14
+      ],
+      "oxide_nm": 298.4,
+      "params": {
+        "c_r": 619.86272,
+        "c_g": 549.97116,
+        "c_b": 473.58993,
+        "w_r": 89.89397,
+        "w_g": 66.40211,
+        "w_b": 78.15598,
+        "ir_cut": 671.39816,
+        "f_r": 0.00902,
+        "f_g": 0.0501,
+        "f_b": 0.03182,
+        "dn": 0.01374
+      },
+      "summary": {
+        "before": {
+          "n": 15,
+          "rms_nm": 2.0018754706524606,
+          "mean_nm": 1.0323333333333362,
+          "rms_rel": 0.06241282664410929,
+          "max_abs_nm": 4.1510000000000105
+        },
+        "after": {
+          "n": 15,
+          "rms_nm": 1.044196054388253,
+          "mean_nm": 0.24566666666666942,
+          "rms_rel": 0.04387679360886917,
+          "max_abs_nm": 2.2860000000000014
+        }
+      }
+    }
+  }
+}

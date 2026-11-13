@@ -1,0 +1,791 @@
+<meta charset="utf-8">
+<title>vdW Stack Designer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#eef0f0;--panel:#ffffff;--panel2:#f6f7f7;--ink:#172023;--muted:#5b676b;--rule:#d5dbdc;
+  --accent:#0d6b6b;--accent-ink:#ffffff;--sel:#e09a00;--overlap:#14b8a0;--canvas:#1c2326;--grid:rgba(255,255,255,.06);
+  --hbn:#9fd8d3;--graphite:#3b4146;--graphite-ink:#e6eaeb;--warn:#a15c00;--err:#b42318;--short:#ff2d6f;--samp:#8f6bff;
+  --sans:"Instrument Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  color-scheme:dark;--bg:#0f1416;--panel:#161d20;--panel2:#1b2327;--ink:#e4ebec;--muted:#93a1a5;--rule:#2a3438;
+  --accent:#3fb6ad;--accent-ink:#06201e;--sel:#ffbe3b;--canvas:#0b0f11;--warn:#e0a33a;--err:#ff8a7a}}
+:root[data-theme="dark"]{
+  color-scheme:dark;--bg:#0f1416;--panel:#161d20;--panel2:#1b2327;--ink:#e4ebec;--muted:#93a1a5;--rule:#2a3438;
+  --accent:#3fb6ad;--accent-ink:#06201e;--sel:#ffbe3b;--canvas:#0b0f11;--warn:#e0a33a;--err:#ff8a7a}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:13.5px/1.4 var(--sans);padding-inline:16px}
+.app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr);gap:10px;padding-block:10px;max-width:1700px;margin:0 auto}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+h1{font-size:17px;margin:0;font-weight:600;letter-spacing:.1px}
+.sub{color:var(--muted);font-size:12px}
+.hgap{flex:1}
+input[type=text],input[type=number],select,textarea{font:13px var(--sans);color:var(--ink);background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:5px 8px}
+input[type=number]{width:74px;font-family:var(--mono);font-size:12.5px}
+button{font:500 12.5px var(--sans);color:var(--ink);background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:5px 10px;cursor:pointer}
+button:hover{border-color:var(--muted)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.main{display:grid;grid-template-columns:var(--leftw,320px) 8px minmax(0,1fr) 340px;column-gap:4px;row-gap:10px;min-height:0}
+@media (max-width:1100px){.main{grid-template-columns:var(--leftw,280px) 8px minmax(0,1fr)}.right{grid-column:1/-1}}
+@media (max-width:760px){.main{grid-template-columns:1fr}.canvasbox{height:62vh}.split{display:none}}
+/* column splitter: drag (or arrow keys) to set the left column's width */
+.split{cursor:col-resize;border-radius:4px;position:relative;touch-action:none}
+.split::after{content:"";position:absolute;inset:0 3px;border-radius:2px;background:var(--rule)}
+.split:hover::after,.split:focus-visible::after,.split.drag::after{background:var(--accent)}
+.split:focus-visible{outline:none}
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:10px;min-height:0;display:flex;flex-direction:column}
+.card h2{font:600 11px var(--sans);letter-spacing:.7px;text-transform:uppercase;color:var(--muted);margin:0}
+.chead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid var(--rule)}
+/* left column: the layer list keeps its own height (drag its corner to change it); the column scrolls when the
+   cards below do not fit, and those cards collapse from their headers */
+.left{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto;padding-right:2px}
+.left>.card{flex:0 0 auto}
+.stack{overflow:auto;padding:6px;height:var(--stackh,50vh);min-height:140px;resize:vertical}
+.chead .tog{border:0;background:none;padding:2px 4px;margin:0;color:var(--muted);cursor:pointer;font:inherit;display:flex;align-items:center;gap:6px}
+.chead .tog:hover{color:var(--ink)}
+.chead .tog .car{display:inline-block;transition:transform .15s;font-size:10px}
+.card.collapsed .tog .car{transform:rotate(-90deg)}
+.card.collapsed>:not(.chead){display:none}
+@media (prefers-reduced-motion:reduce){.chead .tog .car{transition:none}}
+.layer{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;padding:7px 8px;border-radius:8px;border:1px solid transparent;cursor:pointer}
+.layer:hover{background:var(--panel2)}
+.layer.sel{border-color:var(--sel);background:var(--panel2)}
+.layer .sw{width:12px;height:30px;border-radius:3px}
+.layer .nm{font-weight:600;font-size:13px}
+.layer .meta{font:11.5px var(--mono);color:var(--muted)}
+.layer .ic{display:flex;gap:2px}
+.layer .ic button{padding:2px 5px;font-size:11px;border-color:transparent;background:transparent;color:var(--muted)}
+.layer .ic button[aria-pressed="false"]{opacity:.4}
+.layer .ic button[aria-pressed="true"]{background:transparent;color:var(--ink)}
+.empty{color:var(--muted);padding:14px;font-size:13px}
+.xs{padding:10px 12px}
+.stats{padding:10px 12px;display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px}
+.stats dt{color:var(--muted)}.stats dd{margin:0;font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums}
+.warn{color:var(--warn);font-size:12px;padding:0 12px 10px}
+.contacts{padding:8px 12px 10px;display:flex;flex-direction:column;gap:6px;font-size:12.5px}
+.contacts .ok{color:var(--muted)}
+.contacts .pair{display:grid;grid-template-columns:12px 1fr auto;gap:8px;align-items:center}
+.contacts .pair i{width:12px;height:12px;border-radius:2px;background:var(--short)}
+.contacts .pair b{font-weight:600}
+.contacts .pair span{font:12px var(--mono);color:var(--err)}
+.contacts .legend{color:var(--muted);font-size:11.5px}
+.layer.hid{opacity:.45}
+.layer .ic button.role{min-width:22px;font-size:10.5px}
+.layer .ic button.role[data-r="gate"]{color:var(--short)}
+.layer .ic button.role[data-r="sample"]{color:var(--samp)}
+.layer .ic button.role[data-r="dielectric"]{color:var(--accent)}
+.contacts .pair.ss i{background:var(--samp)}
+.contacts .pair.ss span{color:var(--samp)}
+.contacts h3{margin:4px 0 0;font:600 11.5px var(--sans);text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.center{display:grid;grid-template-rows:auto minmax(0,1fr);gap:6px;min-height:0}
+.toolbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.toolbar .sep{width:1px;height:22px;background:var(--rule);margin-inline:2px}
+.canvasbox{position:relative;background:var(--canvas);border-radius:10px;overflow:hidden;min-height:320px}
+canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.hud{position:absolute;left:10px;bottom:10px;color:#e8eeee;font:500 11.5px var(--mono);background:rgba(0,0,0,.45);padding:5px 8px;border-radius:6px;pointer-events:none}
+.hud i{display:inline-block;height:3px;background:#e8eeee;vertical-align:middle;margin-right:6px}
+.hint{position:absolute;right:10px;top:10px;color:#c9d3d4;font-size:11.5px;background:rgba(0,0,0,.45);padding:5px 8px;border-radius:6px;pointer-events:none;max-width:260px}
+.right{min-height:0}
+.tabs{display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid var(--rule)}
+.tabs button{border-color:transparent;background:transparent}
+.tabs button[aria-selected="true"]{background:var(--panel2);border-color:var(--rule);color:var(--ink)}
+.pane{overflow:auto;padding:12px;display:grid;gap:12px;align-content:start;min-height:0;flex:1}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row label{color:var(--muted);font-size:12px;display:flex;gap:6px;align-items:center}
+.lbl{font:600 11px var(--sans);letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
+dl.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;margin:0;font-size:12.5px}
+dl.kv dt{color:var(--muted)}dl.kv dd{margin:0;font-family:var(--mono);font-size:12px;overflow-wrap:anywhere}
+input[type=range]{width:140px}
+.chat{display:flex;flex-direction:column;gap:8px;min-height:0;flex:1}
+.msgs{flex:1;overflow:auto;display:grid;gap:8px;align-content:start;padding:12px}
+.msg{padding:8px 10px;border-radius:8px;white-space:pre-wrap;font-size:13px;max-width:100%}
+.msg.user{background:var(--accent);color:var(--accent-ink);justify-self:end;max-width:88%}
+.msg.bot{background:var(--panel2);border:1px solid var(--rule)}
+.msg.tool{color:var(--muted);font:11.5px var(--mono);padding:2px 4px}
+.composer{padding:10px 12px;border-top:1px solid var(--rule);display:grid;gap:6px}
+.composer textarea{width:100%;min-height:74px;resize:vertical}
+.examples{display:flex;flex-wrap:wrap;gap:4px}
+.examples button{font-size:11.5px;padding:3px 7px;color:var(--muted)}
+dialog{border:1px solid var(--rule);border-radius:12px;padding:0;background:var(--panel);color:var(--ink);width:min(980px,calc(100vw - 32px));max-height:calc(100vh - 40px)}
+dialog::backdrop{background:rgba(10,14,16,.5)}
+.dlg{display:grid;grid-template-rows:auto auto minmax(0,1fr);max-height:calc(100vh - 42px)}
+.dhead{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--rule)}
+.dfilters{display:flex;flex-wrap:wrap;gap:8px 14px;padding:10px 14px;border-bottom:1px solid var(--rule);align-items:center}
+.results{overflow:auto;padding:12px 14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.cand{border:1px solid var(--rule);border-radius:8px;padding:6px;display:grid;gap:4px;cursor:pointer;background:var(--panel2);text-align:left;font:inherit;color:inherit}
+.cand:hover{border-color:var(--accent)}
+.cand .th{height:110px;display:grid;place-items:center;background:var(--canvas);border-radius:5px;overflow:hidden;position:relative}
+.cand .th i{display:block;background-repeat:no-repeat}
+.cand .th svg{position:absolute;inset:0;width:100%;height:100%}
+.results.wide{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+.cand .th.frame{height:auto;aspect-ratio:var(--ar,1.3256);display:block}
+.cand .th.frame img{position:absolute;max-width:none;left:0;top:0}
+.cand .zoomb{position:absolute;right:5px;top:5px;z-index:2;font:600 12px var(--sans);color:#fff;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.35);border-radius:5px;padding:1px 7px;cursor:zoom-in}
+.cand .zoomb:hover,.cand .zoomb:focus-visible{background:rgba(0,0,0,.8);outline:none;border-color:#fff}
+#imgDlg{width:min(1500px,calc(100vw - 24px));max-width:none;max-height:calc(100vh - 24px);padding:0}
+#imgDlg .ibody{overflow:auto;max-height:calc(100vh - 120px);background:var(--canvas)}
+#imgDlg .iwrap{position:relative;margin:0 auto}
+#imgDlg .iwrap img{display:block;width:100%;height:auto;max-width:none}
+#imgDlg .iwrap svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+#imgDlg .seg button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.cand b{font:600 13px var(--mono)}
+.cand span{font:11.5px var(--mono);color:var(--muted)}
+.badge{font:500 10.5px var(--sans);padding:1px 6px;border-radius:999px;background:var(--panel);border:1px solid var(--rule);color:var(--muted)}
+.badge.rev{border-color:#c98a12;color:#c98a12}.badge.kept{border-color:#2f9e63;color:#2f9e63}.badge.disc{border-color:#c2410c;color:#c2410c}
+.revb{display:flex;gap:6px}.revb span{font:500 12px var(--sans);padding:2px 9px;border-radius:6px;border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer}
+.revb span[aria-pressed="true"].k{background:#2f9e63;border-color:#2f9e63;color:#fff}.revb span[aria-pressed="true"].d{background:#c2410c;border-color:#c2410c;color:#fff}
+.status{font-size:12px;color:var(--muted);min-height:1.2em}
+.status.err{color:var(--err)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+  <header>
+    <div>
+      <h1>vdW Stack Designer</h1>
+      <div class="sub" id="sub">Loading the flake catalog…</div>
+    </div>
+    <div class="hgap"></div>
+    <input type="text" id="dname" value="Untitled stack" aria-label="Design name" style="width:190px">
+    <button id="bSave" class="primary">Save</button>
+    <select id="designs" aria-label="Open a saved design"><option value="">Saved designs…</option></select>
+    <button id="bNew">New</button>
+    <button id="bUndo" title="Undo (Ctrl/⌘+Z)">Undo</button>
+    <button id="bCopy">Copy design JSON</button>
+  </header>
+
+  <div class="main">
+    <div class="left">
+      <section class="card">
+        <div class="chead"><h2 title="Top to bottom; numbers are the pick-up order. Drag the list's bottom-right corner to resize it">Stack · pick-up order</h2><button id="bAdd" class="primary">+ Add layer</button></div>
+        <div class="stack" id="stack"></div>
+      </section>
+      <section class="card" data-col="xs">
+        <div class="chead"><button class="tog" aria-expanded="true"><span class="car">▼</span><h2>Cross-section</h2></button><span class="sub" id="xsTotal"></span></div>
+        <div class="xs"><svg id="xs" width="100%" height="150" role="img" aria-label="Stack cross-section to scale"></svg></div>
+      </section>
+      <section class="card" data-col="contacts">
+        <div class="chead"><button class="tog" aria-expanded="true"><span class="car">▼</span><h2 title="Where gate / sample layers touch with no dielectric between them">Direct contacts</h2></button></div>
+        <div class="contacts" id="contacts"></div>
+      </section>
+      <section class="card" data-col="stats">
+        <div class="chead"><button class="tog" aria-expanded="true"><span class="car">▼</span><h2>Overlap of chosen terraces</h2></button></div>
+        <dl class="stats" id="stats"></dl>
+        <div class="warn" id="warn"></div>
+      </section>
+    </div>
+    <div class="split" id="split" role="separator" aria-orientation="vertical" aria-label="Resize the layer column" tabindex="0"></div>
+
+    <div class="center">
+      <div class="toolbar">
+        <button id="bFit">Fit</button>
+        <button id="bCentre" title="Put every layer's chosen terrace at the origin">Align centres</button>
+        <button id="bAuto" title="Rotate and shift the selected layer to maximise overlap with the other layers">Auto-align selected</button>
+        <button id="bAutoAll" title="Auto-align every layer to the ones above it, top down">Auto-align all</button>
+        <span class="sep"></span>
+        <button id="bOverlap" aria-pressed="true">Overlap</button>
+        <button id="bGrid" aria-pressed="true">Grid</button>
+        <button id="bHbn" aria-pressed="true" title="Show or hide every hBN layer (the contact check still counts them)">hBN</button>
+        <button id="bContacts" aria-pressed="true" title="Highlight where gate / sample layers touch with no dielectric between them">Contacts</button>
+        <span class="sep"></span>
+        <span class="sub" id="cursor"></span>
+      </div>
+      <div class="canvasbox" id="cbox">
+        <canvas id="cv"></canvas>
+        <div class="hud"><i id="sbar"></i><span id="sbarl"></span></div>
+        <div class="hint" id="hint">Drag a flake to move it · drag its handle or Shift+drag to rotate · scroll to zoom · drag empty space to pan · click empty space or Esc to deselect · arrows nudge 1 µm, [ ] rotate 1°</div>
+      </div>
+    </div>
+
+    <section class="card right">
+      <div class="tabs" role="tablist">
+        <button role="tab" id="tLayer" aria-selected="true">Layer</button>
+        <button role="tab" id="tChat" aria-selected="false">Assistant</button>
+      </div>
+      <div class="pane" id="pLayer"></div>
+      <div class="chat" id="pChat" hidden>
+        <div class="msgs" id="msgs"><div class="msg bot">Describe the stack you want, with approximate thicknesses and constraints. I'll pick candidate flakes from the catalog, place them and report the usable overlap. You can then refine by hand or ask for changes.</div></div>
+        <div class="composer">
+          <div class="examples" id="examples">
+            <button>hBN-encapsulated bilayer graphene with a graphite bottom gate; hBN 20–40 nm, overlap ≥ 20 µm</button>
+            <button>Dual-gated monolayer: graphite / hBN ~30 nm / 1L graphene / hBN ~30 nm / graphite</button>
+            <button>Swap the top hBN for a thinner one (10–20 nm) and re-align</button>
+          </div>
+          <textarea id="prompt" placeholder="e.g. bottom hBN 30–60 nm, few-layer graphene 2–5 nm, top hBN 10–25 nm; channel ≥ 15 µm wide"></textarea>
+          <div class="row"><button id="bSend" class="primary">Send</button><button id="bStop" disabled>Stop</button>
+            <label><input type="checkbox" id="thorough"> think harder</label><span class="status" id="chatStatus"></span></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<dialog id="chipDlg">
+  <div class="dlg" style="grid-template-rows:auto auto minmax(0,1fr)">
+    <div class="dhead"><b id="chipTitle">Chip overview</b><div class="row"><button id="chipFlake">Zoom to flake</button><button id="chipAll">Whole chip</button><button id="chipClose">Close</button></div></div>
+    <div class="dfilters" id="chipInfo"></div>
+    <div style="position:relative;min-height:60vh;background:var(--canvas)"><canvas id="chipCv"></canvas>
+      <div class="hud"><i id="chipBar"></i><span id="chipBarL"></span></div></div>
+  </div>
+</dialog>
+<dialog id="imgDlg" aria-label="100x image">
+  <div class="dlg">
+    <div class="dhead"><b id="imgTitle">100x image</b><div class="row seg">
+      <button id="imgNat" aria-pressed="true">Natural</button><button id="imgC8" aria-pressed="false">High contrast</button><button id="imgDt" aria-pressed="false" title="Equivalent thickness change from the terrace (±1.5 nm): fine terraces">Thickness change</button>
+      <button id="imgFit" aria-pressed="true">Fit</button><button id="imgOne" aria-pressed="false">1:1</button>
+      <button id="imgOut" aria-pressed="true">Outline</button><button id="imgWr" aria-pressed="true" title="Wrinkle / fold lines found by the 100x analysis">Wrinkles</button>
+      <span class="revb" id="imgRev" hidden><span class="k" role="button" tabindex="0" id="imgKeep">Keep</span><span class="d" role="button" tabindex="0" id="imgDisc">Discard</span></span>
+      <a id="imgOpen" href="#" target="_blank" rel="noopener">Open in new tab</a><button id="imgClose">Close</button></div></div>
+    <div class="dfilters" id="imgInfo"></div>
+    <div class="ibody"><div class="iwrap" id="imgWrap"><img id="imgEl" alt=""><svg id="imgSvg" aria-hidden="true"></svg></div></div>
+  </div>
+</dialog>
+<dialog id="dlg">
+  <div class="dlg">
+    <div class="dhead"><b id="dtitle">Add a layer</b><button id="dclose">Close</button></div>
+    <div class="dfilters">
+      <label class="sub">Material <select id="fMat"><option value="hbn">hBN</option><option value="graphite">Graphite / graphene</option></select></label>
+      <label class="sub">Thickness <input type="number" id="fT0" step="0.5" value="10"> – <input type="number" id="fT1" step="0.5" value="40"> nm</label>
+      <label class="sub">Inscribed Ø ≥ <input type="number" id="fD" step="1" value="15"> µm</label>
+      <label class="sub">Area ≥ <input type="number" id="fA" step="50" value="0"> µm²</label>
+      <label class="sub">Scan <select id="fScan"><option value="all">all</option></select></label>
+      <label class="sub">Sort <select id="fSort"><option value="score">best score</option><option value="d">largest Ø</option><option value="area">largest area</option><option value="t">thickness</option></select></label>
+      <label class="sub"><input type="checkbox" id="fAlt" checked> include ambiguous (alternative thickness in range)</label>
+      <label class="sub"><input type="checkbox" id="fClean"> no warnings</label>
+      <label class="sub">Show <select id="fRev"><option value="all">kept and to review</option><option value="review">only flakes to review</option><option value="discarded">discarded</option></select></label>
+      <span class="sub" id="fCount"></span>
+    </div>
+    <div class="results" id="results"></div>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+let CAT=null, FL={}, TR={}, ATL=[];
+let layers=[], sel=-1, undoStack=[], showOverlap=true, showGrid=true, showHbn=true, showContacts=true;
+let CT=null;                               // direct contacts between gate / sample layers (computeContacts)
+// role of a layer in the contact check:
+//   "gate", "sample": conducting layers; where two of them touch with no dielectric between them, that is a contact.
+//     gate-gate and gate-sample contacts are shorts; sample-sample contacts are listed separately (wanted for
+//     interfacial devices, a short in a double well).  Any number of layers can be samples.
+//   "dielectric": separates the layers above and below it.   "ignore": not part of the check.
+// Defaults: hBN dielectric, graphene (< 1.2 nm) sample, thicker graphite gate.
+const ROLES=["gate","sample","dielectric","ignore"], ROLE_TXT={gate:"gate",sample:"sample",dielectric:"dielectric",ignore:"–"},
+  ROLE_TITLE={gate:"gate: a short if it touches another gate or a sample",sample:"sample: a short if it touches a gate; contact with another sample is listed separately",
+    dielectric:"dielectric: separates the layers above and below",ignore:"–: ignored by the contact check"};
+const LEGACY_ROLE={conductor:"gate",insulator:"dielectric"};      // designs saved with the first version (C / I)
+function roleOf(L){const r=LEGACY_ROLE[L.role]||L.role;if(r&&ROLES.includes(r))return r;const e=TR[L.tid];
+  if(!e)return "ignore";if(e.f.material==="hbn")return "dielectric";return layerT(L)<1.2?"sample":"gate"}
+const isCond=r=>r==="gate"||r==="sample";
+function isHbn(L){const e=TR[L.tid];return !!e&&e.f.material==="hbn"}
+const view={cx:0,cy:0,zoom:2};          // zoom = screen px per µm
+const cv=$("cv"), ctx=cv.getContext("2d");
+const MATCOL={hbn:"#9fd8d3",graphite:"#6b737a"};
+const PALETTE=["#3fa3e0","#e04f9a","#35b56a","#a36be0","#4ad2c9","#e2553c","#8fa1ff","#9ccc65"];  // no amber: amber = selection
+let hbnOrderNote=true;
+
+// ------------------------------------------------------------------ catalog
+fetch("catalog.json").then(r=>r.json()).then(c=>{
+  CAT=c;c.flakes.forEach(f=>{FL[f.id]=f;f.terraces.forEach(t=>{TR[t.id]={t,f}})});
+  let pending=c.atlases.length;
+  ATL=c.atlases.map(src=>{const im=new Image();im.onload=()=>{if(--pending===0)draw()};im.src=src;return im});
+  const scans=[...new Set(c.flakes.map(f=>f.scan))];scans.forEach(s=>{const o=document.createElement("option");o.value=s;o.textContent=s;$("fScan").appendChild(o)});
+  $("sub").textContent=c.subtitle?c.subtitle:c.demo?`Demo · ${c.flakes.length} flakes imaged at 100x · ${Object.keys(TR).length} terraces · thicknesses are optical estimates`:`${c.flakes.length} flakes · ${Object.keys(TR).length} terraces from ${scans.length} overview scans · positions and sizes in µm`;
+  restoreLocal();renderAll();fit();
+}).catch(e=>{$("sub").textContent="Could not load catalog.json: "+e});
+
+// ------------------------------------------------------------------ geometry
+const rad=d=>d*Math.PI/180;
+function toWorld(L,px,py){const {t,f}=TR[L.tid];const s=f.px_um;let x=(px-t.c[0])*s,y=(py-t.c[1])*s;if(L.mirror)x=-x;
+  const c=Math.cos(rad(L.rot)),n=Math.sin(rad(L.rot));return [L.x+x*c-y*n,L.y+x*n+y*c]}
+function toLocal(L,wx,wy){const {t,f}=TR[L.tid];const s=f.px_um;const dx=wx-L.x,dy=wy-L.y,c=Math.cos(rad(-L.rot)),n=Math.sin(rad(-L.rot));
+  let x=dx*c-dy*n,y=dx*n+dy*c;if(L.mirror)x=-x;return [x/s+t.c[0],y/s+t.c[1]]}
+function pip(poly,x,y){let ins=false;for(let i=0,j=poly.length-2;i<poly.length;j=i,i+=2){const xi=poly[i],yi=poly[i+1],xj=poly[j],yj=poly[j+1];
+  if(((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi))ins=!ins}return ins}
+function worldPoly(L,poly){const out=[];for(let i=0;i<poly.length;i+=2){const p=toWorld(L,poly[i],poly[i+1]);out.push(p[0],p[1])}return out}
+function bboxOf(p){let a=1e9,b=1e9,c=-1e9,d=-1e9;for(let i=0;i<p.length;i+=2){a=Math.min(a,p[i]);c=Math.max(c,p[i]);b=Math.min(b,p[i+1]);d=Math.max(d,p[i+1])}return [a,b,c,d]}
+function centroid(p){let A=0,cx=0,cy=0;for(let i=0,j=p.length-2;i<p.length;j=i,i+=2){const cr=p[j]*p[i+1]-p[i]*p[j+1];A+=cr;cx+=(p[j]+p[i])*cr;cy+=(p[j+1]+p[i+1])*cr}
+  if(Math.abs(A)<1e-9)return [p[0],p[1]];return [cx/(3*A),cy/(3*A)]}
+
+// ------------------------------------------------------------------ overlap raster
+function rasterMask(polys,bb,res){const W=Math.max(1,Math.ceil((bb[2]-bb[0])/res)),H=Math.max(1,Math.ceil((bb[3]-bb[1])/res));
+  const oc=new OffscreenCanvas(W,H),o=oc.getContext("2d");const acc=new Uint8Array(W*H);
+  polys.forEach((p,k)=>{o.clearRect(0,0,W,H);o.beginPath();for(let i=0;i<p.length;i+=2){const x=(p[i]-bb[0])/res,y=(p[i+1]-bb[1])/res;i?o.lineTo(x,y):o.moveTo(x,y)}o.closePath();o.fillStyle="#fff";o.fill();
+    const d=o.getImageData(0,0,W,H).data;for(let i=0;i<W*H;i++)if(d[i*4+3]>127)acc[i]++});
+  return {acc,W,H,res,bb}}
+function interBBox(ps){let bb=[-1e9,-1e9,1e9,1e9];ps.forEach(p=>{const b=bboxOf(p);bb=[Math.max(bb[0],b[0]),Math.max(bb[1],b[1]),Math.min(bb[2],b[2]),Math.min(bb[3],b[3])]});return bb}
+function inscribed(mask,W,H){ // chamfer distance transform, returns max distance in px
+  const INF=1e9,d=new Float32Array(W*H);for(let i=0;i<W*H;i++)d[i]=mask[i]?INF:0;
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){const i=y*W+x;if(!d[i])continue;let v=d[i];
+    if(x>0)v=Math.min(v,d[i-1]+1);if(y>0)v=Math.min(v,d[i-W]+1);if(x>0&&y>0)v=Math.min(v,d[i-W-1]+1.414);if(x<W-1&&y>0)v=Math.min(v,d[i-W+1]+1.414);
+    if(x===0||y===0||x===W-1||y===H-1)v=Math.min(v,1);d[i]=v}
+  let m=0;for(let y=H-1;y>=0;y--)for(let x=W-1;x>=0;x--){const i=y*W+x;if(!d[i])continue;let v=d[i];
+    if(x<W-1)v=Math.min(v,d[i+1]+1);if(y<H-1)v=Math.min(v,d[i+W]+1);if(x<W-1&&y<H-1)v=Math.min(v,d[i+W+1]+1.414);if(x>0&&y<H-1)v=Math.min(v,d[i+W-1]+1.414);
+    d[i]=v;if(v>m)m=v}
+  return m}
+let OV=null;
+function computeOverlap(){
+  const inc=layers.filter(L=>L.inOverlap&&TR[L.tid]);
+  if(inc.length<1){OV=null;return}
+  const ps=inc.map(L=>worldPoly(L,TR[L.tid].t.poly));const bb=interBBox(ps);
+  if(bb[2]<=bb[0]||bb[3]<=bb[1]){OV={area:0,d:0,n:inc.length,img:null};return}
+  const span=Math.max(bb[2]-bb[0],bb[3]-bb[1]);const res=Math.max(0.5,span/400);
+  const R=rasterMask(ps,bb,res);let n=0;const m=new Uint8Array(R.W*R.H);for(let i=0;i<m.length;i++)if(R.acc[i]===inc.length){m[i]=1;n++}
+  const d=n?inscribed(m,R.W,R.H)*2*res:0;
+  // overlay image
+  let img=null;if(n){const oc=new OffscreenCanvas(R.W,R.H),o=oc.getContext("2d");const id=o.createImageData(R.W,R.H);
+    for(let i=0;i<m.length;i++)if(m[i]){id.data[i*4]=20;id.data[i*4+1]=184;id.data[i*4+2]=160;id.data[i*4+3]=110}o.putImageData(id,0,0);img={oc,bb,res}}
+  OV={area:n*res*res,d,n:inc.length,img}}
+function computeContacts(){
+  // raster every layer's whole flake outline over the gate / sample layers' extent; walk each pixel bottom -> top:
+  // a gate or sample directly above another (no dielectric in between) is a contact there
+  const idx=layers.map((L,i)=>i).filter(i=>TR[layers[i].tid]&&roleOf(layers[i])!=="ignore");
+  const cond=idx.filter(i=>isCond(roleOf(layers[i])));
+  if(cond.length<2){CT={pairs:[],img:null,nCond:cond.length};return}
+  const polys={};idx.forEach(i=>polys[i]=worldPoly(layers[i],TR[layers[i].tid].f.outline));
+  let bb=[1e9,1e9,-1e9,-1e9];cond.forEach(i=>{const b=bboxOf(polys[i]);bb=[Math.min(bb[0],b[0]),Math.min(bb[1],b[1]),Math.max(bb[2],b[2]),Math.max(bb[3],b[3])]});
+  const span=Math.max(bb[2]-bb[0],bb[3]-bb[1]);const res=Math.max(0.25,span/500);
+  const W=Math.max(1,Math.ceil((bb[2]-bb[0])/res)),H=Math.max(1,Math.ceil((bb[3]-bb[1])/res));
+  const oc=new OffscreenCanvas(W,H),o=oc.getContext("2d");const masks={};
+  idx.forEach(i=>{const b=bboxOf(polys[i]);if(b[2]<bb[0]||b[0]>bb[2]||b[3]<bb[1]||b[1]>bb[3])return;
+    o.clearRect(0,0,W,H);o.beginPath();const p=polys[i];for(let k=0;k<p.length;k+=2){const x=(p[k]-bb[0])/res,y=(p[k+1]-bb[1])/res;k?o.lineTo(x,y):o.moveTo(x,y)}
+    o.closePath();o.fillStyle="#fff";o.fill();const d=o.getImageData(0,0,W,H).data;const m=new Uint8Array(W*H);for(let q=0;q<W*H;q++)m[q]=d[q*4+3]>127?1:0;masks[i]=m});
+  const order=idx.filter(i=>masks[i]);                     // bottom -> top (layers[0] is the bottom of the stack)
+  const hit=new Uint8Array(W*H),count={};
+  for(let q=0;q<W*H;q++){let last=-1;
+    for(const i of order){if(!masks[i][q])continue;const r=roleOf(layers[i]);
+      if(r==="dielectric"){last=-1;continue}
+      if(last>=0){const k=last+":"+i;count[k]=(count[k]||0)+1;
+        const ss=roleOf(layers[last])==="sample"&&r==="sample";hit[q]=Math.max(hit[q],ss?1:2)}   // 2 = short (a gate involved)
+      last=i}}
+  const pairs=Object.entries(count).map(([k,n])=>{const [a,b]=k.split(":").map(Number);
+    const ss=roleOf(layers[a])==="sample"&&roleOf(layers[b])==="sample";return {a,b,area:n*res*res,kind:ss?"sample":"short"}}).sort((x,y)=>(x.kind==="short"?0:1)-(y.kind==="short"?0:1)||y.area-x.area);
+  let img=null;
+  if(pairs.length){const id=o.createImageData(W,H);
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){const q=y*W+x;if(!hit[q])continue;
+      const edge=x===0||y===0||x===W-1||y===H-1||hit[q-1]!==hit[q]||hit[q+1]!==hit[q]||hit[q-W]!==hit[q]||hit[q+W]!==hit[q];
+      const stripe=((x+y)>>2)&1;                            // diagonal hatching: visible over any flake colour
+      const c=hit[q]===2?[255,45,111]:[143,107,255];
+      id.data[q*4]=c[0];id.data[q*4+1]=c[1];id.data[q*4+2]=c[2];id.data[q*4+3]=edge?255:(stripe?170:70)}
+    o.clearRect(0,0,W,H);o.putImageData(id,0,0);const keep=new OffscreenCanvas(W,H);keep.getContext("2d").drawImage(oc,0,0);img={oc:keep,bb,res}}
+  CT={pairs,img,nCond:cond.length}}
+function overlapScore(pA,polysB,res){ // area of pA ∩ all polysB
+  const ps=[pA,...polysB];const bb=interBBox(ps);if(bb[2]<=bb[0]||bb[3]<=bb[1])return 0;
+  const R=rasterMask(ps,bb,res);let n=0;for(let i=0;i<R.acc.length;i++)if(R.acc[i]===ps.length)n++;return n*res*res}
+function autoAlign(i,refs){const L=layers[i];if(!L)return 0;
+  const R_=refs||layers.map((_,k)=>k).filter(k=>k!==i);
+  const below=R_.map(k=>layers[k]).filter(B=>B&&B.inOverlap&&TR[B.tid]).map(B=>worldPoly(B,TR[B.tid].t.poly));
+  if(!below.length)return 0;
+  const bb=interBBox(below);if(bb[2]<=bb[0])return 0;
+  const tgt=[(bb[0]+bb[2])/2,(bb[1]+bb[3])/2];const span=Math.max(bb[2]-bb[0],bb[3]-bb[1]);const res=Math.max(1,span/90);
+  const loc=TR[L.tid].t.poly;const save={x:L.x,y:L.y,rot:L.rot};
+  const place=(rot,dx,dy)=>{L.rot=rot;L.x=0;L.y=0;const p=worldPoly(L,loc);const c=centroid(p);L.x=tgt[0]-c[0]+dx;L.y=tgt[1]-c[1]+dy;return worldPoly(L,loc)};
+  let best={s:-1};
+  for(let r=0;r<360;r+=6){const s=overlapScore(place(r,0,0),below,res);if(s>best.s)best={s,r,dx:0,dy:0}}
+  const step=Math.max(2,span/20);
+  for(const rr of [-3,-2,-1,0,1,2,3])for(let dx=-2;dx<=2;dx++)for(let dy=-2;dy<=2;dy++){const r=best.r+rr*1;const s=overlapScore(place(r,dx*step,dy*step),below,res);if(s>best.s)best={s,r,dx:dx*step,dy:dy*step}}
+  place(best.r,best.dx,best.dy);L.rot=((best.r%360)+360)%360;return best.s}
+
+// ------------------------------------------------------------------ drawing
+function resize(){const r=cv.getBoundingClientRect(),dpr=window.devicePixelRatio||1;cv.width=Math.round(r.width*dpr);cv.height=Math.round(r.height*dpr);draw()}
+new ResizeObserver(resize).observe($("cbox"));
+function w2s(x,y){const r=cv.getBoundingClientRect();return [(x-view.cx)*view.zoom+r.width/2,(y-view.cy)*view.zoom+r.height/2]}
+function s2w(x,y){const r=cv.getBoundingClientRect();return [(x-r.width/2)/view.zoom+view.cx,(y-r.height/2)/view.zoom+view.cy]}
+function draw(){
+  const dpr=window.devicePixelRatio||1,W=cv.width/dpr,H=cv.height/dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
+  // grid
+  const nice=[1,2,5,10,20,50,100,200,500,1000];const g=nice.find(v=>v*view.zoom>=40)||1000;
+  if(showGrid){ctx.strokeStyle="rgba(255,255,255,.07)";ctx.lineWidth=1;const [x0,y0]=s2w(0,0),[x1,y1]=s2w(W,H);ctx.beginPath();
+    for(let x=Math.floor(x0/g)*g;x<=x1;x+=g){const sx=w2s(x,0)[0];ctx.moveTo(sx,0);ctx.lineTo(sx,H)}
+    for(let y=Math.floor(y0/g)*g;y<=y1;y+=g){const sy=w2s(0,y)[1];ctx.moveTo(0,sy);ctx.lineTo(W,sy)}ctx.stroke();
+    const o=w2s(0,0);ctx.strokeStyle="rgba(255,255,255,.18)";ctx.beginPath();ctx.moveTo(o[0]-8,o[1]);ctx.lineTo(o[0]+8,o[1]);ctx.moveTo(o[0],o[1]-8);ctx.lineTo(o[0],o[1]+8);ctx.stroke()}
+  // layers bottom -> top
+  ctx.save();ctx.translate(W/2,H/2);ctx.scale(view.zoom,view.zoom);ctx.translate(-view.cx,-view.cy);
+  layers.forEach((L,i)=>{const e=TR[L.tid];if(!e)return;const {t,f}=e;
+    if(!showHbn&&f.material==="hbn")return;
+    ctx.save();ctx.translate(L.x,L.y);ctx.rotate(rad(L.rot));if(L.mirror)ctx.scale(-1,1);ctx.scale(f.px_um,f.px_um);ctx.translate(-t.c[0],-t.c[1]);
+    if(L.showImg&&ATL[f.atlas]&&ATL[f.atlas].complete){ctx.globalAlpha=L.opacity;ctx.imageSmoothingEnabled=view.zoom*f.px_um<3;
+      const r=f.rect;ctx.drawImage(ATL[f.atlas],r[0],r[1],r[2],r[3],0,0,r[2],r[3]);ctx.globalAlpha=1}
+    if(L.showOutline){const lw=1.4/(view.zoom*f.px_um);
+      ctx.lineWidth=lw;ctx.setLineDash([4*lw,3*lw]);ctx.strokeStyle=L.color;path(f.outline);ctx.stroke();ctx.setLineDash([]);
+      ctx.lineWidth=(i===sel?2.6:1.8)/(view.zoom*f.px_um);ctx.strokeStyle=i===sel?getCss("--sel"):L.color;path(t.poly);ctx.stroke()}
+    ctx.restore()});
+  if(showOverlap&&OV&&OV.img){const {oc,bb,res}=OV.img;ctx.imageSmoothingEnabled=false;ctx.drawImage(oc,bb[0],bb[1],oc.width*res,oc.height*res)}
+  if(showContacts&&CT&&CT.img){const {oc,bb,res}=CT.img;ctx.imageSmoothingEnabled=false;ctx.drawImage(oc,bb[0],bb[1],oc.width*res,oc.height*res)}
+  ctx.restore();
+  // rotation handle of selection
+  const L=layers[sel];if(L&&TR[L.tid]){const h=handlePos(L);ctx.fillStyle=getCss("--sel");ctx.strokeStyle="#000";const c=w2s(L.x,L.y);
+    ctx.beginPath();ctx.moveTo(c[0],c[1]);ctx.lineTo(h[0],h[1]);ctx.strokeStyle=getCss("--sel");ctx.lineWidth=1;ctx.stroke();
+    ctx.beginPath();ctx.arc(h[0],h[1],6,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(c[0],c[1],3,0,Math.PI*2);ctx.fill()}
+  const bar=nice.find(v=>v*view.zoom>=70)||1000;$("sbar").style.width=bar*view.zoom+"px";$("sbarl").textContent=bar>=1000?(bar/1000)+" mm":bar+" µm"}
+function path(p){ctx.beginPath();for(let i=0;i<p.length;i+=2)i?ctx.lineTo(p[i],p[i+1]):ctx.moveTo(p[i],p[i+1]);ctx.closePath()}
+const cssCache={};function getCss(v){return cssCache[v]||(cssCache[v]=getComputedStyle(document.documentElement).getPropertyValue(v).trim()||"#e09a00")}
+function handlePos(L){const {t}=TR[L.tid];const rpx=Math.max(40,t.d/2*view.zoom+26);const c=w2s(L.x,L.y);const a=rad(L.rot-90);return [c[0]+rpx*Math.cos(a),c[1]+rpx*Math.sin(a)]}
+function fit(){const ps=layers.filter(L=>TR[L.tid]).map(L=>worldPoly(L,TR[L.tid].f.outline));const r=cv.getBoundingClientRect();
+  if(!ps.length){view.cx=0;view.cy=0;view.zoom=2;draw();return}
+  let bb=[1e9,1e9,-1e9,-1e9];ps.forEach(p=>{const b=bboxOf(p);bb=[Math.min(bb[0],b[0]),Math.min(bb[1],b[1]),Math.max(bb[2],b[2]),Math.max(bb[3],b[3])]});
+  view.cx=(bb[0]+bb[2])/2;view.cy=(bb[1]+bb[3])/2;view.zoom=Math.min(r.width/(bb[2]-bb[0]+40),r.height/(bb[3]-bb[1]+40));draw()}
+
+// ------------------------------------------------------------------ interaction
+let drag=null;
+cv.addEventListener("pointerdown",e=>{cv.setPointerCapture(e.pointerId);const r=cv.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;const [wx,wy]=s2w(sx,sy);
+  const L=layers[sel];if(L&&TR[L.tid]){const h=handlePos(L);if(Math.hypot(sx-h[0],sy-h[1])<10){pushUndo();drag={mode:"rot",L,a0:Math.atan2(wy-L.y,wx-L.x),r0:L.rot};return}}
+  for(let i=layers.length-1;i>=0;i--){const K=layers[i];if(!TR[K.tid]||K.locked||(!K.showImg&&!K.showOutline))continue;const [lx,ly]=toLocal(K,wx,wy);
+    if(pip(TR[K.tid].f.outline,lx,ly)){select(i);pushUndo();drag=e.shiftKey?{mode:"rot",L:K,a0:Math.atan2(wy-K.y,wx-K.x),r0:K.rot}:{mode:"move",L:K,dx:wx-K.x,dy:wy-K.y};return}}
+  drag={mode:"pan",sx,sy,cx:view.cx,cy:view.cy,moved:false}});
+cv.addEventListener("pointermove",e=>{const r=cv.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;const [wx,wy]=s2w(sx,sy);
+  $("cursor").textContent=`x ${wx.toFixed(1)} µm, y ${wy.toFixed(1)} µm`;
+  if(!drag)return;if(drag.mode==="pan"){if(Math.hypot(sx-drag.sx,sy-drag.sy)>3)drag.moved=true;view.cx=drag.cx-(sx-drag.sx)/view.zoom;view.cy=drag.cy-(sy-drag.sy)/view.zoom;draw();return}
+  if(drag.mode==="move"){drag.L.x=wx-drag.dx;drag.L.y=wy-drag.dy}
+  if(drag.mode==="rot"){const a=Math.atan2(wy-drag.L.y,wx-drag.L.x);let r=drag.r0+(a-drag.a0)*180/Math.PI;if(e.altKey)r=Math.round(r/5)*5;drag.L.rot=((r%360)+360)%360}
+  scheduleOverlap();draw();renderLayerPane(true)});
+cv.addEventListener("pointerup",()=>{if(drag&&drag.mode!=="pan")changed();else if(drag&&!drag.moved&&sel>=0)select(-1);drag=null});
+cv.addEventListener("wheel",e=>{e.preventDefault();const r=cv.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;const [wx,wy]=s2w(sx,sy);
+  view.zoom=Math.min(200,Math.max(0.02,view.zoom*Math.exp(-e.deltaY*0.0015)));const [nx,ny]=s2w(sx,sy);view.cx+=wx-nx;view.cy+=wy-ny;draw()},{passive:false});
+document.addEventListener("keydown",e=>{const tg=e.target.tagName;if(tg==="INPUT"||tg==="TEXTAREA"||tg==="SELECT")return;
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="z"){e.preventDefault();undo();return}
+  if(e.key==="Escape"&&sel>=0){select(-1);return}
+  const L=layers[sel];if(!L)return;const st=e.shiftKey?10:1;let hit=true;
+  if(e.key==="ArrowLeft")L.x-=st;else if(e.key==="ArrowRight")L.x+=st;else if(e.key==="ArrowUp")L.y-=st;else if(e.key==="ArrowDown")L.y+=st;
+  else if(e.key==="[")L.rot=(L.rot-(e.shiftKey?5:1)+360)%360;else if(e.key==="]")L.rot=(L.rot+(e.shiftKey?5:1))%360;
+  else if(e.key==="Delete"||e.key==="Backspace"){removeLayer(sel)}else hit=false;
+  if(hit){e.preventDefault();changed()}});
+let ovTimer=null;function scheduleOverlap(){if(ovTimer)return;ovTimer=requestAnimationFrame(()=>{ovTimer=null;computeOverlap();computeContacts();renderStats();renderContacts();draw()})}
+
+// ------------------------------------------------------------------ state
+function snapshot(){return JSON.stringify(layers)}
+function pushUndo(){undoStack.push(snapshot());if(undoStack.length>80)undoStack.shift()}
+function undo(){const s=undoStack.pop();if(!s)return;layers=JSON.parse(s);sel=Math.min(sel,layers.length-1);changed(true)}
+function changed(noSave){computeOverlap();computeContacts();renderAll();if(!noSave)saveLocal();else saveLocal()}
+function newLayer(tid){const used=new Set(layers.map(L=>L.color));const n=PALETTE.findIndex(c=>!used.has(c));return {uid:Math.random().toString(36).slice(2,9),tid,x:0,y:0,rot:0,mirror:false,opacity:0.8,showImg:true,showOutline:true,inOverlap:true,locked:false,color:PALETTE[n<0?layers.length%PALETTE.length:n]}}
+function addLayer(tid,replaceIdx,tsel){pushUndo();let L;if(replaceIdx!=null&&layers[replaceIdx]){L=layers[replaceIdx];L.tid=tid}else{L=newLayer(tid);layers.unshift(L);sel=0}
+  L.tsel=(tsel!=null&&tsel!==TR[tid].t.t)?tsel:null;changed()}
+function removeLayer(i){pushUndo();layers.splice(i,1);sel=Math.min(sel,layers.length-1);changed()}
+function moveLayer(i,d){const j=i+d;if(j<0||j>=layers.length)return;pushUndo();[layers[i],layers[j]]=[layers[j],layers[i]];sel=j;changed()}
+function select(i){sel=i;renderStack();renderLayerPane();draw()}
+function saveLocal(){try{localStorage.setItem("vdw:current",JSON.stringify({name:$("dname").value,layers}))}catch(e){}}
+function migrate(ls){const leg=(CAT&&CAT.legacy_ids)||{};return (ls||[]).map(L=>(!TR[L.tid]&&leg[L.tid])?{...L,tid:leg[L.tid]}:L).filter(L=>TR[L.tid])}
+// ---- layout: column width, layer-list height and collapsed cards, remembered per browser
+(function layout(){
+  const root=document.documentElement, KEY="vdw:layout";
+  let L={};try{L=JSON.parse(localStorage.getItem(KEY)||"{}")||{}}catch(e){}
+  const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(L))}catch(e){}};
+  const setW=w=>{w=Math.max(220,Math.min(720,Math.round(w)));root.style.setProperty("--leftw",w+"px");L.leftw=w};
+  if(L.leftw)setW(L.leftw);
+  if(L.stackh)root.style.setProperty("--stackh",Math.max(140,L.stackh)+"px");
+  document.querySelectorAll(".card[data-col]").forEach(c=>{
+    const b=c.querySelector(".tog"),k=c.dataset.col;
+    const set=on=>{c.classList.toggle("collapsed",on);b.setAttribute("aria-expanded",String(!on))};
+    set(!!(L.col&&L.col[k]));
+    b.addEventListener("click",()=>{const on=!c.classList.contains("collapsed");set(on);L.col=Object.assign({},L.col,{[k]:on});save();if(typeof draw==="function")draw()});
+  });
+  const st=document.getElementById("stack");
+  if(window.ResizeObserver){let t=0;new ResizeObserver(()=>{clearTimeout(t);t=setTimeout(()=>{const h=st.getBoundingClientRect().height;if(h>=140){L.stackh=Math.round(h);save()}},250)}).observe(st)}
+  const sp=document.getElementById("split"),left=document.querySelector(".left");
+  sp.addEventListener("pointerdown",e=>{e.preventDefault();sp.setPointerCapture(e.pointerId);sp.classList.add("drag");
+    const x0=e.clientX,w0=left.getBoundingClientRect().width;
+    const mv=ev=>{setW(w0+ev.clientX-x0);window.dispatchEvent(new Event("resize"))};
+    const up=()=>{sp.classList.remove("drag");sp.removeEventListener("pointermove",mv);sp.removeEventListener("pointerup",up);save()};
+    sp.addEventListener("pointermove",mv);sp.addEventListener("pointerup",up)});
+  sp.addEventListener("keydown",e=>{if(e.key!=="ArrowLeft"&&e.key!=="ArrowRight")return;e.preventDefault();
+    setW(left.getBoundingClientRect().width+(e.key==="ArrowRight"?20:-20));save();window.dispatchEvent(new Event("resize"))});
+  sp.addEventListener("dblclick",()=>{root.style.removeProperty("--leftw");delete L.leftw;save();window.dispatchEvent(new Event("resize"))});
+})();
+function restoreLocal(){try{const s=JSON.parse(localStorage.getItem("vdw:current")||"null");if(s&&Array.isArray(s.layers)){layers=migrate(s.layers);$("dname").value=s.name||"Untitled stack"}}catch(e){}computeOverlap();computeContacts()}
+
+// ------------------------------------------------------------------ panels
+function num(i){return layers.length-i}
+function tLabel(t){let s=`${t.t} nm`;if(t.alt)s+=` (alt ${t.alt.split(";")[0]})`;return s}
+function layerT(L){const e=TR[L.tid];return e?(L.tsel!=null?L.tsel:e.t.t):0}
+function layerName(L){const e=TR[L.tid];if(!e)return "missing flake";const t=layerT(L);const m=e.f.material==="hbn"?"hBN":(t<1.2?"graphene":"graphite");
+  const lay=e.f.material==="graphite"&&t<3?` · ${e.t.layers} L`:"";const other=L.tsel!=null&&L.tsel!==e.t.t?` (or ${e.t.t})`:(e.t.alt&&e.f.material==="hbn"?` (or ${e.t.alt.split(";")[0]})`:"");
+  return `${m} ${t} nm${other}${lay}`}
+function renderStack(){const s=$("stack");if(!layers.length){s.innerHTML=`<div class="empty">No layers yet. Add one, or describe the stack in the Assistant tab.</div>`;return}
+  s.innerHTML="";for(let i=layers.length-1;i>=0;i--){const L=layers[i],e=TR[L.tid];const d=document.createElement("div");d.className="layer"+(i===sel?" sel":"")+(!showHbn&&isHbn(L)?" hid":"");const ro=roleOf(L);
+    d.innerHTML=`<span class="sw" style="background:${L.color}"></span><div><div class="nm">${num(i)}. ${layerName(L)}</div><div class="meta">${e?e.f.id+" · Ø "+e.t.d+" µm":""}</div></div>
+    <div class="ic"><button data-a="img" aria-pressed="${L.showImg}" title="Show image">img</button><button data-a="out" aria-pressed="${L.showOutline}" title="Show outline">line</button><button data-a="ov" aria-pressed="${L.inOverlap}" title="Count in overlap">∩</button><button class="role" data-a="role" data-r="${ro}" aria-pressed="true" title="${ROLE_TITLE[ro]} (click to change)">${ROLE_TXT[ro]}</button></div>`;
+    d.onclick=ev=>{const a=ev.target.dataset&&ev.target.dataset.a;if(a){ev.stopPropagation();pushUndo();if(a==="img")L.showImg=!L.showImg;if(a==="out")L.showOutline=!L.showOutline;if(a==="ov")L.inOverlap=!L.inOverlap;if(a==="role")L.role=ROLES[(ROLES.indexOf(roleOf(L))+1)%ROLES.length];changed();return}select(i===sel?-1:i)};
+    s.appendChild(d)}}
+function renderLayerPane(live){const p=$("pLayer");const L=layers[sel];
+  if(!L||!TR[L.tid]){p.innerHTML=`<div class="empty">No layer selected. Click a flake on the canvas or a row in the stack list to edit it.</div>`;return}
+  const {t,f}=TR[L.tid];
+  if(live&&$("lx")){$("lx").value=L.x.toFixed(1);$("ly").value=L.y.toFixed(1);$("lr").value=L.rot.toFixed(1);return}
+  const others=f.terraces.filter(x=>x.id!==t.id);
+  p.innerHTML=`<div class="row" style="justify-content:space-between"><b>${num(sel)}. ${layerName(L)}</b><span class="badge">${f.material==="hbn"?"hBN":"graphite"} on ${f.oxide_nm} nm SiO₂</span></div>
+  ${f.img?`<div class="row"><button id="lImg">100x image</button>${f.img_c8?`<button id="lImgC8">High contrast</button>`:""}${f.img_dt?`<button id="lImgDt">Thickness change</button>`:""}</div>`:""}
+  <div class="row"><button id="lChip" class="primary">Show on chip</button><span class="sub">${f.scan}${f.rank!=null?` · flake ${f.rank}`:""}${f.score!=null?` · score ${f.score.toFixed(2)}`:""}</span></div>
+  <dl class="kv"><dt>flake</dt><dd>${f.id} · ${f.L??"–"} × ${f.W??"–"} µm · ${f.area!=null?Math.round(f.area)+" µm²":""}${f.cropped?" (cut-out windowed)":""}</dd>
+  <dt>terrace</dt><dd>${tLabel(t)} · range ${t.tlo}–${t.thi} nm${t.t100!=null&&t.t100!==t.t?` · 100x estimate ${t.t100} nm`:""}</dd>
+  <dt>size</dt><dd>${t.L} × ${t.W} µm · Ø ${t.d} µm · ${Math.round(t.area)} µm²</dd>
+  <dt>on chip</dt><dd>x ${(f.origin_um[0]+t.c[0]*f.px_um).toFixed(0)}, y ${(f.origin_um[1]+t.c[1]*f.px_um).toFixed(0)} µm${f.stage_origin_um?` · stage ${(f.stage_origin_um[0]+t.c[0]*f.px_um).toFixed(0)}, ${(f.stage_origin_um[1]+t.c[1]*f.px_um).toFixed(0)}`:""}</dd>
+  <dt>flags</dt><dd>${t.quality.replace(/;/g,", ")}</dd></dl>
+  ${others.length?`<div><div class="lbl">Other terraces (regions of interest) of this flake</div><div class="row">${others.map(o=>`<button data-tid="${o.id}">${o.t} nm · Ø ${o.d}</button>`).join("")}</div></div>`:""}
+  <div class="lbl">Placement</div>
+  <div class="row"><label>x <input type="number" id="lx" step="1" value="${L.x.toFixed(1)}"></label><label>y <input type="number" id="ly" step="1" value="${L.y.toFixed(1)}"></label><label>rotation <input type="number" id="lr" step="1" value="${L.rot.toFixed(1)}">°</label></div>
+  <div class="row"><label><input type="checkbox" id="lm" ${L.mirror?"checked":""}> mirror (flip-over transfer)</label><label><input type="checkbox" id="ll" ${L.locked?"checked":""}> lock</label></div>
+  <div class="lbl">Display</div>
+  <div class="row"><label>opacity <input type="range" id="lo" min="0" max="1" step="0.05" value="${L.opacity}"></label><label>outline <input type="color" id="lc" value="${L.color}"></label></div>
+  <div class="row"><label>contact check <select id="lrole">${ROLES.map(r=>`<option value="${r}" ${roleOf(L)===r?"selected":""}>${{gate:"gate",sample:"sample",dielectric:"dielectric (separates)",ignore:"– · ignore"}[r]}</option>`).join("")}</select></label></div>
+  <div class="row"><label><input type="checkbox" id="li" ${L.showImg?"checked":""}> image</label><label><input type="checkbox" id="lu" ${L.showOutline?"checked":""}> outline</label><label><input type="checkbox" id="lv" ${L.inOverlap?"checked":""}> count in overlap</label></div>
+  <div class="row"><button id="lRep">Replace flake…</button><button id="lUp">Move up</button><button id="lDn">Move down</button><button id="lDel">Remove</button></div>`;
+  const numIn=(id,k)=>$(id).addEventListener("change",()=>{pushUndo();L[k]=parseFloat($(id).value)||0;if(k==="rot")L.rot=((L.rot%360)+360)%360;changed()});
+  numIn("lx","x");numIn("ly","y");numIn("lr","rot");
+  const chk=(id,k)=>$(id).addEventListener("change",()=>{pushUndo();L[k]=$(id).checked;changed()});
+  $("lrole").addEventListener("change",()=>{pushUndo();L.role=$("lrole").value;changed()});
+  chk("lm","mirror");chk("ll","locked");chk("li","showImg");chk("lu","showOutline");chk("lv","inOverlap");
+  $("lo").addEventListener("input",()=>{L.opacity=parseFloat($("lo").value);draw()});$("lo").addEventListener("change",()=>{saveLocal()});
+  $("lc").addEventListener("input",()=>{L.color=$("lc").value;draw();renderStack()});
+  p.querySelectorAll("button[data-tid]").forEach(b=>b.onclick=()=>{pushUndo();const old=TR[L.tid].t,nt=TR[b.dataset.tid].t;
+    // keep the flake where it is: move the anchor to the new terrace's centre
+    const w=toWorld(L,nt.c[0],nt.c[1]);L.tid=b.dataset.tid;L.x=w[0];L.y=w[1];changed()});
+  $("lChip").onclick=()=>openChip(sel);if($("lImg")){const e=TR[layers[sel].tid];$("lImg").onclick=()=>openImg(e.f,e.t,"nat");if($("lImgC8"))$("lImgC8").onclick=()=>openImg(e.f,e.t,"c8");if($("lImgDt"))$("lImgDt").onclick=()=>openImg(e.f,e.t,"dt")}$("lRep").onclick=()=>openDialog(sel);$("lUp").onclick=()=>moveLayer(sel,1);$("lDn").onclick=()=>moveLayer(sel,-1);$("lDel").onclick=()=>removeLayer(sel)}
+function renderStats(){const s=$("stats");const used={};const warns=[];layers.forEach((L,i)=>{const e=TR[L.tid];if(!e)return;if(used[e.f.id]!=null)warns.push(`Layers ${num(i)} and ${num(used[e.f.id])} use the same flake (${e.f.id}).`);used[e.f.id]=i;
+    if(e.t.alt&&e.f.material==="hbn")warns.push(`Layer ${num(i)}: hBN thickness ambiguous (${e.t.t} or ${e.t.alt.split(";")[0]} nm) until AFM calibration.`);
+    if(/low_confidence/.test(e.t.quality))warns.push(`Layer ${num(i)}: faint flake, identification less certain.`)});
+  if(!OV){s.innerHTML=`<dt>overlap</dt><dd>–</dd>`}else{s.innerHTML=`<dt>layers counted</dt><dd>${OV.n} of ${layers.length}</dd><dt>overlap area</dt><dd>${Math.round(OV.area)} µm²</dd><dt>largest circle</dt><dd>Ø ${OV.d.toFixed(1)} µm</dd>`}
+  $("warn").innerHTML=warns.slice(0,4).map(w=>`• ${w}`).join("<br>")}
+function renderContacts(){const el=$("contacts");if(!el)return;
+  const legend=`<div class="legend">Roles (button on each layer): gate, sample, dielectric, – (ignored). Defaults: hBN dielectric, graphene sample, thicker graphite gate. Mark several layers as sample for interfacial or double-well devices.</div>`;
+  if(!CT||CT.nCond<2){el.innerHTML=`<div class="ok">Fewer than two gate / sample layers: nothing to check.</div>`+legend;return}
+  if(!CT.pairs.length){el.innerHTML=`<div class="ok">No direct contact: every overlap of gate / sample layers has a dielectric between them.</div>`+legend;return}
+  const row=p=>{const A=layers[p.a],B=layers[p.b];
+    return `<div class="pair${p.kind==="sample"?" ss":""}" title="Layers ${num(p.b)} and ${num(p.a)} touch here with no dielectric between them"><i></i><div><b>${num(p.b)}</b> ${roleOf(B)} · ${escapeHtml(layerName(B))} ↔ <b>${num(p.a)}</b> ${roleOf(A)} · ${escapeHtml(layerName(A))}</div><span>${p.area<10?p.area.toFixed(1):Math.round(p.area)} µm²</span></div>`};
+  const sh=CT.pairs.filter(p=>p.kind==="short"),ss=CT.pairs.filter(p=>p.kind==="sample");
+  el.innerHTML=(sh.length?`<h3>Shorts (gate involved)</h3>`+sh.map(row).join(""):`<div class="ok">No gate touches another gate or a sample.</div>`)+
+    (ss.length?`<h3>Sample ↔ sample contact</h3>`+ss.map(row).join("")+`<div class="legend">Wanted for interfacial devices; a short in a double well (put a dielectric between them).</div>`:"")+
+    `<div class="legend">Hatched on the canvas: pink = short, violet = sample ↔ sample.</div>`+legend}
+function renderXS(){const svg=$("xs");const W=svg.clientWidth||260,H=150;
+  const LL=layers.filter(L=>TR[L.tid]);const ls=LL.map(L=>({...TR[L.tid],tt:layerT(L)}));const tot=ls.reduce((a,e)=>a+e.tt,0);$("xsTotal").textContent=ls.length?`total ≈ ${tot.toFixed(1)} nm`:"";
+  if(!ls.length){svg.innerHTML="";return}
+  // each layer at least 9 px; the rest proportional to thickness
+  const minH=9,avail=H-8-minH*ls.length;const hs=ls.map(e=>minH+Math.max(0,avail)*e.tt/Math.max(tot,1e-6));
+  let y=4,out="";for(let i=ls.length-1;i>=0;i--){const e=ls[i],h=hs[i];const c=e.f.material==="hbn"?MATCOL.hbn:MATCOL.graphite;
+    out+=`<rect x="0" y="${y}" width="${W*0.28}" height="${h-1}" fill="${c}" rx="2"/><text x="${W*0.28+8}" y="${y+h/2+4}" font-size="11" fill="currentColor" font-family="var(--mono)">${LL.length-i} · ${escapeHtml(layerName(LL[i]))}</text>`;y+=h}
+  svg.setAttribute("height",H);svg.innerHTML=out;svg.style.color=getComputedStyle(document.body).color}
+function renderAll(){renderStack();renderLayerPane();renderStats();renderContacts();renderXS();draw();refreshDesignButtons()}
+
+// ------------------------------------------------------------------ add-layer dialog
+let replaceIdx=null;
+function openDialog(ri){replaceIdx=(ri==null?null:ri);$("dtitle").textContent=ri==null?"Add the next layer (below the current stack)":"Replace the flake of layer "+num(ri);
+  if(ri!=null){const e=TR[layers[ri].tid];if(e){$("fMat").value=e.f.material;$("fT0").value=Math.max(0,+(e.t.t*0.7).toFixed(1));$("fT1").value=+(e.t.t*1.3+0.5).toFixed(1)}}
+  $("dlg").showModal();renderResults()}
+$("bAdd").onclick=()=>openDialog(null);$("dclose").onclick=()=>$("dlg").close();
+$("fMat").onchange=()=>{if($("fMat").value==="graphite"){$("fT0").value=0.3;$("fT1").value=10;$("fD").value=10}else{$("fT0").value=10;$("fT1").value=40;$("fD").value=15}renderResults()};
+["fT0","fT1","fD","fA","fScan","fSort","fAlt","fClean","fRev"].forEach(id=>$(id).addEventListener("input",renderResults));
+function matchT(t,t0,t1,alt){if(t.t>=t0&&t.t<=t1)return t.t;if(alt&&t.alt){for(const a of t.alt.split(";")){const v=parseFloat(a);if(v>=t0&&v<=t1)return v}}return null}
+function searchCat(q){const out=[];const used=new Set(layers.map(L=>TR[L.tid]&&TR[L.tid].f.id));
+  for(const f of CAT.flakes){if(f.material!==q.material)continue;if(q.scan&&q.scan!=="all"&&f.scan!==q.scan)continue;
+    for(const t of f.terraces){const v=matchT(t,q.t0,q.t1,q.alt);if(v==null)continue;if(t.d<q.d||t.area<q.area)continue;
+      if(t.usable===false)continue;const dec=REVIEW[t.id];const rv=q.review||"all";
+      if(rv==="discarded"?dec!=="discard":dec==="discard")continue;if(rv==="review"&&!(t.tier==="review"&&!dec))continue;if(q.clean&&t.quality.split(";").some(x=>!["good","chip_edge"].includes(x)))continue;if(q.exclude&&q.exclude.includes(f.id))continue;
+      out.push({t,f,v,used:used.has(f.id)})}}
+  const k=q.sort||"score";const sc=x=>x.t.score==null?(x.f.score==null?-1:x.f.score):x.t.score;
+  out.sort((a,b)=>k==="t"?a.v-b.v:k==="area"?b.t.area-a.t.area:k==="d"?b.t.d-a.t.d:sc(b)-sc(a));return out}
+function renderResults(){if(!CAT)return;const q={material:$("fMat").value,t0:+$("fT0").value,t1:+$("fT1").value,d:+$("fD").value,area:+$("fA").value,scan:$("fScan").value,sort:$("fSort").value,alt:$("fAlt").checked,clean:$("fClean").checked,review:$("fRev").value};
+  const res=searchCat(q);$("fCount").textContent=`${res.length} terraces`;const box=$("results");box.innerHTML="";
+  box.classList.toggle("wide",res.some(x=>x.f.frame));
+  res.slice(0,240).forEach(({t,f,v,used})=>{const b=document.createElement("button");b.className="cand";const r=f.rect;const k=Math.min(138/r[2],104/r[3]);
+    if(f.frame&&CAT.thumbs){const F=f.frame,T=F.thumb,S=CAT.thumbs[T[0]];
+      const fp=p=>{const o=[];for(let i=0;i<p.length;i+=2)o.push((p[i]/F.k+F.x0).toFixed(1)+","+(p[i+1]/F.k+F.y0).toFixed(1));return o.join(" ")};
+      b.innerHTML=`<div class="th frame" style="--ar:${F.w/F.h}"><img src="${S.file}" alt="" style="width:${S.w/T[3]*100}%;left:${-T[1]/T[3]*100}%;top:${-T[2]/T[4]*100}%">
+        <svg viewBox="0 0 ${F.w} ${F.h}" preserveAspectRatio="none"><polygon points="${fp(f.outline)}" fill="none" stroke="rgba(255,255,255,.6)" stroke-width="3" stroke-dasharray="10 8"/><polygon points="${fp(t.poly)}" fill="none" stroke="#ffbe3b" stroke-width="5"/>${(t.fine||[]).map(q=>q.poly.map(pp=>`<polygon points="${fp(pp)}" fill="none" stroke="${q.dt_nm>0?"#ffe600":"#00a0ff"}" stroke-width="4"/>`).join("")).join("")}${wrinkleSvg(t,fp,5)}</svg>
+        <span class="zoomb" role="button" tabindex="0" title="View the whole 100x image without adding it">View</span></div>
+        <div class="row" style="justify-content:space-between"><b>${v} nm</b>${v!==t.t?`<span class="badge">alt · fit ${t.t}</span>`:used?`<span class="badge">in stack</span>`:""}</div>
+        <span>Ø ${t.d} µm · ${Math.round(t.area)} µm²${t.clean_d_um!=null?` · clean Ø ${t.clean_d_um} µm`:""}</span>
+        <span>${f.scan}${f.rank!=null?` · flake ${f.rank}`:""}${f.score!=null?` · score ${f.score.toFixed(2)}`:""}</span>${wrinkleText(t)?`<span>${wrinkleText(t)}</span>`:""}${reviewHtml(t)}`;
+      wireReview(b,t);
+      const zb=b.querySelector(".zoomb");const view=e=>{e.stopPropagation();e.preventDefault();openImg(f,t,"nat")};
+      zb.onclick=view;zb.onkeydown=e=>{if(e.key==="Enter"||e.key===" ")view(e)};
+      b.onclick=()=>{addLayer(t.id,replaceIdx,v);$("dlg").close()};box.appendChild(b);return}
+    const pts=p=>{const o=[];for(let i=0;i<p.length;i+=2)o.push((p[i]*k).toFixed(1)+","+(p[i+1]*k).toFixed(1));return o.join(" ")};
+    const others=f.terraces.filter(o=>o.id!==t.id).map(o=>`<polygon points="${pts(o.poly)}" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="0.8"/>`).join("");
+    b.innerHTML=`<div class="th"><div style="position:relative;width:${r[2]*k}px;height:${r[3]*k}px"><i style="width:100%;height:100%;background-image:url(${CAT.atlases[f.atlas]});background-size:${CAT.atlas_size*k}px auto;background-position:${-r[0]*k}px ${-r[1]*k}px"></i>
+      <svg viewBox="0 0 ${r[2]*k} ${r[3]*k}">${others}<polygon points="${pts(t.poly)}" fill="none" stroke="#ffbe3b" stroke-width="1.6"/></svg></div></div>
+      <div class="row" style="justify-content:space-between"><b>${v} nm</b>${v!==t.t?`<span class="badge">alt · fit ${t.t}</span>`:used?`<span class="badge">in stack</span>`:""}</div>
+      <span>Ø ${t.d} µm · ${Math.round(t.area)} µm²${f.terraces.length>1?` · 1 of ${f.terraces.length} terraces`:""}</span>
+      <span>${f.scan}${f.rank!=null?` · flake ${f.rank}`:""}${f.score!=null?` · score ${f.score.toFixed(2)}`:""}</span>`;
+    b.onclick=()=>{addLayer(t.id,replaceIdx,v);$("dlg").close()};box.appendChild(b)});
+  if(!res.length)box.innerHTML=`<div class="empty">No terraces match. Widen the thickness range or lower the minimum diameter.</div>`}
+
+// ------------------------------------------------------------------ wrinkles and review of marginal flakes
+let REVIEW={};               // terrace id -> "keep" | "discard" (the user's decisions on flakes the 100x screening found marginal)
+function wrinkleSvg(t,fp,w){return (t.wrinkles||[]).map(p=>`<polyline points="${fp(p)}" fill="none" stroke="#e040fb" stroke-width="${w}" stroke-linecap="round" opacity=".9"/>`).join("")}
+function wrinkleText(t){const W=t.wrinkle;if(!W||W.wrinkle_n==null)return "";if(!W.wrinkle_n)return "no wrinkles detected";
+  return `${W.wrinkle_n} wrinkle line${W.wrinkle_n>1?"s":""} · wrinkle-free Ø ${Math.round(100*W.wrinkle_free_ratio)} % of the flake's${W.wrinkle_n>1?` · ${W.wrinkle_coherence>=0.8?"one direction":W.wrinkle_coherence>=0.5?"mostly one direction":"mixed directions"}`:""}`}
+function reviewHtml(t){if(t.tier!=="review")return "";const d=REVIEW[t.id];
+  return `<div class="row" style="justify-content:space-between"><span class="badge ${d==="keep"?"kept":d==="discard"?"disc":"rev"}">${d==="keep"?"kept":d==="discard"?"discarded":"to review"}</span>
+   <span class="revb"><span class="k" role="button" tabindex="0" data-r="keep" aria-pressed="${d==="keep"}">Keep</span><span class="d" role="button" tabindex="0" data-r="discard" aria-pressed="${d==="discard"}">Discard</span></span></div>`}
+function wireReview(b,t){b.querySelectorAll(".revb [data-r]").forEach(x=>{const go=e=>{e.stopPropagation();e.preventDefault();setReview(t,x.dataset.r);renderResults()};
+  x.onclick=go;x.onkeydown=e=>{if(e.key==="Enter"||e.key===" ")go(e)}})}
+function setReview(t,v){const cur=REVIEW[t.id];const nv=cur===v?null:v;if(nv)REVIEW[t.id]=nv;else delete REVIEW[t.id];
+  const e=TR[t.id];const body={decision:nv,terrace:t.id,scan:e?e.f.scan:null,material:e?e.f.material:null,p_keep:t.p_keep??null,updated:Date.now()};
+  if(db){db.collection("review").doc(t.id).set(body).catch(err=>status2("Could not save the review decision: "+(err&&err.message||err)))}
+  else{try{localStorage.setItem("vdw:review",JSON.stringify(REVIEW))}catch(err){}}}
+
+// ------------------------------------------------------------------ 100x image viewer
+const IMG={f:null,t:null,mode:"nat",one:false,outline:true,wr:true};
+function openImg(f,t,mode){IMG.f=f;IMG.t=t;IMG.mode=(mode==="c8"&&f.img_c8)?"c8":(mode==="dt"&&f.img_dt)?"dt":"nat";$("imgC8").disabled=!f.img_c8;$("imgDt").disabled=!f.img_dt;
+  $("imgTitle").textContent=`${f.scan} · flake ${f.rank} · ${tLabel(t)}`;
+  $("imgInfo").innerHTML=`<span class="sub">whole 100x frame · ${(f.frame.w*f.px_um*f.frame.k).toFixed(0)} × ${(f.frame.h*f.px_um*f.frame.k).toFixed(0)} µm · terrace outlined in amber, rest of the flake dashed</span>`+
+    (t.clean_d_um!=null?`<span class="sub">clean area ${Math.round(t.clean_um2)} µm² (largest clean Ø ${t.clean_d_um} µm) · ${t.debris_n} debris spots</span>`:"")+
+    (t.fine&&t.fine.length?`<span class="sub">${t.fine.length} fine terrace${t.fine.length>1?"s":""} on the terrace (yellow thicker, blue thinner; ${t.fine.map(q=>(q.dt_nm>0?"+":"")+q.dt_nm+" nm").slice(0,6).join(", ")}${t.fine.length>6?", …":""})</span>`:(t.fine?`<span class="sub">no fine terraces detected</span>`:""))+
+    (wrinkleText(t)?`<span class="sub">${wrinkleText(t)} (magenta lines)</span>`:"")+
+    (t.tier==="review"?`<span class="sub">marginal at the 100x screening: keep or discard it (decisions are saved, and train the screening)</span>`:"");
+  if(!$("imgDlg").open)$("imgDlg").showModal();showImg()}
+function showImg(){const f=IMG.f,t=IMG.t,F=f.frame;const src=IMG.mode==="c8"?f.img_c8:IMG.mode==="dt"?f.img_dt:f.img;
+  $("imgEl").src=src;$("imgEl").alt=`${IMG.mode==="c8"?"High-contrast":"Natural"} 100x image of flake ${f.rank}`;$("imgOpen").href=src;
+  $("imgNat").setAttribute("aria-pressed",String(IMG.mode==="nat"));$("imgC8").setAttribute("aria-pressed",String(IMG.mode==="c8"));$("imgDt").setAttribute("aria-pressed",String(IMG.mode==="dt"));
+  $("imgFit").setAttribute("aria-pressed",String(!IMG.one));$("imgOne").setAttribute("aria-pressed",String(IMG.one));$("imgOut").setAttribute("aria-pressed",String(IMG.outline));
+  const w=$("imgWrap");w.style.width=IMG.one?F.w+"px":`min(100%, calc((100vh - 260px) * ${F.w/F.h}))`;
+  const fp=p=>{const o=[];for(let i=0;i<p.length;i+=2)o.push((p[i]/F.k+F.x0).toFixed(1)+","+(p[i+1]/F.k+F.y0).toFixed(1));return o.join(" ")};
+  $("imgSvg").setAttribute("viewBox",`0 0 ${F.w} ${F.h}`);
+  $("imgSvg").innerHTML=(IMG.outline?`<polygon points="${fp(f.outline)}" fill="none" stroke="rgba(255,255,255,.7)" stroke-width="2" stroke-dasharray="8 6"/><polygon points="${fp(t.poly)}" fill="none" stroke="#ffbe3b" stroke-width="2.5"/>`+(t.fine||[]).map(q=>q.poly.map(pp=>`<polygon points="${fp(pp)}" fill="none" stroke="${q.dt_nm>0?"#ffe600":"#00a0ff"}" stroke-width="2"/>`).join("")).join(""):"")+(IMG.wr?wrinkleSvg(t,fp,2.5):"");
+  $("imgWr").setAttribute("aria-pressed",String(IMG.wr));$("imgWr").disabled=!(t.wrinkles&&t.wrinkles.length);
+  $("imgRev").hidden=t.tier!=="review";const dec=REVIEW[t.id];$("imgKeep").setAttribute("aria-pressed",String(dec==="keep"));$("imgDisc").setAttribute("aria-pressed",String(dec==="discard"))}
+$("imgNat").onclick=()=>{IMG.mode="nat";showImg()};$("imgDt").onclick=()=>{IMG.mode="dt";showImg()};$("imgC8").onclick=()=>{IMG.mode="c8";showImg()};
+$("imgFit").onclick=()=>{IMG.one=false;showImg()};$("imgOne").onclick=()=>{IMG.one=true;showImg()};
+$("imgOut").onclick=()=>{IMG.outline=!IMG.outline;showImg()};$("imgWr").onclick=()=>{IMG.wr=!IMG.wr;showImg()};
+const imgDecide=v=>{if(IMG.t){setReview(IMG.t,v);showImg()}};
+$("imgKeep").onclick=()=>imgDecide("keep");$("imgDisc").onclick=()=>imgDecide("discard");
+$("imgKeep").onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();imgDecide("keep")}};$("imgDisc").onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();imgDecide("discard")}};$("imgClose").onclick=()=>$("imgDlg").close();
+
+// ------------------------------------------------------------------ chip overview
+const CHIP={img:null,scan:null,L:null,zoom:1,cx:0,cy:0,imgs:{}};const ccv=$("chipCv"),cctx=ccv.getContext("2d");
+function chipImg(scan){if(!CHIP.imgs[scan]){const im=new Image();im.onload=chipDraw;im.src=CAT.scans[scan].file;CHIP.imgs[scan]=im}return CHIP.imgs[scan]}
+function scanPoly(f,p){const S=CAT.scans[f.scan].scale;const o=[];for(let i=0;i<p.length;i+=2)o.push((f.origin_px[0]+p[i])*S,(f.origin_px[1]+p[i+1])*S);return o}
+function openChip(i){const L=layers[i];if(!L||!TR[L.tid]||!CAT.scans)return;const {t,f}=TR[L.tid];CHIP.scan=f.scan;CHIP.L=L;CHIP.img=chipImg(f.scan);
+  const sc=CAT.scans[f.scan];const px=f.px_um;const tx=f.origin_um[0]+t.c[0]*px,ty=f.origin_um[1]+t.c[1]*px;
+  const stage=f.stage_origin_um?[f.stage_origin_um[0]+sc.stage_sign[0]*t.c[0]*px,f.stage_origin_um[1]+sc.stage_sign[1]*t.c[1]*px]:null;
+  const same=layers.filter(K=>K!==L&&TR[K.tid]&&TR[K.tid].f.scan===f.scan).length;
+  const local=(sc.viewer===null||CAT.demo)?null:`example images/${f.scan}_viewer/index.html#t${t.terrace_id??""}`;
+  $("chipTitle").textContent=`${f.scan} · layer ${num(i)}: ${layerName(L)}`;
+  $("chipInfo").innerHTML=`<span class="sub">terrace centre from the ${CAT.demo?"5x image":"chip image"}'s top-left corner: <b>x ${tx.toFixed(0)} µm, y ${ty.toFixed(0)} µm</b></span>
+   ${f.source?`<span class="sub">image: <code>${escapeHtml(f.source)}</code></span>`:""}
+   ${stage?`<span class="sub">stage <b>${stage[0].toFixed(0)}, ${stage[1].toFixed(0)} µm</b> <button id="cpStage">Copy</button></span>`:`<span class="sub">stage coordinates: not recorded for this image</span>`}
+   ${local?`<span class="sub">local viewer: <code id="lvPath">${local}</code> <button id="cpLocal">Copy</button></span>`:""}
+   ${same?`<span class="sub">${same} other design flake${same>1?"s":""} on this chip marked in blue</span>`:""}`;
+  const cp=(id,txt)=>{const b=$(id);if(b)b.onclick=()=>navigator.clipboard.writeText(txt).then(()=>{b.textContent="Copied"}).catch(()=>{b.textContent="Select and copy"})};
+  if(stage)cp("cpStage",`${stage[0].toFixed(1)}, ${stage[1].toFixed(1)}`);if(local)cp("cpLocal",local);
+  $("chipDlg").showModal();requestAnimationFrame(()=>{chipResize();chipZoomFlake()})}
+function chipResize(){const r=ccv.parentElement.getBoundingClientRect(),d=window.devicePixelRatio||1;ccv.style.position="absolute";ccv.style.inset="0";ccv.style.width="100%";ccv.style.height="100%";ccv.width=Math.round(r.width*d);ccv.height=Math.round(r.height*d);chipDraw()}
+function chipZoomFlake(){const {f}=TR[CHIP.L.tid];const S=CAT.scans[f.scan].scale;const r=ccv.getBoundingClientRect();
+  CHIP.cx=(f.origin_px[0]+f.w/2)*S;CHIP.cy=(f.origin_px[1]+f.h/2)*S;CHIP.zoom=Math.min(r.width/((f.w*S)*4+60),r.height/((f.h*S)*4+60),8);chipDraw()}
+function chipAll(){const sc=CAT.scans[CHIP.scan];const r=ccv.getBoundingClientRect();CHIP.cx=sc.w/2;CHIP.cy=sc.h/2;CHIP.zoom=Math.min(r.width/sc.w,r.height/sc.h);chipDraw()}
+function chipDraw(){if(!CHIP.scan)return;const d=window.devicePixelRatio||1,W=ccv.width/d,H=ccv.height/d;cctx.setTransform(d,0,0,d,0,0);cctx.fillStyle="#0b0f11";cctx.fillRect(0,0,W,H);
+  cctx.save();cctx.translate(W/2,H/2);cctx.scale(CHIP.zoom,CHIP.zoom);cctx.translate(-CHIP.cx,-CHIP.cy);
+  const im=CHIP.imgs[CHIP.scan];if(im&&im.complete){cctx.imageSmoothingEnabled=CHIP.zoom<2;cctx.drawImage(im,0,0)}
+  const lw=1/CHIP.zoom;const poly=(p,c,w,dash)=>{cctx.beginPath();for(let i=0;i<p.length;i+=2)i?cctx.lineTo(p[i],p[i+1]):cctx.moveTo(p[i],p[i+1]);cctx.closePath();cctx.setLineDash(dash?[4*lw,3*lw]:[]);cctx.lineWidth=w*lw;cctx.strokeStyle=c;cctx.stroke()};
+  layers.forEach(K=>{const e=TR[K.tid];if(!e||e.f.scan!==CHIP.scan||K===CHIP.L)return;poly(scanPoly(e.f,e.f.outline),"#3fa3e0",1.5,true)});
+  const {t,f}=TR[CHIP.L.tid];poly(scanPoly(f,f.outline),"#ffffff",1.6,true);poly(scanPoly(f,t.poly),getCss("--sel"),2.4,false);
+  const S=CAT.scans[f.scan].scale;const c=[(f.origin_px[0]+t.c[0])*S,(f.origin_px[1]+t.c[1])*S];const R=Math.max(f.w,f.h)*S*0.7+14/CHIP.zoom;
+  cctx.setLineDash([]);cctx.lineWidth=2*lw;cctx.strokeStyle=getCss("--sel");cctx.beginPath();cctx.arc(c[0],c[1],R,0,Math.PI*2);cctx.stroke();
+  cctx.restore();
+  const umPerPx=CAT.scans[CHIP.scan].px_um/CAT.scans[CHIP.scan].scale/CHIP.zoom;const nice=[5,10,20,50,100,200,500,1000,2000];const b=nice.find(v=>v/umPerPx>=70)||2000;
+  $("chipBar").style.width=(b/umPerPx)+"px";$("chipBarL").textContent=b>=1000?(b/1000)+" mm":b+" µm"}
+let cdrag=null;
+ccv.addEventListener("pointerdown",e=>{ccv.setPointerCapture(e.pointerId);cdrag={x:e.clientX,y:e.clientY,cx:CHIP.cx,cy:CHIP.cy}});
+ccv.addEventListener("pointermove",e=>{if(!cdrag)return;CHIP.cx=cdrag.cx-(e.clientX-cdrag.x)/CHIP.zoom;CHIP.cy=cdrag.cy-(e.clientY-cdrag.y)/CHIP.zoom;chipDraw()});
+ccv.addEventListener("pointerup",()=>{cdrag=null});
+ccv.addEventListener("wheel",e=>{e.preventDefault();const r=ccv.getBoundingClientRect();const sx=e.clientX-r.left-r.width/2,sy=e.clientY-r.top-r.height/2;
+  const wx=CHIP.cx+sx/CHIP.zoom,wy=CHIP.cy+sy/CHIP.zoom;CHIP.zoom=Math.min(16,Math.max(0.02,CHIP.zoom*Math.exp(-e.deltaY*0.0015)));CHIP.cx=wx-sx/CHIP.zoom;CHIP.cy=wy-sy/CHIP.zoom;chipDraw()},{passive:false});
+$("chipFlake").onclick=chipZoomFlake;$("chipAll").onclick=chipAll;$("chipClose").onclick=()=>$("chipDlg").close();
+window.addEventListener("resize",()=>{if($("chipDlg").open)chipResize()});
+
+// ------------------------------------------------------------------ toolbar
+$("bFit").onclick=fit;
+$("bCentre").onclick=()=>{pushUndo();layers.forEach(L=>{L.x=0;L.y=0});changed();fit()};
+$("bAuto").onclick=()=>{if(sel<0||layers.length<2){status2("Select a layer (with at least one other layer in the stack).");return}pushUndo();const a=autoAlign(sel);changed();status2(`Overlap with the other layers: ${Math.round(a)} µm².`)};
+function alignTopDown(){for(let i=layers.length-2;i>=0;i--)if(layers[i].inOverlap)autoAlign(i,layers.map((_,k)=>k).filter(k=>k>i))}
+$("bAutoAll").onclick=()=>{pushUndo();alignTopDown();changed();fit()};
+$("bOverlap").onclick=e=>{showOverlap=!showOverlap;e.target.setAttribute("aria-pressed",showOverlap);draw()};
+$("bGrid").onclick=e=>{showGrid=!showGrid;e.target.setAttribute("aria-pressed",showGrid);draw()};
+$("bHbn").onclick=e=>{showHbn=!showHbn;e.target.setAttribute("aria-pressed",showHbn);e.target.textContent=showHbn?"hBN":"hBN hidden";renderStack();draw()};
+$("bContacts").onclick=e=>{showContacts=!showContacts;e.target.setAttribute("aria-pressed",showContacts);draw()};
+$("bUndo").onclick=undo;
+function status2(t){$("hint").textContent=t;clearTimeout(status2.t);status2.t=setTimeout(()=>{$("hint").textContent="Drag a flake to move it · drag its handle or Shift+drag to rotate · scroll to zoom · drag empty space to pan · click empty space or Esc to deselect · arrows nudge 1 µm, [ ] rotate 1°"},5000)}
+$("tLayer").onclick=()=>{$("tLayer").setAttribute("aria-selected","true");$("tChat").setAttribute("aria-selected","false");$("pLayer").hidden=false;$("pChat").hidden=true};
+$("tChat").onclick=()=>{$("tChat").setAttribute("aria-selected","true");$("tLayer").setAttribute("aria-selected","false");$("pLayer").hidden=true;$("pChat").hidden=false};
+
+// ------------------------------------------------------------------ designs (shared store)
+let db=null,DESIGNS={};
+function designBody(){return {name:$("dname").value||"Untitled stack",layers:JSON.parse(snapshot()),overlap_um2:OV?Math.round(OV.area):0,overlap_d_um:OV?+OV.d.toFixed(1):0,updated:Date.now()}}
+let curDesignId=null;
+$("bSave").onclick=async()=>{const body=designBody();
+  if(!db){try{const all=JSON.parse(localStorage.getItem("vdw:designs")||"{}");const id=curDesignId||("d"+Date.now().toString(36));all[id]=body;localStorage.setItem("vdw:designs",JSON.stringify(all));curDesignId=id;DESIGNS=all;fillDesigns();status2("Saved in this browser.")}catch(e){status2("Could not save: "+e)}return}
+  const id=curDesignId||("d"+Date.now().toString(36)+Math.random().toString(36).slice(2,5));
+  try{await db.collection("designs").doc(id).set(body);curDesignId=id;status2("Saved.")}catch(e){status2(e&&e.code==="invalid_argument"?"You can open designs here but not save them.":"Could not save: "+(e.message||e.code))}};
+$("bNew").onclick=()=>{pushUndo();layers=[];sel=-1;curDesignId=null;$("dname").value="Untitled stack";changed();fit()};
+$("designs").onchange=e=>{const d=DESIGNS[e.target.value];if(!d)return;pushUndo();const n0=(d.layers||[]).length;layers=migrate(d.layers);if(layers.length<n0)status2(`${n0-layers.length} layer(s) of this design are no longer in the catalog.`);$("dname").value=d.name;curDesignId=e.target.value;sel=layers.length?0:-1;changed();fit();e.target.value=""};
+function fillDesigns(){const s=$("designs");s.innerHTML=`<option value="">Saved designs…</option>`+Object.entries(DESIGNS).sort((a,b)=>b[1].updated-a[1].updated).map(([id,d])=>`<option value="${id}">${escapeHtml(d.name)} · ${(d.layers||[]).length} layers</option>`).join("")}
+function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function refreshDesignButtons(){$("bUndo").disabled=!undoStack.length}
+$("bCopy").onclick=()=>{const txt=JSON.stringify(designBody(),null,1);navigator.clipboard.writeText(txt).then(()=>status2("Design JSON copied.")).catch(()=>{$("prompt").value=txt;$("tChat").click();$("prompt").select();status2("Clipboard blocked: the JSON is in the Assistant box, selected.")})};
+
+// ------------------------------------------------------------------ assistant
+let sample=null,turns=[],ctl=null,chatOff=false;
+const RULES=()=>`${(CAT&&CAT.assistant_context)||'You help design van der Waals heterostructures from a catalogue of exfoliated flakes found by automatic optical identification (6.3x overview scans, BX51). Materials: graphite/graphene on ~85-90 nm SiO2, hBN on ~285-300 nm SiO2. Thicknesses are optical estimates (not yet AFM-calibrated; roughly ±20-30 %, graphene layer counts ±1 layer); some hBN terraces have an ambiguous thickness with an alternative value ("alt"), because cyan/green colours could be first- or second-order interference.'}
+
+Conventions: layers are listed bottom (index 0, on the target substrate) to top. Each layer uses one terrace (uniform-thickness region) of one flake; one flake cannot be used twice. The design canvas is in micrometres; layers are shown to the user top to bottom and numbered in pick-up order (1 = top, the first flake picked up); each layer is positioned by the centre of its chosen terrace and rotated about it. The overlap of all layers marked in_overlap is the usable device area; report its area and largest inscribed circle diameter.
+
+Typical roles: encapsulating hBN 10-60 nm (thicker bottom hBN, 20-40 nm is common; top hBN often 10-30 nm and also the gate dielectric); graphite gates 2-10 nm; monolayer graphene ~0.35 nm (0.3-0.5 nm here), bilayer ~0.7 nm. The channel should sit on the flat interior of every layer below it; gates and encapsulation should be larger than the channel. A flake is the whole connected piece of material; its terraces (uniform-thickness regions) are regions of interest, and each layer is anchored on one terrace. Prefer candidates with a high score (learned from the user's own labels of which flakes are worth using), without warnings, with a larger inscribed diameter, and with unambiguous thickness.
+
+Work with the tools: search_flakes to find candidates, set_stack to place a stack, update_layer or optimize_alignment to refine, get_design to check. Do not invent terrace ids. Finish with a short reply (under 150 words): the chosen terrace per layer with thickness and size, the resulting overlap, and any trade-off or concern. Plain text, no tables.`;
+function designSummary(){computeOverlap();return {layers:layers.map((L,i)=>{const e=TR[L.tid];return e?{index:i,terrace_id:L.tid,material:e.f.material,t_nm:layerT(L),fit_nm:L.tsel!=null?e.t.t:undefined,alt_nm:e.t.alt||undefined,d_um:e.t.d,area_um2:Math.round(e.t.area),x_um:+L.x.toFixed(1),y_um:+L.y.toFixed(1),rotation_deg:+L.rot.toFixed(1),mirror:L.mirror,in_overlap:L.inOverlap,contact_role:roleOf(L)}:{index:i,missing:true}}),
+  direct_contacts:(computeContacts(),CT&&CT.pairs?CT.pairs.map(p=>({upper_layer_index:p.b,lower_layer_index:p.a,kind:p.kind==="short"?"short (gate involved)":"sample-sample",area_um2:+p.area.toFixed(1)})):[]),
+  overlap:OV?{area_um2:Math.round(OV.area),inscribed_d_um:+OV.d.toFixed(1),layers_counted:OV.n}:null}}
+const TOOLS=[
+ {name:"search_flakes",description:"Search the flake catalogue. Returns up to `limit` terraces (id, thickness nm, alternative thickness, inscribed diameter um, area um2, length x width um, score = learned probability that the user finds the flake worth imaging, flake area, flags, scan), best score first. Terraces of flakes already in the design are marked in_design.",
+  inputSchema:{type:"object",properties:{material:{type:"string",enum:["graphite","hbn"]},t_min_nm:{type:"number"},t_max_nm:{type:"number"},min_diameter_um:{type:"number"},min_area_um2:{type:"number"},include_ambiguous:{type:"boolean"},no_warnings:{type:"boolean"},limit:{type:"number"}},required:["material","t_min_nm","t_max_nm"]},
+  execute(i){const r=searchCat({material:String(i.material),t0:Number(i.t_min_nm),t1:Number(i.t_max_nm),d:Number(i.min_diameter_um||0),area:Number(i.min_area_um2||0),alt:i.include_ambiguous!==false,clean:!!i.no_warnings,sort:"d"});
+   toolNote(`searched ${i.material} ${i.t_min_nm}-${i.t_max_nm} nm → ${r.length}`);
+   return r.slice(0,Math.min(Number(i.limit)||12,25)).map(({t,f,v,used})=>({terrace_id:t.id,t_nm:v,fit_nm:v!==t.t?t.t:undefined,alt_nm:t.alt||undefined,d_um:t.d,area_um2:Math.round(t.area),size_um:`${t.L}x${t.W}`,score:t.score??f.score,flake_area_um2:f.area,flake_terraces:f.terraces.length,flags:t.quality,scan:f.scan,in_design:used||undefined}))}},
+ {name:"get_design",description:"Current design: layers bottom to top with terrace, thickness, size, position (um), rotation (deg), and the overlap area and largest inscribed circle of the layers counted in the overlap.",execute(){return designSummary()}},
+ {name:"set_stack",description:"Replace the whole design with these layers, bottom first. Every layer is centred at the origin with the given rotation (default 0), so the chosen terraces are concentric. Returns the resulting design summary.",
+  inputSchema:{type:"object",properties:{layers:{type:"array",items:{type:"object",properties:{terrace_id:{type:"string"},assumed_t_nm:{type:"number",description:"for an ambiguous terrace: the thickness (fit or alt) you are assuming"},rotation_deg:{type:"number"},in_overlap:{type:"boolean"}},required:["terrace_id"]}}},required:["layers"]},
+  execute(i){const ls=Array.isArray(i.layers)?i.layers:[];const bad=ls.filter(l=>!TR[String(l.terrace_id)]).map(l=>l.terrace_id);if(bad.length)throw new Error("unknown terrace ids: "+bad.join(", "));
+   pushUndo();layers=ls.map((l,k)=>{const L=newLayer(String(l.terrace_id));L.color=PALETTE[k%PALETTE.length];L.rot=Number(l.rotation_deg)||0;L.inOverlap=l.in_overlap!==false;
+     if(l.assumed_t_nm!=null&&Number(l.assumed_t_nm)!==TR[L.tid].t.t)L.tsel=Number(l.assumed_t_nm);return L});sel=-1;changed();fit();toolNote(`placed ${layers.length} layers`);return designSummary()}},
+ {name:"update_layer",description:"Change one layer: a different terrace, position (x_um, y_um), rotation_deg, mirror, or whether it counts in the overlap. Returns the design summary.",
+  inputSchema:{type:"object",properties:{index:{type:"number"},terrace_id:{type:"string"},x_um:{type:"number"},y_um:{type:"number"},rotation_deg:{type:"number"},mirror:{type:"boolean"},in_overlap:{type:"boolean"}},required:["index"]},
+  execute(i){const L=layers[Number(i.index)];if(!L)throw new Error("no layer "+i.index);if(i.terrace_id!=null&&!TR[String(i.terrace_id)])throw new Error("unknown terrace "+i.terrace_id);
+   pushUndo();if(i.terrace_id!=null){L.tid=String(i.terrace_id);L.tsel=null}if(i.x_um!=null)L.x=Number(i.x_um);if(i.y_um!=null)L.y=Number(i.y_um);if(i.rotation_deg!=null)L.rot=Number(i.rotation_deg);
+   if(i.mirror!=null)L.mirror=!!i.mirror;if(i.in_overlap!=null)L.inOverlap=!!i.in_overlap;changed();toolNote(`updated layer ${Number(i.index)+1}`);return designSummary()}},
+ {name:"optimize_alignment",description:"Rotate and shift layers to maximise overlap. By default every layer is aligned to the layers above it, top down (the top layer stays fixed); with indices, each listed layer is aligned to all other layers. Returns the design summary.",
+  inputSchema:{type:"object",properties:{indices:{type:"array",items:{type:"number"}}}},
+  execute(i){pushUndo();const idx=Array.isArray(i.indices)&&i.indices.length?i.indices.map(Number):layers.map((_,k)=>k).slice(1);if(Array.isArray(i.indices)&&i.indices.length)idx.forEach(k=>autoAlign(k));else alignTopDown();changed();fit();toolNote("optimised alignment");return designSummary()}}];
+function addMsg(cls,text){const d=document.createElement("div");d.className="msg "+cls;d.textContent=text;$("msgs").appendChild(d);$("msgs").scrollTop=1e9;return d}
+function toolNote(t){addMsg("tool","· "+t)}
+document.querySelectorAll("#examples button").forEach(b=>b.onclick=()=>{$("prompt").value=b.textContent;$("prompt").focus()});
+(async()=>{try{sample=window.claude&&window.claude.use?await window.claude.use("sample"):null}catch(e){sample=null}
+  if(!sample){$("chatStatus").textContent="The assistant is not available in this view.";$("bSend").disabled=true}})();
+$("bSend").onclick=async()=>{const q=$("prompt").value.trim();if(!q||!sample||!CAT)return;$("prompt").value="";addMsg("user",q);
+  turns.push({role:"user",content:q+"\n\nCurrent design: "+JSON.stringify(designSummary())});
+  const bubble=addMsg("bot","Thinking…");ctl=new AbortController();$("bSend").disabled=true;$("bStop").disabled=false;$("chatStatus").textContent="";
+  try{const r=await sample([{role:"user",content:RULES()},...turns.slice(-12)],{tools:TOOLS,signal:ctl.signal,cache:false,modelTier:$("thorough").checked?"complex":"default",
+      onText:({text})=>{bubble.textContent=text.split(/\n\n/).slice(-1)[0]||text}});
+    bubble.textContent=r.text.split(/\n{2,}/).filter(Boolean).slice(-3).join("\n\n");turns.push({role:"assistant",content:r.text});
+    if(r.truncated)$("chatStatus").textContent="The answer was cut short."}
+  catch(e){const c=e&&e.code;bubble.textContent=(e&&e.text)||"";if(!bubble.textContent)bubble.remove();turns.pop();
+    $("chatStatus").textContent=c==="cancelled"?"Stopped.":c==="not_granted"||c==="sampling_disabled"||c==="tools_unavailable"?"The assistant is not available here.":c==="rate_limited"?"Too many requests; try again in a minute.":"Something went wrong ("+c+"). Try again.";
+    if(["not_granted","sampling_disabled","tools_unavailable","not_declared"].includes(c))chatOff=true}
+  finally{$("bStop").disabled=true;$("bSend").disabled=chatOff||!sample;ctl=null}};
+$("bStop").onclick=()=>{if(ctl)ctl.abort()};
+$("prompt").addEventListener("keydown",e=>{if(e.key==="Enter"&&(e.metaKey||e.ctrlKey)){e.preventDefault();$("bSend").click()}});
+
+// ------------------------------------------------------------------ start
+(async()=>{try{db=window.claude&&window.claude.use?await window.claude.use("db"):null}catch(e){db=null}
+  if(!db){try{DESIGNS=JSON.parse(localStorage.getItem("vdw:designs")||"{}")}catch(e){DESIGNS={}}try{REVIEW=JSON.parse(localStorage.getItem("vdw:review")||"{}")}catch(e){REVIEW={}}fillDesigns();return}
+  db.collection("designs").onSnapshot(s=>{DESIGNS={};s.docs.forEach(d=>{if(d.exists)DESIGNS[d.id]=d.data()});fillDesigns()},()=>{});
+  db.collection("review").onSnapshot(s=>{REVIEW={};s.docs.forEach(d=>{if(d.exists){const v=d.data().decision;if(v)REVIEW[d.id]=v}});if($("dlg").open)renderResults();if($("imgDlg").open)showImg()},()=>{})})();
+renderAll();
+</script>

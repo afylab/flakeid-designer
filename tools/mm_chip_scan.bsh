@@ -1,0 +1,2317 @@
+// mm_chip_scan.bsh -- find the edges of a chip and set up a tile scan that covers it.
+//
+// Micro-Manager 2.0 Script Panel (Tools > Script Panel > Open > Run).
+//
+// 1. With the scan objective (10x), roughly centre the chip and focus on it.
+// 2. Run this script.  It steps outward along +X, -X, +Y, -Y (stage), snaps a
+//    frame at every step and finds where the substrate colour ends.  With
+//    EDGE_POINTS = 2 it measures each edge at two places, which gives the chip
+//    rotation; tiles that miss a rotated chip are left out.
+// 3. With FOCUS_POINTS = 3 or 4 it moves to points near the corners (live view on) and asks you
+//    to focus at each; a plane through them gives every tile its own Z.
+// 4. It writes <OUT_DIR>/<NAME>_scan.pos (Stage Position List > Load) and
+//    <NAME>_chip.json, shows a plan of the chip and tiles, loads the positions
+//    into Micro-Manager and, with RUN_SCAN = true, starts the Multi-D
+//    acquisition (camera settings, exposure and saving as set in the MDA window).
+//
+// Tested against a simulated microscope (tools/mm_mock) on 8 stitched chip scans: full
+// coverage for chips rotated up to ~12 deg and starts ~1.5 mm off centre.
+//
+// MODE = "multi": several pieces in one run.  You centre (and roughly focus) each piece when asked,
+// choose a folder and a name, and the script then scans every piece (as above, RUN_SCAN always on)
+// into <RUN_DIR>/<name>_<n>_tiles while flakeid.live analyses them on the analysis computer
+// (python -m flakeid.live <RUN_DIR> hbn 285 --flat ...).  When all pieces are scanned it asks you to
+// switch to 100x, waits for each piece's <name>_<n>_targets.csv from the live analysis and images
+// the flakes (as in MODE = "targets").
+//
+// Graphite (MATERIAL = "graphite"): after the 100x images the script offers to image the flakes of
+// DOMAIN_MIN_LAYERS layers or more again with the stacking-domain configuration (another objective, camera
+// and filter).  Measure that configuration's XY and focus offsets first with tools/mm_domain_test.bsh.
+//
+// Moves are limited to MAX_TRAVEL_UM from the start position (in multi mode: from each piece's
+// centre); the stage is returned to the start at the end.  Camera: RAW16 (Bayer, R at the top-left
+// pixel) or RGB32.  Nothing depends on the Micro-Manager pixel-size setting.
+
+import java.io.*;
+
+// ---------------------------------------------------------------- method reset
+// The BeanShell in Micro-Manager keeps the FIRST definition of a method when a script is run
+// again in the same session, so an edited script would silently keep running old code.
+// Remove this script's methods from the interpreter before they are defined again.
+SCRIPT_VERSION = "2026-10-03a";
+try {
+    mf = bsh.NameSpace.class.getDeclaredField("methods");
+    mf.setAccessible(true);
+    mtab = mf.get(this.namespace);
+    if (mtab != null) {
+        ours = new String[] { "applyCamera", "askFocus", "autofocus", "autofocusMM", "autofocusScript", "checkExposure", "despike", "f1", "f3", "fail", "findEdge", "fitCircle", "fitPlane", "frameLevel", "fullScale", "has", "insideChip", "intersect", "isSubstrate", "jsonEsc", "median", "moveTo", "pad3", "predictZ", "reference", "sameValue", "saveTile", "say", "setZ", "sharpness", "snapBlocks", "stageSelfTest", "substrateFraction", "sweep", "tileNeeded", "zAt", "zRead", "zWrite", "scriptVersion", "openLog", "solve", "fitQuad", "idwOffset", "nearestDist", "freeIndex", "writeManifest", "waitForFile", "askPieces", "safeName", "zSurf", "toIP", "setProps", "askPieceInfo", "pieceParams", "badFrame", "snapGood", "askFocusT", "askOnFail", "stopStreaming" };
+        for (int i = 0; i < ours.length; i++) mtab.remove(ours[i]);
+    }
+} catch (Throwable t) { print("  (could not reset old method definitions: " + t + ")"); }
+String scriptVersion() { return "2026-10-03a"; }
+if (!scriptVersion().equals(SCRIPT_VERSION))
+    throw new Exception("old script code is still loaded (" + scriptVersion() + "); restart Micro-Manager and run again");
+
+// ---------------------------------------------------------------- settings
+// camera: set before anything else and read back (a Micro-Manager restart can reset them,
+// e.g. the output bit depth went 12 -> 14 bit, which changes the dark level)
+SET_CAMERA    = true;            // false: leave the camera as it is
+CAMERA_ONLY   = false;           // true: only apply the camera settings, then stop (for flat / dark frames)
+EXPOSURE_MS   = 3.0;             // milliseconds. hBN on 285 nm at 10x: substrate green ~25 % of full scale
+AUTO_EXPOSURE = false;           // true: adjust the exposure until the frame median is at TARGET_LEVEL
+TARGET_LEVEL  = 0.25;            // median (green) as a fraction of full scale for AUTO_EXPOSURE
+EXPOSURE_RANGE = new double[] { 0.05, 500.0 };   // ms, limits for AUTO_EXPOSURE
+CAMERA_PROPS  = new String[][] {  // property, value (in this order; the camera device is the current one)
+    { "Data format", "RAW16" },
+    { "Device output data bit depth", "12" },
+    { "Image data bit depth", "12", "optional" },  // "optional": may be read-only (follows the output depth)
+    { "AEAG", "Off" },
+    { "Auto white balance", "Off" },
+    { "Gain", "0" },
+    { "Luminosity gamma", "1" },
+    { "Chromaticity gamma", "1" },
+    { "Sharpness", "0" },
+    { "Downsampling", "1x1" },
+    { "Binning", "1" } };
+VERBOSE       = true;            // print every stage move and frame (for diagnosing problems)
+ARRIVE_TOL_UM = 10.0;            // stop if the stage reports a position this far from the target
+SELFTEST_UM   = 100.0;           // size of the test moves at the start
+MODE          = "multi";         // "multi": one or more pieces: 10x scan of each, then 100x of their flakes (the general case)
+                                 // "chip": one piece at the start position: find the chip edges and plan the 10x tile scan
+                                 // "targets": image a list of flakes (100x), one image per flake
+                                 // "flat": flat-field frames on bare substrate around the start, then dark frames
+FOCUS_MODE    = "auto";          // "auto": autofocus    "manual": you focus when asked (dialog + live view)
+AF_METHOD     = "script";        // "script": this script's image-based autofocus
+                                 // "micromanager": the autofocus selected in Micro-Manager (Autofocus manager)
+OUT_DIR       = "C:/scans";      // where the .pos / chip.json / plan go
+NAME          = "chip";          // file name prefix
+RUN_SCAN      = false;           // true: acquire the scan when the plan is done
+SCAN_METHOD   = "script";        // "script": this script moves, focuses, snaps and writes every tile to disk at once
+                                 //           (memory stays flat; same folder layout as Micro-Manager's)
+                                 // "mda": start Micro-Manager's Multi-D acquisition (tick "Save images" /
+                                 //           "Separate image files" there, or it keeps every tile in RAM)
+EDGE_POINTS   = 5;               // points measured per edge: 1 (bounding box), 3, or 5 (also resolves round
+                                 // wafer-rim edges and long 1-inch sides)
+EDGE_SPREAD   = 0.40;            // outermost extra points at +-this fraction of the chip size along the edge
+ARC_R_RANGE   = new double[] { 15000.0, 200000.0 };   // um: a side whose points lie on a circle of this radius,
+                                 // bulging outwards, is taken as an arc (the rim of the wafer, 4 in = 50.8 mm)
+OVERLAP       = 0.15;            // tile overlap (fraction of the field)
+MARGIN_UM     = 100.0;           // scan beyond the detected edges
+MAX_TRAVEL_UM = 30000.0;         // never move further than this from the start (1-inch pieces: corners ~18 mm)
+STEP_FRAC     = 0.80;            // search step, fraction of the field along the search direction
+DARK          = 128.0;           // camera black level at 12 bit (counts, RAW16); scaled to the actual bit depth
+// pixel -> stage (um per px) for the scan objective: stage that centres pixel p =
+// stage + M (p - centre).  From the Micro-Manager tile registration (10x + 0.63x).
+M00 = -1.0905; M01 = -0.0067;
+M10 =  0.0066; M11 = -1.0917;
+SAMPLE        = 16;              // analyse every SAMPLE-th 2x2 block (speed)
+CHROMA_TOL    = 0.10;            // substrate: R/G and B/G within this of the reference
+START_MIN_SUBSTRATE = 0.20;      // bare substrate needed in the start frame (else the neighbouring fields are tried)
+SUBSTRATE_COLOUR = null;         // null: found from the start frame.  Or fix it, e.g. new double[] { 0.54, 0.94 }
+                                 // (R/G, B/G of bare SiO2 in the log line "reference substrate")
+BRIGHT_MIN    = 0.45;            // ... and G within [BRIGHT_MIN, BRIGHT_MAX] x reference
+BRIGHT_MAX    = 1.60;
+BIN_UM        = 20.0;            // resolution of the edge profile
+GAP_UM        = 80.0;            // the edge: first band this wide (along the search) ...
+GAP_FRACTION  = 0.03;            // ... in which (almost) no substrate is left across the frame
+SURROUND_DARK = true;            // ... and which is mostly darker than DARK_LEVEL x substrate (the holder / gaps);
+DARK_LEVEL    = 0.6;             //     false if the surround is bright (then large bright flakes can stop the search)
+EDGE_ANY_UM   = 1500.0;          // ... or, whatever its brightness, a band at least this wide with no substrate at all
+                                 //     (no flake is that wide; a bright holder / tape / neighbouring piece beyond the edge)
+FOCUS_POINTS  = 4;               // chip mode, manual focus: plane from 3 or 4 points near the corners (0 = one Z for all tiles)
+FOCUS_POINTS_AUTO = 9;           // chip mode, autofocus: 4 (corners) or 9 (3 x 3 grid; averages autofocus noise)
+FOCUS_INSET   = 0.15;            // focus points this fraction of the way from the corners to the centre
+MAX_DZ_UM     = 150.0;           // safety: no Z further than this from the start focus (real um); in targets
+                                 // mode from each flake's predicted Z
+Z_STEPSIZE_UM = 0.0250 / 12.0;   // focus drive step size to set (um per motor step): the Oasis default 0.0250 made
+                                 // 1200 "um" = one 100 um turn of the BX51 fine-focus knob (measured 2026-09-30).
+                                 // 0 = leave it; then Z_SCALE below converts instead
+Z_SCALE       = 12.0;            // (only with Z_STEPSIZE_UM = 0) focus-drive units per real um of focus (BX51 + Oasis Z: ~1200 per 100 um knob turn);
+                                 // 1.0 once the Oasis Z step size is corrected.  All Z in this script and its logs
+                                 // are real um; .pos files get drive units (Micro-Manager moves the drive)
+FOCUS_SURFACE = "quadratic";     // 10x focus with >= 6 focus points: "quadratic" (pieces are bowed: on bigbntest_2 the
+                                 // 100x focus was 0.32 um rms off a quadratic, 0.87 um off a plane) or "plane"
+MAX_BOW_UM    = 15.0;            // a quadratic deviating more than this from the plane (inside the focus points) is not used
+MAX_TILT      = 10.0;            // um/mm; a steeper plane or rms > MAX_FOCUS_RMS is queried
+MAX_FOCUS_RMS = 5.0;             // um, residual of 4 points to the plane
+// autofocus (FOCUS_MODE = "auto", AF_METHOD = "script"): Z sweep, sharpness = edge strength of the
+// 2x2-binned centre of the frame; a coarse sweep, then a fine sweep and a parabola through the peak.
+// All sweeps approach from below (backlash) and stay within MAX_DZ_UM of the Z at the start.
+// {coarse +-range, coarse step, fine +-range, fine step (um), centre fraction of the frame used}
+AF10          = new double[] { 30.0, 5.0, 6.0, 1.0, 0.8 };    // 10x (depth of field ~6 um)
+AF100_FIRST   = new double[] { 15.0, 1.0, 1.0, 0.25, 0.9 };   // 100x, first flake (Z only roughly known)
+AF100         = new double[] { 4.0, 0.8, 1.0, 0.25, 0.9 };    // 100x, later flakes (Z predicted); 90 % of the frame:
+                                 // a large uniform flake filling the centre has too few edges for 50 %
+AF_MAX_DEV_UM = new double[] { 5.0, 3.0 };   // 100x: reject an autofocus result this far from the predicted Z
+                                 // (fewer than 5 / at least 5 flakes focused); a false peak on residue or dust
+AF_DEV_PER_MM = 0.5;             // ... plus this much per mm from the nearest focused flake (the prediction is less sure there)
+AF_MAX_DEV_CAP = 8.0;            // ... up to this
+AF_AGREE_UM   = 1.5;             // two flakes in a row rejected by the same amount (within this): the prediction is off, accept
+AF_EXTEND     = 2;               // shift the coarse window up to this many times if the peak is at an end
+AF_MIN_RATIO  = 1.10;            // peak / median sharpness below this = no focus signal (failed)
+AF_BACKLASH_UM = 5.0;            // approach every Z from this far below
+SPIKE_FACTOR  = 3.0;             // a sweep point this many times above both neighbours is re-measured (glitch frames)
+Z_SETTLE_MS   = 20;              // wait after each Z move
+AF_RETRIES    = 2;               // chip mode: other spots tried (towards the centre) if a point fails
+// targets mode
+TARGETS_CSV   = "C:/scans/fullchipbn24_targets.csv";   // from flakeid.targets (label, stage_x_um, stage_y_um, ...);
+                                 // "" = use the Stage Position List loaded in Micro-Manager
+CHIP_JSON     = "";              // <NAME>_chip.json of the 10x chip scan: its focus-plane tilt predicts Z between flakes
+PLANE_MIN_SPREAD_UM = 1500.0;    // use the tilt of the focused flakes once they span this much in both directions
+TARGET_EXPOSURE_MS = 27.0;       // exposure at 100x (ms).  Substrate green ~22 % of full scale; the brightest thick hBN
+                                 // (green ~3.6x the substrate) stays below clipping.  bigbntest_2 used 37 ms: thick flakes clipped
+TARGET_AUTO_EXPOSURE = false;    // 100x: true = set the exposure from the first frame (each run then differs from the flat field)
+TARGET_BOX_MARGIN_UM = 2000.0;   // targets mode: moves allowed within the box around all targets (and the start) + this
+FOCUS_OFFSET_UM = -42.0;         // targets mode: 100x focus Z minus 10x focus Z at the same spot (real um); BX51 10x -> 100x
+                                 // measured -39.4 .. -44.4 (bigbntest_2).  NaN = not known: measured at the first focused flake.
+                                 // Needs the z10_um column (flakeid.targets writes it from the 10x scan's tile Z)
+HUNDRED_SHIFTS_UM = new double[][] { { 10.0, 0.0 }, { 0.0, 10.0 } };   // 100x: extra frames at these stage offsets from
+                                 // each flake's position (same focus).  Dust in the light path and camera specks stay at the
+                                 // same pixel while the flake moves, so the analysis (flakeid.hundred) aligns the 3 frames on
+                                 // the flake and takes the median: optics artifacts smaller than the shift are removed.
+                                 // 10 um > the largest dust shadows seen (~9 um).  null = one frame per flake
+AF_MANUAL_FALLBACK = "first";    // autofocus failed on a flake (100x, stacking domains): "first" = ask you to focus only
+                                 // until a flake has been focused, later failures are imaged at the predicted Z (10x focus
+                                 // + the measured offset) without stopping; "always" = ask every time; "never"
+FOCUS_DIALOG_TIMEOUT_S = 120.0;  // a focus question nobody answers closes after this long and the predicted Z is used
+// multi mode
+PIECE_CENTERS = null;            // null: you are asked to centre each piece (live view on).  Or the centres, in um:
+                                 // new double[][] { { x1, y1 }, { x2, y2 }, ... } (Z: the current focus), or { x, y, z }
+RUN_DIR       = "";              // "": asked (starting at OUT_DIR).  All files of the run go here
+RUN_NAME      = "";              // "": asked; an empty answer = today's date (yyyyMMdd).  Pieces are <name>_1, <name>_2, ...;
+                                 // an index already used in RUN_DIR is never reused (nothing is overwritten)
+TARGETS_WAIT_S = 3600.0;         // after the scans: wait up to this long for each piece's <piece>_targets.csv
+OBJECTIVE_PROMPT = true;         // ask before the 100x part (switch the objective); false: go straight on
+MATERIAL      = "ask";           // "hbn" or "graphite".  Multi / chip mode: asked for every piece as it is added (with the oxide);
+                                 // this and OXIDE_NM are the first piece's defaults, later pieces default to the previous answers.
+                                 // Targets mode: "ask" asks once.  Stored in the run file, <piece>_chip.json and
+                                 // <piece>_tiles/scan_params.json, where flakeid.live / find_flakes read them
+OXIDE_NM      = 285;             // SiO2 thickness (nm), the default in the piece dialog
+PIECE_MATERIALS = null;          // with PIECE_CENTERS: { material, oxide nm } per piece, e.g. new Object[][] { { "graphite", 90.0 }, { "hbn", 285.0 } };
+                                 // null: MATERIAL / OXIDE_NM for every piece
+// stacking domains (MATERIAL = "graphite"): after the 100x images, image the thicker flakes again with a second
+// objective + camera + filter.  Measure the offsets with tools/mm_domain_test.bsh and copy its results here.
+DOMAIN_IMAGING = "ask";          // "ask": ask whether to do it; "yes": always (you are still asked to change the hardware); "no"
+DOMAIN_MIN_LAYERS = 3;           // flakes with at least this many layers (100x targets' thickness_nm >= (N - 0.5) x 0.335 nm)
+DOMAIN_MAX_NM = 0;               // ... and at most this thick (nm); 0 = no upper limit
+DOMAIN_CAMERA = "Raptor Owl Camera 640";   // Micro-Manager camera device of the domain camera; "" = the camera selected when you press OK
+DOMAIN_CAMERA_PROPS = new String[][] { { "High Gain", "Off" }, { "Frame Average", "4" } };   // { property, value [, "optional"] }
+DOMAIN_EXPOSURE_MS = 28.0;       // ms (mm_domain_test.bsh prints a value)
+DOMAIN_FRAMES = 1;               // frames averaged per flake (> 1: saved as a 32-bit average; weak domain contrast)
+DOMAIN_XY_OFFSET_UM = new double[] { 0.0, 0.0 };   // domain - 100x stage position of the same feature (mm_domain_test.bsh)
+DOMAIN_FOCUS_OFFSET_UM = Double.NaN;  // domain - 100x focus Z (mm_domain_test.bsh); NaN = found at the first flake (wide search)
+DOMAIN_SEARCH = new double[] { 30.0, 1.0, 1.5, 0.25, 0.9 };   // autofocus when the offset is not known yet
+DOMAIN_AF_FIRST = new double[] { 15.0, 1.0, 1.5, 0.25, 0.9 }; // autofocus when the prediction is unsure (100x Z not focused)
+DOMAIN_AF     = new double[] { 4.0, 0.8, 1.5, 0.25, 0.9 };    // autofocus around the predicted Z (100x focus + offset)
+DOMAIN_MAX_DEV_UM = 2.0;         // reject a domain autofocus result this far from the prediction (false peak)
+DOMAIN_RESTORE_CAMERA = true;    // afterwards select the scan camera again (when DOMAIN_CAMERA switched it)
+// flat mode: start on bare substrate (the same oxide as the scans), in focus, with the objective named here
+FLAT_OBJECTIVE = "10x";          // "10x" (exposure EXPOSURE_MS) or "100x" (TARGET_EXPOSURE_MS): the exposure must match the scans
+FLAT_FRAMES   = 25;              // frames saved, each at a different position (dust and flakes on the sample average out)
+FLAT_STEP_UM  = 0;               // spacing of the positions (0: 1.1 fields, so no two frames overlap)
+FLAT_MIN_SUBSTRATE = 0.6;        // skip a position if less of the frame than this is bare substrate (a flake or residue)
+FLAT_FOCUS    = "fixed";         // "fixed": the focus set at the start, for every frame (bare substrate has no features to
+                                 // autofocus on; a uniform field looks the same slightly out of focus).  "auto": autofocus at
+                                 // every position (only on a chip with features), keeping the last focus if it fails
+FLAT_DARK_FRAMES = 20;           // dark frames afterwards (you are asked to block the light); 0 = none
+EDGE_TOL_UM   = 60.0;            // edge points further than this from their fitted line: bounding edge
+LEAD          = 1.5;             // 2nd/3rd edge searches start this many fields inside the edge
+// --------------------------------------------------------------------------
+
+// Micro-Manager API calls that differ between versions go through has(): in BeanShell a
+// call to a missing method aborts the script and cannot be caught with try/catch.
+boolean has(Object o, String name) {
+    if (o == null) return false;
+    java.lang.reflect.Method[] ms = o.getClass().getMethods();
+    for (int i = 0; i < ms.length; i++) if (ms[i].getName().equals(name)) return true;
+    return false;
+}
+if (has(mm, "live")) {                                            // snaps fail in live mode
+    lv = mm.live();
+    if (has(lv, "getIsLiveModeOn") && lv.getIsLiveModeOn()) lv.setLiveMode(false);
+}
+xyDev = mmc.getXYStageDevice();
+zDev = mmc.getFocusDevice();
+W = (int) mmc.getImageWidth();
+H = (int) mmc.getImageHeight();
+X0 = mmc.getXPosition(xyDev);
+Y0 = mmc.getYPosition(xyDev);
+// Z in real um: the focus drive reports / moves in its own units = Z_SCALE x real um
+double zRead() { return mmc.getPosition(zDev) / Z_SCALE; }
+void zWrite(double z) { mmc.setPosition(zDev, z * Z_SCALE); }
+Z0 = (zDev != null && zDev.length() > 0) ? zRead() : 0.0;
+FOVX = Math.abs(M00) * W + Math.abs(M01) * H;      // field extent along stage X / Y (um)
+FOVY = Math.abs(M10) * W + Math.abs(M11) * H;
+nSnaps = 0;
+
+// output goes to the Script Panel and to <OUT_DIR>/<NAME>_log.txt (print from inside
+// methods may not reach the panel)
+LOG = null;                      // opened once the output folder is known; earlier lines are kept until then
+LOGBUF = new StringBuilder();
+void say(String msg) {
+    print(msg);
+    try { if (LOG != null) { LOG.write(msg + "\r\n"); LOG.flush(); } else LOGBUF.append(msg + "\r\n"); } catch (Throwable t) { }
+}
+void openLog(String path, boolean append) {
+    try { if (LOG != null) LOG.close(); } catch (Throwable t) { }
+    new File(path).getParentFile().mkdirs();
+    LOG = new FileWriter(path, append);
+    LOG.write(LOGBUF.toString()); LOG.flush();
+    LOGBUF = new StringBuilder();
+}
+if (!MODE.equals("multi")) openLog(OUT_DIR + "/" + NAME + "_log.txt", false);
+
+Exception fail(String msg) { say("ERROR: " + msg); return new Exception(msg); }
+
+String f1(double v) { return "" + (Math.round(v * 10.0) / 10.0); }
+String f3(double v) { return "" + (Math.round(v * 1000.0) / 1000.0); }
+String pad3(int v) { String s = "" + v; while (s.length() < 3) s = "0" + s; return s; }
+
+// NB: every variable inside a method is declared with a type.  In BeanShell an
+// untyped assignment inside a method changes a global of the same name.
+
+MOVE_BOX = null;                 // {xmin, xmax, ymin, ymax}: targets mode limits moves to this box
+void moveTo(double x, double y) {
+    if (MOVE_BOX != null) {
+        if (x < MOVE_BOX[0] || x > MOVE_BOX[1] || y < MOVE_BOX[2] || y > MOVE_BOX[3])
+            throw fail("move to " + f1(x) + ", " + f1(y) + " is outside the allowed box around the targets (" + f1(MOVE_BOX[0]) + " .. " +
+                       f1(MOVE_BOX[1]) + ", " + f1(MOVE_BOX[2]) + " .. " + f1(MOVE_BOX[3]) + ")");
+    } else if (Math.hypot(x - X0, y - Y0) > MAX_TRAVEL_UM + 1.0)
+        throw fail("move to " + f1(x) + ", " + f1(y) + " is beyond MAX_TRAVEL_UM from the start");
+    if (VERBOSE) say("    move to " + f1(x) + ", " + f1(y));
+    mmc.setXYPosition(xyDev, x, y);
+    mmc.waitForDevice(xyDev);
+    // the stage must report the position it was sent to (catches unit/axis/device problems)
+    double rx = mmc.getXPosition(xyDev), ry = mmc.getYPosition(xyDev);
+    if (Math.hypot(rx - x, ry - y) > ARRIVE_TOL_UM)
+        throw fail("stage did not arrive: sent " + f1(x) + ", " + f1(y) + " but it reports " + f1(rx) + ", " + f1(ry) +
+                            " (device " + xyDev + ")");
+}
+
+// ---- stage self-test: the readout must follow the commands.  After some hardware changes
+// (e.g. reconnecting a motor to the Oasis controller) Micro-Manager's stage readout and moves
+// can disagree (seen: X moves ~6x off) until Micro-Manager is restarted.
+void stageSelfTest() {
+    double x0 = mmc.getXPosition(xyDev), y0 = mmc.getYPosition(xyDev);
+    double[][] steps = { { 0, 0 }, { SELFTEST_UM, 0 }, { 0, SELFTEST_UM }, { 0, 0 } };
+    for (int i = 0; i < steps.length; i++) {
+        double tx = x0 + steps[i][0], ty = y0 + steps[i][1];
+        mmc.setXYPosition(xyDev, tx, ty);
+        mmc.waitForDevice(xyDev);
+        double rx = mmc.getXPosition(xyDev), ry = mmc.getYPosition(xyDev);
+        if (Math.abs(rx - tx) > ARRIVE_TOL_UM || Math.abs(ry - ty) > ARRIVE_TOL_UM) {
+            String m = "stage self-test failed: sent " + f1(tx) + ", " + f1(ty) + " but the stage reports " + f1(rx) + ", " + f1(ry) +
+                       ".  Micro-Manager's stage readout and moves disagree: RESTART MICRO-MANAGER (and check the stage " +
+                       "settings) before scanning.";
+            try { mmc.setXYPosition(xyDev, x0, y0); } catch (Throwable t) { }
+            if (!java.awt.GraphicsEnvironment.isHeadless())
+                try { javax.swing.JOptionPane.showMessageDialog(null, m, "Chip scan: stage problem", javax.swing.JOptionPane.ERROR_MESSAGE); } catch (Throwable t) { }
+            throw fail(m);
+        }
+    }
+    say("  stage self-test passed (readout follows +" + f1(SELFTEST_UM) + " um moves in X and Y)");
+}
+
+// ---- camera settings: set in order, then read back and compare (numbers compared as numbers)
+boolean sameValue(String a, String b) {
+    try { return Math.abs(Double.parseDouble(a) - Double.parseDouble(b)) < 1e-3; }
+    catch (Throwable t) { return a.trim().equalsIgnoreCase(b.trim()); }
+}
+void applyCamera() {
+    String cam = mmc.getCameraDevice();
+    String problems = "";
+    for (int i = 0; i < CAMERA_PROPS.length; i++) {
+        String name = CAMERA_PROPS[i][0], want = CAMERA_PROPS[i][1];
+        boolean opt = CAMERA_PROPS[i].length > 2;
+        if (!mmc.hasProperty(cam, name)) { if (!opt) problems += "\n  " + name + ": not a property of " + cam; continue; }
+        String now = mmc.getProperty(cam, name);
+        if (!sameValue(now, want)) {
+            try { mmc.setProperty(cam, name, want); }
+            catch (Throwable t) { if (!opt) problems += "\n  " + name + ": could not set " + want + " (" + t.getMessage() + ")"; continue; }
+        }
+    }
+    mmc.setExposure(EXPOSURE_MS);
+    mmc.waitForDevice(cam);
+    // read back everything after all changes (one setting can change another)
+    String rep = "";
+    for (int i = 0; i < CAMERA_PROPS.length; i++) {
+        String name = CAMERA_PROPS[i][0], want = CAMERA_PROPS[i][1];
+        if (!mmc.hasProperty(cam, name)) continue;
+        String now = mmc.getProperty(cam, name);
+        rep += "  " + name + " = " + now;
+        if (!sameValue(now, want)) {
+            rep += "   <-- wanted " + want;
+            if (CAMERA_PROPS[i].length <= 2) problems += "\n  " + name + " is " + now + ", wanted " + want;
+        }
+        rep += "\n";
+    }
+    String[] extra = { "Sensor data bit depth", "Exposure", "Frame rate" };
+    for (int i = 0; i < extra.length; i++)
+        if (mmc.hasProperty(cam, extra[i])) rep += "  (" + extra[i] + " = " + mmc.getProperty(cam, extra[i]) + ")\n";
+    double ex = mmc.getExposure();
+    rep += "  exposure = " + f3(ex) + " ms (Micro-Manager setExposure / getExposure, milliseconds)";
+    if (Math.abs(ex - EXPOSURE_MS) > 1e-3) problems += "\n  exposure is " + f3(ex) + " ms, wanted " + f3(EXPOSURE_MS);
+    say("  camera " + cam + ":\n" + rep);
+    if (problems.length() > 0) throw fail("camera settings not as requested:" + problems);
+}
+
+// live view or a sequence acquisition (e.g. started while changing the camera) blocks snaps and property changes
+void stopStreaming() {
+    try { if (has(mm, "live") && has(mm.live(), "getIsLiveModeOn") && mm.live().getIsLiveModeOn()) mm.live().setLiveMode(false); } catch (Throwable t) { }
+    try { if (has(mmc, "isSequenceRunning") && mmc.isSequenceRunning()) { mmc.stopSequenceAcquisition(); say("    (stopped a running sequence acquisition / live view)"); } } catch (Throwable t) { }
+}
+
+// properties of another camera (the domain camera): set, read back, logged
+void setProps(String cam, String[][] props) {
+    for (int i = 0; i < props.length; i++) {
+        String nm = props[i][0], want = props[i][1];
+        boolean opt = props[i].length > 2;
+        if (!mmc.hasProperty(cam, nm)) { if (!opt) throw fail(nm + " is not a property of " + cam); continue; }
+        try { mmc.setProperty(cam, nm, want); }
+        catch (Throwable t) { if (!opt) throw fail("could not set " + nm + " = " + want + " on " + cam + ": " + t.getMessage()); }
+        say("    " + cam + " " + nm + " = " + mmc.getProperty(cam, nm));
+    }
+}
+
+// ---- focus helpers
+ZREF = Double.NaN;               // targets mode: the Z limit is taken around each flake's predicted Z
+boolean setZ(double z) {
+    double ref = Double.isNaN(ZREF) ? Z0 : ZREF;
+    if (Math.abs(z - ref) > MAX_DZ_UM) return false;             // safety limit
+    zWrite(z);
+    mmc.waitForDevice(zDev);
+    if (Z_SETTLE_MS > 0) Thread.sleep((long) Z_SETTLE_MS);
+    return true;
+}
+
+// a camera frame as an ImageJ processor: 8 bit, 16 bit (raw Bayer or monochrome), RGB32 or 32-bit float
+ij.process.ImageProcessor toIP(Object img, int w, int h) {
+    if (img instanceof short[]) return new ij.process.ShortProcessor(w, h, (short[]) img, null);
+    if (img instanceof byte[]) return new ij.process.ByteProcessor(w, h, (byte[]) img, null);
+    if (img instanceof float[]) return new ij.process.FloatProcessor(w, h, (float[]) img, null);
+    return new ij.process.ColorProcessor(w, h, (int[]) img);
+}
+// sharpness of the current view: mean edge strength / mean intensity of the 2x2-binned centre
+double sharpness(double roi) {
+    mmc.snapImage();
+    Object img = mmc.getImage();
+    nSnaps++;
+    ij.process.ImageProcessor ip = toIP(img, W, H);
+    int rw = ((int) (W * roi)) & ~1, rh = ((int) (H * roi)) & ~1;
+    ip.setRoi(((W - rw) / 2) & ~1, ((H - rh) / 2) & ~1, rw, rh);
+    ij.process.ImageProcessor c = ip.crop().convertToFloat().bin(2);   // 2x2 bin removes the colour mosaic
+    double mean = c.getStatistics().mean;
+    c.findEdges();
+    return c.getStatistics().mean / Math.max(mean, 1.0);
+}
+
+// Z sweep from lo to hi (bottom-up).  Returns {index of max, and fills zs/ms}
+int sweep(double[] zs, double[] ms, double roi) {
+    setZ(zs[0] - AF_BACKLASH_UM);
+    for (int i = 0; i < zs.length; i++) {
+        if (setZ(zs[i])) ms[i] = sharpness(roi); else ms[i] = -1.0;
+    }
+    despike(zs, ms, roi);
+    int bi = -1;
+    for (int i = 0; i < zs.length; i++) if (bi < 0 || ms[i] > ms[bi]) bi = i;
+    return bi;
+}
+
+// a single glitch frame (seen on the XC10: 13x the sharpness of its neighbours, not reproducible)
+// must not become the focus: re-measure points far above both neighbours
+void despike(double[] zs, double[] ms, double roi) {
+    for (int i = 0; i < zs.length; i++) {
+        if (ms[i] <= 0) continue;
+        double nb = -1;
+        if (i > 0) nb = Math.max(nb, ms[i - 1]);
+        if (i < zs.length - 1) nb = Math.max(nb, ms[i + 1]);
+        if (nb <= 0 || ms[i] < SPIKE_FACTOR * nb) continue;
+        setZ(zs[i] - AF_BACKLASH_UM); setZ(zs[i]);
+        double again = sharpness(roi);
+        if (VERBOSE) say("      sharpness spike at Z " + f3(zs[i]) + " (" + f3(ms[i]) + " vs neighbours " + f3(nb) + "): re-measured " + f3(again));
+        ms[i] = again;
+    }
+}
+
+// script autofocus around zc with p = {coarse range, coarse step, fine range, fine step}.
+// Returns {z, peak/median ratio, ok (1/0)}; the focus drive is left at z when ok.
+double[] autofocusScript(double zc, double[] p) {
+    long t0 = System.currentTimeMillis();
+    double lo = zc - p[0], hi = zc + p[0];
+    double bestZ = zc, ratio = 0.0;
+    for (int ext = 0; ext <= AF_EXTEND; ext++) {
+        int n = (int) Math.round((hi - lo) / p[1]) + 1;
+        double[] zs = new double[n], ms = new double[n];
+        for (int i = 0; i < n; i++) zs[i] = lo + i * p[1];
+        int bi = sweep(zs, ms, p[4]);
+        double[] valid = new double[n]; int nv = 0;
+        for (int i = 0; i < n; i++) if (ms[i] >= 0) valid[nv++] = ms[i];
+        if (nv < 3) break;
+        ratio = ms[bi] / Math.max(median(java.util.Arrays.copyOf(valid, nv)), 1e-9);
+        bestZ = zs[bi];
+        if (ratio < AF_MIN_RATIO) break;
+        if (bi == 0 && ext < AF_EXTEND) { hi = lo + p[1]; lo = hi - 2 * p[0]; continue; }       // peak below the window
+        if (bi == n - 1 && ext < AF_EXTEND) { lo = hi - p[1]; hi = lo + 2 * p[0]; continue; }   // peak above
+        break;
+    }
+    if (ratio < AF_MIN_RATIO) {
+        if (VERBOSE) say("      autofocus: no focus signal (peak/median " + f3(ratio) + ")");
+        setZ(zc);
+        return new double[] { zc, ratio, 0 };
+    }
+    // fine sweep and parabola through the peak (log sharpness)
+    int nf = (int) Math.round(2 * p[2] / p[3]) + 1;
+    double[] zf = new double[nf], mf = new double[nf];
+    for (int i = 0; i < nf; i++) zf[i] = bestZ - p[2] + i * p[3];
+    int fi = sweep(zf, mf, p[4]);
+    // if the coarse sweep was a step off, the peak sits at an end of the fine window: re-centre once
+    if (fi <= 1 || fi >= nf - 2) {
+        double zc2 = zf[fi];
+        for (int i = 0; i < nf; i++) zf[i] = zc2 - p[2] + i * p[3];
+        fi = sweep(zf, mf, p[4]);
+        if (VERBOSE) say("      fine sweep re-centred on Z " + f3(zc2));
+    }
+    double z = zf[fi];
+    // least-squares parabola (log sharpness) through the fine points in the top half of the peak
+    double mmin = 1e30;
+    for (int i = 0; i < nf; i++) if (mf[i] > 0) mmin = Math.min(mmin, mf[i]);
+    double thr = Math.log(mmin) + 0.5 * (Math.log(mf[fi]) - Math.log(mmin));
+    double s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, q0 = 0, q1 = 0, q2 = 0, zlo = 1e30, zhi = -1e30;
+    int np = 0;
+    for (int i = 0; i < nf; i++) {
+        if (mf[i] <= 0 || Math.log(mf[i]) < thr) continue;
+        double u = zf[i] - zf[fi], y = Math.log(mf[i]);
+        s0 += 1; s1 += u; s2 += u * u; s3 += u * u * u; s4 += u * u * u * u; q0 += y; q1 += u * y; q2 += u * u * y;
+        zlo = Math.min(zlo, zf[i]); zhi = Math.max(zhi, zf[i]); np++;
+    }
+    if (np >= 3) {
+        // normal equations for y = c0 + c1 u + c2 u^2
+        double det = s0 * (s2 * s4 - s3 * s3) - s1 * (s1 * s4 - s3 * s2) + s2 * (s1 * s3 - s2 * s2);
+        if (Math.abs(det) > 1e-12) {
+            double c1 = (s0 * (q1 * s4 - s3 * q2) - q0 * (s1 * s4 - s3 * s2) + s2 * (s1 * q2 - q1 * s2)) / det;
+            double c2 = (s0 * (s2 * q2 - q1 * s3) - s1 * (s1 * q2 - q1 * s2) + q0 * (s1 * s3 - s2 * s2)) / det;
+            if (c2 < 0) z = Math.max(zlo, Math.min(zhi, zf[fi] - c1 / (2 * c2)));
+        }
+    }
+    setZ(z - AF_BACKLASH_UM);
+    setZ(z);
+    if (VERBOSE) say("      autofocus: Z " + f3(z) + " (peak/median " + f3(ratio) + ", " +
+                     ((System.currentTimeMillis() - t0) / 1000.0) + " s)");
+    return new double[] { z, ratio, 1 };
+}
+
+// Micro-Manager's own autofocus (the method selected in its Autofocus manager)
+double[] autofocusMM() {
+    Object am = has(mm, "getAutofocusManager") ? mm.getAutofocusManager() : null;
+    Object m = (am != null && has(am, "getAutofocusMethod")) ? am.getAutofocusMethod() : null;
+    if (m == null || !has(m, "fullFocus")) throw fail("AF_METHOD = micromanager, but no autofocus method is selected in Micro-Manager");
+    m.fullFocus();
+    mmc.waitForDevice(zDev);
+    double z = zRead();
+    if (Math.abs(z - Z0) > MAX_DZ_UM) throw fail("Micro-Manager autofocus went to Z " + f1(z) + ", beyond MAX_DZ_UM");
+    return new double[] { z, 0.0, 1 };
+}
+
+double[] autofocus(double zc, double[] p) {
+    if (AF_METHOD.equals("micromanager")) { setZ(zc); return autofocusMM(); }
+    return autofocusScript(zc, p);
+}
+
+// manual focus: live view + dialog.  Returns 0 = use, 1 = skip, 2 = stop
+int askFocus(String title, String what) {
+    if (java.awt.GraphicsEnvironment.isHeadless()) {
+        if (has(mmc, "mockFocus")) { mmc.mockFocus(); return 0; }         // simulator only
+        return 1;
+    }
+    if (has(mm, "live") && has(mm.live(), "setLiveMode")) mm.live().setLiveMode(true);
+    int ans = javax.swing.JOptionPane.showConfirmDialog(null, what + "\n\n" +
+        "Focus with the Z control (live view is on), then:\n" +
+        "  Yes = use this focus     No = skip     Cancel = stop",
+        title, javax.swing.JOptionPane.YES_NO_CANCEL_OPTION);
+    if (has(mm, "live") && has(mm.live(), "setLiveMode")) mm.live().setLiveMode(false);
+    if (ans == javax.swing.JOptionPane.YES_OPTION) return 0;
+    if (ans == javax.swing.JOptionPane.NO_OPTION) return 1;
+    return 2;
+}
+
+// the same question with a time limit (the scan must not wait all night for an answer).  Returns 0 = use, 1 = skip,
+// 2 = stop, 3 = no answer within timeoutS (the caller goes on with the predicted Z)
+int askFocusT(String title, String what, double timeoutS) {
+    if (java.awt.GraphicsEnvironment.isHeadless()) {
+        if (has(mmc, "mockFocus")) { mmc.mockFocus(); return 0; }         // simulator only
+        return 3;
+    }
+    if (has(mm, "live") && has(mm.live(), "setLiveMode")) mm.live().setLiveMode(true);
+    javax.swing.JOptionPane pane = new javax.swing.JOptionPane(what + "\n\n" +
+        "Focus with the Z control (live view is on), then:\n" +
+        "  Yes = use this focus     No = skip     Cancel = stop\n\n" +
+        "(Without an answer within " + ((int) timeoutS) + " s the flake is imaged at the predicted focus and the scan goes on.)",
+        javax.swing.JOptionPane.QUESTION_MESSAGE, javax.swing.JOptionPane.YES_NO_CANCEL_OPTION);
+    javax.swing.JDialog dlg = pane.createDialog(null, title);
+    dlg.setModal(false);
+    dlg.setVisible(true);
+    long t0 = System.currentTimeMillis();
+    Object v = javax.swing.JOptionPane.UNINITIALIZED_VALUE;
+    while (System.currentTimeMillis() - t0 < (long) (timeoutS * 1000)) {
+        v = pane.getValue();
+        if (v != javax.swing.JOptionPane.UNINITIALIZED_VALUE) break;
+        Thread.sleep(250);
+    }
+    dlg.dispose();
+    if (has(mm, "live") && has(mm.live(), "setLiveMode")) mm.live().setLiveMode(false);
+    if (v == javax.swing.JOptionPane.UNINITIALIZED_VALUE) return 3;
+    if (v instanceof Integer) {
+        int a = ((Integer) v).intValue();
+        if (a == javax.swing.JOptionPane.YES_OPTION) return 0;
+        if (a == javax.swing.JOptionPane.NO_OPTION) return 1;
+    }
+    return 2;
+}
+
+// ask after a failed autofocus?  nFocused = flakes focused so far in this pass
+boolean askOnFail(int nFocused) {
+    Object m = AF_MANUAL_FALLBACK;
+    String mode = (m instanceof Boolean) ? (((Boolean) m).booleanValue() ? "always" : "never") : ("" + m);
+    return mode.equals("always") || (mode.equals("first") && nFocused == 0);
+}
+
+// Z predicted at (x, y) from the flakes focused so far: nearest focused flake plus a tilt.
+// The tilt comes from the focused flakes once they span PLANE_MIN_SPREAD_UM in both directions
+// (a plane through points on a line says nothing across it), else from the 10x chip scan
+// (chipTilt), else none; it is capped at MAX_TILT.
+double predictZ(double x, double y, java.util.List pts, double[] chipTilt, double zDefault) {
+    if (pts.size() == 0) return zDefault;
+    int nn = 0; double best = 1e30;
+    for (int i = 0; i < pts.size(); i++) {
+        double[] f = (double[]) pts.get(i);
+        double d = Math.hypot(f[0] - x, f[1] - y);
+        if (d < best) { best = d; nn = i; }
+    }
+    double[] n = (double[]) pts.get(nn);
+    double sa = 0, sb = 0;
+    boolean spread = false;
+    if (pts.size() >= 3) {
+        double mx = 0, my = 0;
+        for (int i = 0; i < pts.size(); i++) { mx += ((double[]) pts.get(i))[0]; my += ((double[]) pts.get(i))[1]; }
+        mx /= pts.size(); my /= pts.size();
+        double cxx = 0, cyy = 0, cxy = 0;
+        for (int i = 0; i < pts.size(); i++) {
+            double[] f = (double[]) pts.get(i);
+            cxx += (f[0] - mx) * (f[0] - mx); cyy += (f[1] - my) * (f[1] - my); cxy += (f[0] - mx) * (f[1] - my);
+        }
+        cxx /= pts.size(); cyy /= pts.size(); cxy /= pts.size();
+        double minEig = (cxx + cyy) / 2 - Math.sqrt((cxx - cyy) * (cxx - cyy) / 4 + cxy * cxy);
+        spread = Math.sqrt(Math.max(minEig, 0)) * 2 >= PLANE_MIN_SPREAD_UM;
+    }
+    double[] pf = spread ? fitPlane(pts) : null;
+    if (pf != null) { sa = pf[0]; sb = pf[1]; }
+    else if (chipTilt != null) { sa = chipTilt[0]; sb = chipTilt[1]; }
+    double t = Math.hypot(sa, sb) * 1000.0;
+    if (t > MAX_TILT) { sa *= MAX_TILT / t; sb *= MAX_TILT / t; }
+    return n[2] + sa * (x - n[0]) + sb * (y - n[1]);
+}
+
+// least-squares plane z = a x + b y + c through {x, y, z} points (>= 3), or null
+double[] fitPlane(java.util.List pts) {
+    if (pts.size() < 3) return null;
+    double mx = 0, my = 0;
+    for (int i = 0; i < pts.size(); i++) { mx += ((double[]) pts.get(i))[0]; my += ((double[]) pts.get(i))[1]; }
+    mx /= pts.size(); my /= pts.size();
+    double s00 = 0, s01 = 0, s02 = 0, s11 = 0, s12 = 0, s22 = 0, t0 = 0, t1 = 0, t2 = 0;
+    for (int i = 0; i < pts.size(); i++) {
+        double[] f = (double[]) pts.get(i);
+        double u = f[0] - mx, v = f[1] - my;
+        s00 += u * u; s01 += u * v; s02 += u; s11 += v * v; s12 += v; s22 += 1; t0 += u * f[2]; t1 += v * f[2]; t2 += f[2];
+    }
+    // points (nearly) on a line: no plane (minor axis of the xy spread < 1 % of the major one)
+    double lam1 = (s00 + s11) / 2 + Math.sqrt((s00 - s11) * (s00 - s11) / 4 + s01 * s01);
+    double lam2 = (s00 + s11) / 2 - Math.sqrt((s00 - s11) * (s00 - s11) / 4 + s01 * s01);
+    if (lam1 <= 0 || lam2 < 1e-4 * lam1) return null;
+    double det = s00 * (s11 * s22 - s12 * s12) - s01 * (s01 * s22 - s12 * s02) + s02 * (s01 * s12 - s11 * s02);
+    if (Math.abs(det) < 1e-12) return null;
+    double a = (t0 * (s11 * s22 - s12 * s12) - s01 * (t1 * s22 - s12 * t2) + s02 * (t1 * s12 - s11 * t2)) / det;
+    double b = (s00 * (t1 * s22 - s12 * t2) - t0 * (s01 * s22 - s12 * s02) + s02 * (s01 * t2 - t1 * s02)) / det;
+    double c = (s00 * (s11 * t2 - t1 * s12) - s01 * (s01 * t2 - t1 * s02) + t0 * (s01 * s12 - s11 * s02)) / det;
+    return new double[] { a, b, c - a * mx - b * my };
+}
+
+
+// ---- 10x focus surface: plane z = fa x + fb y + fc, or (FQ != null) a quadratic through the focus
+// points.  Outside the box of the focus points the quadratic is not extrapolated: its value at the
+// nearest point of the box plus the plane's slope.
+fa = 0.0; fb = 0.0; fc = 0.0; FQ = null;
+double zSurf(double x, double y) {
+    if (FQ == null) return fa * x + fb * y + fc;
+    double xc = Math.max(FQ[6], Math.min(FQ[7], x)), yc = Math.max(FQ[8], Math.min(FQ[9], y));
+    double u = (xc - FQ[10]) / 1000.0, v = (yc - FQ[11]) / 1000.0;
+    return FQ[0] + FQ[1] * u + FQ[2] * v + FQ[3] * u * u + FQ[4] * u * v + FQ[5] * v * v + fa * (x - xc) + fb * (y - yc);
+}
+double zAt(double x, double y) {
+    double z = zSurf(x, y);
+    return Math.max(Z0 - MAX_DZ_UM, Math.min(Z0 + MAX_DZ_UM, z));
+}
+
+// solve A x = b (Gaussian elimination with partial pivoting); null if singular
+double[] solve(double[][] A, double[] b) {
+    int n = b.length;
+    double[][] m = new double[n][n + 1];
+    for (int i = 0; i < n; i++) { for (int j = 0; j < n; j++) m[i][j] = A[i][j]; m[i][n] = b[i]; }
+    for (int c = 0; c < n; c++) {
+        int pr = c;
+        for (int r = c + 1; r < n; r++) if (Math.abs(m[r][c]) > Math.abs(m[pr][c])) pr = r;
+        if (Math.abs(m[pr][c]) < 1e-12) return null;
+        double[] tmp = m[c]; m[c] = m[pr]; m[pr] = tmp;
+        for (int r = 0; r < n; r++) {
+            if (r == c) continue;
+            double f = m[r][c] / m[c][c];
+            for (int j = c; j <= n; j++) m[r][j] -= f * m[c][j];
+        }
+    }
+    double[] x = new double[n];
+    for (int i = 0; i < n; i++) x[i] = m[i][n] / m[i][i];
+    return x;
+}
+
+// least-squares quadratic z(u, v) through {x, y, z} points (>= 6), u, v in mm from the points' mean:
+// {c0, cu, cv, cuu, cuv, cvv, xmin, xmax, ymin, ymax, mx, my}, or null
+double[] fitQuad(java.util.List pts) {
+    int n = pts.size();
+    if (n < 6) return null;
+    double mx = 0, my = 0, x0 = 1e30, x1 = -1e30, y0 = 1e30, y1 = -1e30;
+    for (int i = 0; i < n; i++) {
+        double[] f = (double[]) pts.get(i);
+        mx += f[0] / n; my += f[1] / n;
+        x0 = Math.min(x0, f[0]); x1 = Math.max(x1, f[0]); y0 = Math.min(y0, f[1]); y1 = Math.max(y1, f[1]);
+    }
+    double[][] A = new double[6][6];
+    double[] b = new double[6];
+    for (int i = 0; i < n; i++) {
+        double[] f = (double[]) pts.get(i);
+        double u = (f[0] - mx) / 1000.0, v = (f[1] - my) / 1000.0;
+        double[] r = { 1, u, v, u * u, u * v, v * v };
+        for (int j = 0; j < 6; j++) { b[j] += r[j] * f[2]; for (int k = 0; k < 6; k++) A[j][k] += r[j] * r[k]; }
+    }
+    double[] c = solve(A, b);
+    if (c == null) return null;
+    return new double[] { c[0], c[1], c[2], c[3], c[4], c[5], x0, x1, y0, y1, mx, my };
+}
+
+// 100x - 10x focus offset at (x, y): distance-weighted mean of the offsets measured so far (no slope:
+// a plane through the first flakes extrapolated across the piece put orders 16-31 of bigbntest_2
+// 4-5 um off, outside the plausibility window)
+double idwOffset(double x, double y, java.util.List pts) {
+    double sw = 0, s = 0;
+    for (int i = 0; i < pts.size(); i++) {
+        double[] f = (double[]) pts.get(i);
+        double d = Math.hypot(f[0] - x, f[1] - y);
+        double w = 1.0 / (d * d + 1.0e6);                   // 1 mm softening
+        sw += w; s += w * f[2];
+    }
+    return s / sw;
+}
+
+// distance (um) to the nearest point of pts, or 1e9
+double nearestDist(double x, double y, java.util.List pts) {
+    double best = 1e9;
+    for (int i = 0; i < pts.size(); i++) {
+        double[] f = (double[]) pts.get(i);
+        best = Math.min(best, Math.hypot(f[0] - x, f[1] - y));
+    }
+    return best;
+}
+
+String safeName(String s) { return s.trim().replaceAll("[^A-Za-z0-9_.-]", "_"); }
+
+// first index n such that nothing in dir is named <base>_<m>... for any m >= n (indices are never reused)
+int freeIndex(String dir, String base) {
+    int mx = 0;
+    String[] fs = new File(dir).list();
+    java.util.regex.Pattern pat = java.util.regex.Pattern.compile("^" + java.util.regex.Pattern.quote(base) + "_(?:run_)?(\\d+)(?:[_.].*)?$");
+    if (fs != null) for (int i = 0; i < fs.length; i++) {
+        java.util.regex.Matcher m = pat.matcher(fs[i]);
+        if (m.matches()) mx = Math.max(mx, Integer.parseInt(m.group(1)));
+    }
+    return mx + 1;
+}
+
+// wait until a file exists (and has not changed for 2 s).  Returns true when it is there; false on timeout
+// or when you press "Skip" in the waiting window (STOP_ALL is set by "Stop")
+STOP_ALL = false;
+boolean waitForFile(String path, double timeoutS, String what) {
+    File f = new File(path);
+    long t0 = System.currentTimeMillis(), lastSay = 0;
+    javax.swing.JOptionPane pane = null;
+    javax.swing.JDialog dlg = null;
+    if (!f.exists() && !java.awt.GraphicsEnvironment.isHeadless()) {
+        pane = new javax.swing.JOptionPane("Waiting for " + what + ":\n" + path + "\n\n(is python -m flakeid.live running on the analysis computer?)",
+                                           javax.swing.JOptionPane.INFORMATION_MESSAGE, javax.swing.JOptionPane.DEFAULT_OPTION, null,
+                                           new Object[] { "Skip this piece", "Stop" });
+        dlg = pane.createDialog(null, "Waiting for the analysis");
+        dlg.setModal(false);
+        dlg.setVisible(true);
+    }
+    boolean ok = false;
+    while (true) {
+        if (f.exists()) {
+            long len = f.length();
+            Thread.sleep(2000);
+            if (f.exists() && f.length() == len) { ok = true; break; }
+            continue;
+        }
+        if (pane != null) {
+            Object v = pane.getValue();
+            if ("Skip this piece".equals(v)) break;
+            if ("Stop".equals(v)) { STOP_ALL = true; break; }
+        }
+        double el = (System.currentTimeMillis() - t0) / 1000.0;
+        if (el > timeoutS) { say("    gave up waiting for " + path + " after " + f1(el) + " s"); break; }
+        if (System.currentTimeMillis() - lastSay > 60000) { say("    waiting for " + what + " (" + f1(el) + " s)"); lastSay = System.currentTimeMillis(); }
+        Thread.sleep(1000);
+    }
+    if (dlg != null) dlg.dispose();
+    return ok;
+}
+
+// run manifest for the analysis computer: the pieces, their state and the run state
+void writeManifest(String path, java.util.List pieces, String state) {
+    StringBuilder b = new StringBuilder();
+    b.append("{\"script_version\": \"" + SCRIPT_VERSION + "\", \"state\": \"" + state + "\", \"updated\": \"" +
+             new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()) + "\",\n \"pieces\": [\n");
+    for (int i = 0; i < pieces.size(); i++) {
+        Object[] p = (Object[]) pieces.get(i);
+        double[] c = (double[]) p[1];
+        b.append("  {\"name\": \"" + jsonEsc((String) p[0]) + "\", \"center\": [" + c[0] + ", " + c[1] + "], \"z\": " + c[2] +
+                 (p.length > 4 ? ", \"material\": \"" + p[3] + "\", \"oxide_nm\": " + p[4] : "") +
+                 ", \"state\": \"" + p[2] + "\", \"tiles\": \"" + jsonEsc((String) p[0]) + "_tiles\", \"targets\": \"" +
+                 jsonEsc((String) p[0]) + "_targets.csv\"}" + (i < pieces.size() - 1 ? ",\n" : "\n"));
+    }
+    b.append(" ]}\n");
+    // written in place: on a network share, delete + rename can fail and leave only a .tmp (the reader on the
+    // analysis computer retries a half-written file)
+    FileWriter w = new FileWriter(path, false); w.write(b.toString()); w.close();
+    File tmp = new File(path + ".tmp");
+    if (tmp.exists()) tmp.delete();                                // left by version 2026-10-01b
+}
+
+// material and oxide of a piece: a dialog with a list (hBN / graphite) and the oxide thickness, pre-filled with
+// the defaults.  Returns { "hbn" | "graphite", Double oxide nm }, or null (cancelled)
+Object[] askPieceInfo(String title, String what, String mat, double ox) {
+    javax.swing.JComboBox box = new javax.swing.JComboBox(new String[] { "hBN", "graphite" });
+    box.setSelectedIndex(mat.equals("graphite") ? 1 : 0);
+    javax.swing.JTextField oxf = new javax.swing.JTextField("" + (Math.round(ox * 10.0) / 10.0), 8);
+    javax.swing.JPanel pan = new javax.swing.JPanel(new java.awt.GridLayout(0, 1, 4, 4));
+    pan.add(new javax.swing.JLabel(what));
+    pan.add(new javax.swing.JLabel("Material:")); pan.add(box);
+    pan.add(new javax.swing.JLabel("Oxide (SiO2) thickness, nm:")); pan.add(oxf);
+    while (true) {
+        int a = javax.swing.JOptionPane.showConfirmDialog(null, pan, title, javax.swing.JOptionPane.OK_CANCEL_OPTION, javax.swing.JOptionPane.QUESTION_MESSAGE);
+        if (a != javax.swing.JOptionPane.OK_OPTION) return null;
+        double v = Double.NaN;
+        try { v = Double.parseDouble(oxf.getText().trim()); } catch (Throwable t) { }
+        if (v > 0 && v < 3000) return new Object[] { box.getSelectedIndex() == 1 ? "graphite" : "hbn", new Double(v) };
+        javax.swing.JOptionPane.showMessageDialog(null, "Enter the oxide thickness in nm (for example 90 or 285).");
+    }
+}
+
+// ask for the pieces: centre each one (joystick / stage control, live view on) and press "Add piece", then give
+// its material and oxide.  Returns a list of {x, y, z}; PIECE_INFO gets { material, Double oxide } per piece
+PIECE_INFO = new java.util.ArrayList();
+java.util.List askPieces() {
+    java.util.List out = new java.util.ArrayList();
+    if (PIECE_CENTERS != null) {
+        for (int i = 0; i < PIECE_CENTERS.length; i++) {
+            out.add(new double[] { PIECE_CENTERS[i][0], PIECE_CENTERS[i][1], PIECE_CENTERS[i].length > 2 ? PIECE_CENTERS[i][2] : zRead() });
+            if (PIECE_MATERIALS != null && i < PIECE_MATERIALS.length)
+                PIECE_INFO.add(new Object[] { ((String) PIECE_MATERIALS[i][0]).toLowerCase(), new Double(((Number) PIECE_MATERIALS[i][1]).doubleValue()) });
+            else PIECE_INFO.add(new Object[] { MATERIAL, new Double(OXIDE_NM) });
+        }
+        return out;
+    }
+    String dMat = MATERIAL;
+    double dOx = OXIDE_NM;
+    if (java.awt.GraphicsEnvironment.isHeadless()) throw fail("multi mode without a screen: set PIECE_CENTERS");
+    if (has(mm, "live") && has(mm.live(), "setLiveMode")) mm.live().setLiveMode(true);
+    while (true) {
+        String list = "";
+        for (int i = 0; i < out.size(); i++) {
+            double[] p = (double[]) out.get(i);
+            Object[] inf = (Object[]) PIECE_INFO.get(i);
+            list += "\n   piece " + (i + 1) + ": " + f1(p[0]) + ", " + f1(p[1]) + " um, Z " + f1(p[2]) + ", " + inf[0] + " on " + f1(((Double) inf[1]).doubleValue()) + " nm";
+        }
+        Object[] opts = out.size() > 0 ? new Object[] { "Add piece " + (out.size() + 1) + " here", "Done (" + out.size() + " piece" + (out.size() > 1 ? "s" : "") + ")", "Cancel" }
+                                       : new Object[] { "Add piece 1 here", "Cancel" };
+        int a = javax.swing.JOptionPane.showOptionDialog(null,
+            "Move the stage to the approximate centre of piece " + (out.size() + 1) + " (10x, live view is on) and focus roughly.\n" +
+            "Then press \"Add piece " + (out.size() + 1) + " here\"." + (out.size() > 0 ? "\n\nPieces so far:" + list : ""),
+            "Multi-piece scan: pieces", javax.swing.JOptionPane.DEFAULT_OPTION, javax.swing.JOptionPane.QUESTION_MESSAGE, null, opts, opts[0]);
+        if (a == 0) {
+            mmc.waitForDevice(xyDev);
+            double[] p = new double[] { mmc.getXPosition(xyDev), mmc.getYPosition(xyDev), zRead() };
+            boolean dup = false;
+            for (int i = 0; i < out.size(); i++) if (Math.hypot(((double[]) out.get(i))[0] - p[0], ((double[]) out.get(i))[1] - p[1]) < 1000) dup = true;
+            if (dup) { javax.swing.JOptionPane.showMessageDialog(null, "That is within 1 mm of a piece already added: move to the next piece first."); continue; }
+            Object[] inf = askPieceInfo("Piece " + (out.size() + 1) + ": material and oxide", "Piece " + (out.size() + 1) + " at " + f1(p[0]) + ", " + f1(p[1]) + " um", dMat, dOx);
+            if (inf == null) continue;                                   // cancelled: the piece is not added
+            dMat = (String) inf[0]; dOx = ((Double) inf[1]).doubleValue();   // defaults for the next piece
+            out.add(p);
+            PIECE_INFO.add(inf);
+            say("  piece " + out.size() + ": centre " + f1(p[0]) + ", " + f1(p[1]) + " um, Z " + f1(p[2]) + ", " + dMat + " on " + f1(dOx) + " nm oxide");
+        } else if (out.size() > 0 && a == 1) break;
+        else { if (has(mm, "live") && has(mm.live(), "setLiveMode")) mm.live().setLiveMode(false); throw fail("cancelled"); }
+    }
+    if (has(mm, "live") && has(mm.live(), "setLiveMode")) mm.live().setLiveMode(false);
+    return out;
+}
+
+// ---- brightness of the current view: {median green above dark / (full scale - dark), saturated fraction}
+double fullScale() {
+    String cam = mmc.getCameraDevice();
+    if ((int) mmc.getBytesPerPixel() == 4) return 255.0;
+    if (mmc.hasProperty(cam, "Image data bit depth"))
+        try { return Math.pow(2, Double.parseDouble(mmc.getProperty(cam, "Image data bit depth"))) - 1; } catch (Throwable t) { }
+    return Math.pow(2, (double) mmc.getImageBitDepth()) - 1;
+}
+double[] frameLevel() {
+    double fs = fullScale();
+    double[][] bl = snapBlocks();
+    double[] g = new double[bl.length];
+    int sat = 0;
+    for (int i = 0; i < bl.length; i++) {
+        g[i] = bl[i][3];
+        if (bl[i][2] + DARK >= fs - 2 || bl[i][3] + DARK >= fs - 2 || bl[i][4] + DARK >= fs - 2) sat++;
+    }
+    return new double[] { median(g) / (fs - DARK), sat / (double) bl.length };
+}
+// check (or, with auto, set) the exposure; stops if the image is saturated or black
+void checkExposure(boolean auto) {
+    double[] lv = frameLevel();
+    for (int it = 0; auto && it < 8; it++) {
+        if (lv[1] < 0.01 && Math.abs(lv[0] / TARGET_LEVEL - 1) < 0.15) break;
+        double ex = mmc.getExposure();
+        double f = (lv[0] > 0.9 || lv[1] > 0.3) ? 0.1 : TARGET_LEVEL / Math.max(lv[0], 0.005);
+        double nex = Math.max(EXPOSURE_RANGE[0], Math.min(EXPOSURE_RANGE[1], ex * f));
+        if (Math.abs(nex - ex) < 1e-6) break;
+        mmc.setExposure(nex);
+        mmc.waitForDevice(mmc.getCameraDevice());
+        say("    exposure " + f3(ex) + " -> " + f3(nex) + " ms (median " + f3(lv[0] * 100) + " % of full scale, " + f3(lv[1] * 100) + " % saturated)");
+        lv = frameLevel();
+    }
+    say("  frame level: median " + f3(lv[0] * 100) + " % of full scale (" + ((int) fullScale()) + "), " + f3(lv[1] * 100) +
+        " % saturated, exposure " + f3(mmc.getExposure()) + " ms");
+    if (lv[1] > 0.05 || lv[0] > 0.85)
+        throw fail("the image is overexposed (median " + f3(lv[0] * 100) + " % of full scale, " + f3(lv[1] * 100) + " % of the frame saturated) " +
+                   "at exposure " + f3(mmc.getExposure()) + " ms.  Check the exposure and the lamp, or set AUTO_EXPOSURE = true.");
+    if (lv[0] < 0.02)
+        throw fail("the image is (nearly) black (median " + f3(lv[0] * 100) + " % of full scale): lamp off or light path closed?");
+}
+
+// ---- tile acquisition to disk (SCAN_METHOD = "script"), Micro-Manager "separate image files" layout
+String jsonEsc(String v) {
+    StringBuilder b = new StringBuilder();
+    for (int i = 0; i < v.length(); i++) {
+        char c = v.charAt(i);
+        if (c == '"' || c == '\\') b.append('\\').append(c);
+        else if (c < 32) b.append(' ');
+        else b.append(c);
+    }
+    return b.toString();
+}
+// camera glitch frames (XC10, ~1 in 100-200 frames): random values over the whole range, or the raw data one
+// pixel off (scrambled colours: the two green sites of the 2x2 Bayer cell then differ by tens of %).  RAW16 only.
+String badFrame(Object img) {
+    if (!(img instanceof short[])) return null;
+    short[] p = (short[]) img;
+    // green sites of the 2x2 cell (G on R rows, G on B rows) summed in 8 vertical and 8 horizontal strips:
+    // a frame can be scrambled in part only (bigbntest_2 Pos-005_001: 33 % in one strip, 13 % over the frame)
+    double[][] gx = new double[2][8], gy = new double[2][8]; int[] nx = new int[8], ny = new int[8];
+    double dsum = 0, lsum = 0;
+    for (int y = 8; y < H - 8; y += 16) {
+        int o = (y & ~1) * W;
+        int by = Math.min(7, (y * 8) / H);
+        for (int x = 8; x < W - 10; x += 8) {
+            int xx = x & ~1;
+            int bx = Math.min(7, (xx * 8) / W);
+            double a = p[o + xx + 1] & 0xffff, b = p[o + W + xx] & 0xffff;
+            gx[0][bx] += a; gx[1][bx] += b; nx[bx]++;
+            gy[0][by] += a; gy[1][by] += b; ny[by]++;
+            dsum += Math.abs((p[o + xx + 3] & 0xffff) - (p[o + xx + 1] & 0xffff)); lsum += a;
+        }
+    }
+    if (dsum / Math.max(lsum, 1.0) > 0.3) return "noise frame (neighbour difference " + f3(dsum / Math.max(lsum, 1.0)) + " of the level)";
+    for (int k = 0; k < 8; k++) {
+        if (nx[k] > 0) { double a = gx[0][k] / nx[k], b = gx[1][k] / nx[k];
+            if (Math.abs(a - b) > 0.15 * Math.max(Math.max(a, b), 1.0)) return "scrambled colours (green sites " + f1(a) + " / " + f1(b) + ")"; }
+        if (ny[k] > 0) { double a = gy[0][k] / ny[k], b = gy[1][k] / ny[k];
+            if (Math.abs(a - b) > 0.15 * Math.max(Math.max(a, b), 1.0)) return "scrambled colours (green sites " + f1(a) + " / " + f1(b) + ")"; }
+    }
+    return null;
+}
+// snap until the frame is not a glitch frame (at most 3 extra tries)
+Object snapGood(String what) {
+    Object img = null;
+    for (int k = 0; k < 4; k++) {
+        mmc.snapImage();
+        img = mmc.getImage();
+        String b = badFrame(img);
+        if (b == null) return img;
+        say("    camera glitch on " + what + ": " + b + (k < 3 ? "; snapping again" : "; kept (check this image)"));
+    }
+    return img;
+}
+
+void saveTile(String dir, int index, String label, int col, int row, double zReal) {
+    Object img = snapGood("tile " + label);
+    String cam = mmc.getCameraDevice();
+    new File(dir).mkdirs();
+    String idx = "" + index; while (idx.length() < 3) idx = "0" + idx;
+    String tif = "img_channel000_position" + idx + "_time000000000_z000.tif";
+    ij.process.ImageProcessor ip = ((int) mmc.getBytesPerPixel() == 2)
+        ? (ij.process.ImageProcessor) new ij.process.ShortProcessor(W, H, (short[]) img, null)
+        : (ij.process.ImageProcessor) new ij.process.ColorProcessor(W, H, (int[]) img);
+    ij.IJ.saveAsTiff(new ij.ImagePlus(label, ip), dir + "/" + tif);
+    StringBuilder m = new StringBuilder();
+    m.append("{\n\"Summary\": {\"Source\": \"mm_chip_scan " + SCRIPT_VERSION + "\", \"Width\": " + W + ", \"Height\": " + H +
+             ", \"PixelType\": \"" + ((int) mmc.getBytesPerPixel() == 2 ? "GRAY16" : "RGB32") + "\", \"Z_SCALE\": " + Z_SCALE + "},\n");
+    m.append("\"Metadata-Default/" + tif + "\": {\n");
+    m.append("  \"Label\": \"" + label + "\", \"GridCol\": " + col + ", \"GridRow\": " + row + ",\n");
+    m.append("  \"XPositionUm\": " + mmc.getXPosition(xyDev) + ", \"YPositionUm\": " + mmc.getYPosition(xyDev) +
+             ", \"ZPositionUm\": " + (hasZ ? "" + zRead() : "0") + ", \"ZPositionDrive\": " + (hasZ ? "" + mmc.getPosition(zDev) : "0") + ",\n");
+    m.append("  \"Exposure-ms\": " + mmc.getExposure() + ", \"Camera\": \"" + jsonEsc(cam) + "\", \"Width\": " + W + ", \"Height\": " + H);
+    if (has(mmc, "getDevicePropertyNames")) {
+        Object names = mmc.getDevicePropertyNames(cam);
+        for (int i = 0; i < (int) names.size(); i++) {
+            String nm = (String) names.get(i);
+            String v = "";
+            try { v = mmc.getProperty(cam, nm); } catch (Throwable t) { continue; }
+            m.append(",\n  \"" + jsonEsc(cam + "-" + nm) + "\": \"" + jsonEsc(v) + "\"");
+        }
+    } else {
+        for (int i = 0; i < CAMERA_PROPS.length; i++)
+            if (mmc.hasProperty(cam, CAMERA_PROPS[i][0]))
+                m.append(",\n  \"" + jsonEsc(cam + "-" + CAMERA_PROPS[i][0]) + "\": \"" + jsonEsc(mmc.getProperty(cam, CAMERA_PROPS[i][0])) + "\"");
+    }
+    m.append("\n}\n}\n");
+    FileWriter w = new FileWriter(dir + "/metadata.txt"); w.write(m.toString()); w.close();
+}
+
+// ---- one frame -> sampled 2x2 blocks: {x, y, R, G, B} (pixel centre, dark subtracted)
+double[][] snapBlocks() {
+    mmc.snapImage();
+    Object img = mmc.getImage();
+    nSnaps++;
+    int bpp = (int) mmc.getBytesPerPixel();
+    int nx = (W - 2) / SAMPLE, ny = (H - 2) / SAMPLE;
+    double[][] out = new double[nx * ny][];
+    int k = 0;
+    short[] p16 = (bpp == 2) ? (short[]) img : null;
+    int[] p32 = (bpp == 4) ? (int[]) img : null;
+    for (int j = 0; j < ny; j++) {
+        int y = (j * SAMPLE + SAMPLE / 2) & ~1;
+        for (int i = 0; i < nx; i++) {
+            int x = (i * SAMPLE + SAMPLE / 2) & ~1;
+            double r, g, b;
+            if (p16 != null) {
+                int o = y * W + x;
+                r = (p16[o] & 0xffff) - DARK;
+                g = 0.5 * ((p16[o + 1] & 0xffff) + (p16[o + W] & 0xffff)) - DARK;
+                b = (p16[o + W + 1] & 0xffff) - DARK;
+            } else {
+                int v = p32[y * W + x];
+                r = (v >> 16) & 0xff; g = (v >> 8) & 0xff; b = v & 0xff;
+            }
+            out[k++] = new double[] { x + 1.0, y + 1.0, r, g, b };
+        }
+    }
+    return out;
+}
+
+double median(double[] a) { double[] c = java.util.Arrays.copyOf(a, a.length); java.util.Arrays.sort(c); return c[c.length / 2]; }
+
+// reference substrate colour {R/G, B/G, G} from the central half of the start frame
+double[] reference(double[][] blocks) {
+    // The substrate is the most common single colour in the frame, even when flakes and tape residue
+    // cover most of it (they spread over many colours).  Mode of the R/G-B/G histogram (3x3 smoothed),
+    // then medians of the blocks near it.  SUBSTRATE_COLOUR, if set, fixes the colour.
+    int NB = 200; double BW = 0.02;                                  // chroma bins over [0, 4)
+    double rc, bc;
+    if (SUBSTRATE_COLOUR != null) { rc = SUBSTRATE_COLOUR[0]; bc = SUBSTRATE_COLOUR[1]; }
+    else {
+        int[] cnt = new int[NB * NB];
+        for (int i = 0; i < blocks.length; i++) {
+            double[] bl = blocks[i];
+            if (bl[3] <= 1) continue;
+            double r = bl[2] / bl[3], b = bl[4] / bl[3];
+            if (r < 0 || b < 0 || r >= NB * BW || b >= NB * BW) continue;
+            cnt[((int) (r / BW)) * NB + (int) (b / BW)]++;
+        }
+        int best = -1, bk = 0;
+        for (int k = 0; k < cnt.length; k++) {
+            if (cnt[k] == 0) continue;
+            int ir = k / NB, ib = k % NB, sum = 0;
+            for (int dr = -1; dr <= 1; dr++) for (int db = -1; db <= 1; db++) {
+                int jr = ir + dr, jb = ib + db;
+                if (jr >= 0 && jb >= 0 && jr < NB && jb < NB) sum += cnt[jr * NB + jb];
+            }
+            if (sum > best) { best = sum; bk = k; }
+        }
+        rc = (bk / NB + 0.5) * BW; bc = (bk % NB + 0.5) * BW;
+    }
+    // refine on the blocks close to that colour (brightness from the central half: less vignetting)
+    int n = 0, nc = 0;
+    double[] rg = new double[blocks.length], bg = new double[blocks.length], gg = new double[blocks.length], gc = new double[blocks.length];
+    for (int i = 0; i < blocks.length; i++) {
+        double[] bl = blocks[i];
+        if (bl[3] <= 1) continue;
+        double r = bl[2] / bl[3], b = bl[4] / bl[3];
+        if (Math.abs(r / rc - 1) > CHROMA_TOL / 2 || Math.abs(b / bc - 1) > CHROMA_TOL / 2) continue;
+        rg[n] = r; bg[n] = b; gg[n] = bl[3]; n++;
+        if (Math.abs(bl[0] - W / 2.0) <= W / 4.0 && Math.abs(bl[1] - H / 2.0) <= H / 4.0) gc[nc++] = bl[3];
+    }
+    if (n == 0) return new double[] { rc, bc, 1.0 };
+    return new double[] { median(java.util.Arrays.copyOf(rg, n)), median(java.util.Arrays.copyOf(bg, n)),
+                          nc >= 10 ? median(java.util.Arrays.copyOf(gc, nc)) : median(java.util.Arrays.copyOf(gg, n)) };
+}
+
+boolean isSubstrate(double[] bl) {
+    if (bl[3] < BRIGHT_MIN * REF[2] || bl[3] > BRIGHT_MAX * REF[2]) return false;
+    return Math.abs(bl[2] / bl[3] / REF[0] - 1) < CHROMA_TOL && Math.abs(bl[4] / bl[3] / REF[1] - 1) < CHROMA_TOL;
+}
+
+double substrateFraction(double[][] blocks) {
+    int n = 0;
+    for (int i = 0; i < blocks.length; i++) if (isSubstrate(blocks[i])) n++;
+    return n / (double) blocks.length;
+}
+
+// ---- walk from (sx, sy) along the unit stage direction (dx, dy) until a frame is off
+// the chip.  Returns the distance (um) from (sx, sy) to the edge, or -1 if none found.
+double findEdge(double sx, double sy, double dx, double dy) {
+    double ext = Math.abs(dx) * FOVX + Math.abs(dy) * FOVY;
+    double step = STEP_FRAC * ext;
+    int nb = (int) ((MAX_TRAVEL_UM + ext) / BIN_UM) + 2;
+    int gapBins = (int) Math.ceil(GAP_UM / BIN_UM);
+    double[] sub = new double[nb], tot = new double[nb], drk = new double[nb];
+    for (int k = 0; ; k++) {
+        double px = sx + dx * step * k, py = sy + dy * step * k;
+        if (Math.hypot(px - X0, py - Y0) > MAX_TRAVEL_UM) break;
+        moveTo(px, py);
+        double[][] blocks = snapBlocks();
+        int nsub = 0;
+        for (int i = 0; i < blocks.length; i++) {
+            double[] bl = blocks[i];
+            double ox = bl[0] - W / 2.0, oy = bl[1] - H / 2.0;
+            double tx = px + M00 * ox + M01 * oy, ty = py + M10 * ox + M11 * oy;
+            double s = (tx - sx) * dx + (ty - sy) * dy;
+            boolean isSub = isSubstrate(bl);
+            if (isSub) nsub++;
+            int b = (int) Math.floor(s / BIN_UM) + 1;             // bin b covers s in [(b-1), b) * BIN_UM
+            if (b < 0 || b >= nb) continue;
+            tot[b] += 1.0;
+            if (isSub) sub[b] += 1.0;
+            if (bl[3] < DARK_LEVEL * REF[2]) drk[b] += 1.0;
+        }
+        if (VERBOSE) {
+            double[] gs = new double[blocks.length];
+            for (int i = 0; i < blocks.length; i++) gs[i] = blocks[i][3];
+            say("    frame " + k + " at " + f1(px) + ", " + f1(py) + ": substrate fraction " + f3(nsub / (double) blocks.length) +
+                ", brightness " + f3(median(gs) / REF[2]) + " x substrate");
+        }
+        // edge = start of the first band >= GAP_UM wide, ahead of the start, where substrate is
+        // (almost) absent across the whole frame.  A neighbouring chip or other substrate-coloured
+        // material beyond a narrow gap is thereby not mistaken for more of this chip.
+        // Or a band of at least EDGE_ANY_UM with no substrate, dark or not (a bright surround on this side).
+        int run = 0, runAny = 0;
+        int anyBins = (int) Math.ceil(EDGE_ANY_UM / BIN_UM);
+        for (int b = 1; b < nb; b++) {
+            if (tot[b] == 0) break;                                // not observed yet
+            boolean noSub = sub[b] / tot[b] < GAP_FRACTION;
+            boolean gapBin = noSub && (!SURROUND_DARK || drk[b] / tot[b] >= 0.5);
+            if (gapBin) run++; else run = 0;
+            if (noSub) runAny++; else runAny = 0;
+            if (run >= gapBins || runAny >= anyBins) {
+                // dark gap: the edge where it starts (a narrow bright strip in front of it only adds tiles, while
+                // taking the start of everything without substrate would cut off the residue strip along chip edges)
+                if (run < gapBins) {
+                    run = runAny;
+                    say("    (edge: " + f1(EDGE_ANY_UM) + " um without substrate; the surround on this side is not dark)");
+                }
+                int first = b - run + 1;
+                if (first <= 1) return 0.0;                        // start frame already at the edge
+                double fa = sub[first - 1] / tot[first - 1], fb = sub[first] / tot[first];
+                double t = Math.min(Math.max((fa - 0.5) / Math.max(fa - fb, 1e-6), 0.0), 1.0);
+                if (fa < 0.5) t = 0.0;
+                return (first - 2 + 0.5 + t) * BIN_UM;
+            }
+        }
+    }
+    return -1.0;
+}
+
+// intersection of two edge lines {ex, ey, nx, ny}:  n.(p - e) = 0
+double[] intersect(double[] a, double[] b) {
+    double ca = a[2] * a[0] + a[3] * a[1], cb = b[2] * b[0] + b[3] * b[1];
+    double det = a[2] * b[3] - a[3] * b[2];
+    return new double[] { (ca * b[3] - a[3] * cb) / det, (a[2] * cb - ca * b[2]) / det };
+}
+
+// least-squares circle through {x, y} points (>= 3): {cx, cy, R}, or null
+double[] fitCircle(java.util.List pts) {
+    int n = pts.size();
+    double mx = 0, my = 0;
+    for (int i = 0; i < n; i++) { mx += ((double[]) pts.get(i))[0]; my += ((double[]) pts.get(i))[1]; }
+    mx /= n; my /= n;
+    // x^2 + y^2 + D x + E y + F = 0 (centred coordinates, in mm for conditioning)
+    double a00 = 0, a01 = 0, a02 = 0, a11 = 0, a12 = 0, a22 = 0, b0 = 0, b1 = 0, b2 = 0;
+    for (int i = 0; i < n; i++) {
+        double[] p = (double[]) pts.get(i);
+        double x = (p[0] - mx) / 1000.0, y = (p[1] - my) / 1000.0, r = -(x * x + y * y);
+        a00 += x * x; a01 += x * y; a02 += x; a11 += y * y; a12 += y; a22 += 1; b0 += x * r; b1 += y * r; b2 += r;
+    }
+    double det = a00 * (a11 * a22 - a12 * a12) - a01 * (a01 * a22 - a12 * a02) + a02 * (a01 * a12 - a11 * a02);
+    if (Math.abs(det) < 1e-12) return null;
+    double D = (b0 * (a11 * a22 - a12 * a12) - a01 * (b1 * a22 - a12 * b2) + a02 * (b1 * a12 - a11 * b2)) / det;
+    double E = (a00 * (b1 * a22 - a12 * b2) - b0 * (a01 * a22 - a12 * a02) + a02 * (a01 * b2 - b1 * a02)) / det;
+    double F = (a00 * (a11 * b2 - b1 * a12) - a01 * (a01 * b2 - b1 * a02) + b0 * (a01 * a12 - a11 * a02)) / det;
+    double r2 = D * D / 4 + E * E / 4 - F;
+    if (r2 <= 0) return null;
+    return new double[] { mx - D / 2 * 1000.0, my - E / 2 * 1000.0, Math.sqrt(r2) * 1000.0 };
+}
+
+// is (x, y) on the chip (grown by grow um)?  Straight / bounding sides: half-planes; round sides: discs.
+boolean insideChip(double x, double y, double grow) {
+    for (int e = 0; e < 4; e++) {
+        double[] L = lines[e];
+        if (L[2] * (x - L[0]) + L[3] * (y - L[1]) > grow) return false;
+        if (sideType[e] == 1 && Math.hypot(x - arcs[e][0], y - arcs[e][1]) > arcs[e][2] + grow) return false;
+    }
+    return true;
+}
+
+// does a tile centred at (tx, ty) overlap the chip (grown by MARGIN_UM)?
+boolean tileNeeded(double tx, double ty) {
+    for (int e = 0; e < 4; e++) {
+        double[] L = lines[e];
+        double best = 1e30;
+        for (int sx = -1; sx <= 1; sx += 2)
+            for (int sy = -1; sy <= 1; sy += 2) {
+                double px = tx + sx * FOVX / 2.0, py = ty + sy * FOVY / 2.0;
+                best = Math.min(best, L[2] * (px - L[0]) + L[3] * (py - L[1]));
+            }
+        if (best > MARGIN_UM) return false;     // tile entirely outside this edge
+        if (sideType[e] == 1) {                 // round edge: nearest point of the tile to the circle centre
+            double qx = Math.max(tx - FOVX / 2.0, Math.min(tx + FOVX / 2.0, arcs[e][0]));
+            double qy = Math.max(ty - FOVY / 2.0, Math.min(ty + FOVY / 2.0, arcs[e][1]));
+            if (Math.hypot(qx - arcs[e][0], qy - arcs[e][1]) > arcs[e][2] + MARGIN_UM) return false;
+        }
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------- run
+// focus-drive step size: set it so that Micro-Manager's Z is in real um; if it cannot be set, the
+// scripts convert with Z_SCALE = (drive step size) / Z_STEPSIZE_UM
+if (zDev != null && zDev.length() > 0 && Z_STEPSIZE_UM > 0) {
+    if (!mmc.hasProperty(zDev, "StepSize_um")) throw fail(zDev + " has no StepSize_um property; set Z_STEPSIZE_UM = 0 and Z_SCALE by hand");
+    zsOld = mmc.getProperty(zDev, "StepSize_um");
+    zrOld = mmc.getPosition(zDev);
+    if (Math.abs(Double.parseDouble(zsOld) - Z_STEPSIZE_UM) > 1e-7) {
+        try { mmc.setProperty(zDev, "StepSize_um", "" + Z_STEPSIZE_UM); mmc.waitForDevice(zDev); }
+        catch (Throwable t) { say("  (" + zDev + " StepSize_um cannot be set: " + t.getMessage() + ")"); }
+    }
+    zsNew = mmc.getProperty(zDev, "StepSize_um");
+    // whatever the drive uses now (set, rounded, or unchanged because read-only), convert the rest in
+    // software: drive units per real um = its step size / the true step size
+    Z_SCALE = Double.parseDouble(zsNew) / Z_STEPSIZE_UM;
+    say("  " + zDev + " StepSize_um: " + zsOld + " -> " + zsNew + " um per step; " +
+        (Math.abs(Z_SCALE - 1) < 1e-6 ? "Z in real um" : "converting in software, Z_SCALE " + f3(Z_SCALE) + " drive units per um") +
+        "; Z read " + f3(zrOld) + ", now " + f3(mmc.getPosition(zDev)));
+}
+Z0 = (zDev != null && zDev.length() > 0) ? zRead() : 0.0;   // (again, after a step-size change)
+say("chip scan (version " + SCRIPT_VERSION + "): start at " + f1(X0) + ", " + f1(Y0) + " um, field " + f1(FOVX) + " x " + f1(FOVY) + " um");
+say("  Z_SCALE " + Z_SCALE + " drive units per um (Z in real um from here on)");
+say("  devices: XY stage '" + xyDev + "', focus '" + zDev + "', camera '" + mmc.getCameraDevice() + "' " +
+      W + " x " + H + " px, " + mmc.getBytesPerPixel() + " bytes/px, Z " + f1(Z0));
+if (MODE.equals("targets") || (MODE.equals("flat") && FLAT_OBJECTIVE.equals("100x"))) { EXPOSURE_MS = TARGET_EXPOSURE_MS; }
+if (SET_CAMERA || CAMERA_ONLY) applyCamera();
+DARK = DARK * (fullScale() + 1) / 4096.0;                       // black level scales with the bit depth
+if (MODE.equals("targets")) AUTO_EXPOSURE = TARGET_AUTO_EXPOSURE;
+if (MODE.equals("flat")) AUTO_EXPOSURE = false;               // the flat must be taken at the scans' exposure
+checkExposure(AUTO_EXPOSURE);
+if (CAMERA_ONLY) { say("CAMERA_ONLY = true: camera set, nothing else done"); return; }
+if (!FOCUS_MODE.equals("auto") && !FOCUS_MODE.equals("manual")) throw fail("FOCUS_MODE must be \"auto\" or \"manual\"");
+say("  mode " + MODE + ", focus " + FOCUS_MODE + (FOCUS_MODE.equals("auto") ? " (" + AF_METHOD + ")" : ""));
+stageSelfTest();
+hasZ = zDev != null && zDev.length() > 0;
+
+REF = null;                      // substrate colour (global: read by isSubstrate)
+
+// ================================================================ flat mode: flat-field and dark frames
+if (MODE.equals("flat")) {
+    if (!FLAT_OBJECTIVE.equals("10x") && !FLAT_OBJECTIVE.equals("100x")) throw fail("FLAT_OBJECTIVE must be \"10x\" or \"100x\"");
+    // field of this objective (the M matrix is for 10x; 100x is 9.54x finer)
+    fs_ = FLAT_OBJECTIVE.equals("100x") ? 1.0 / 9.54 : 1.0;
+    fovx_ = FOVX * fs_; fovy_ = FOVY * fs_;
+    step_ = FLAT_STEP_UM > 0 ? FLAT_STEP_UM : 1.1 * Math.max(fovx_, fovy_);
+    flatDir = OUT_DIR + "/" + NAME + "_flat_" + FLAT_OBJECTIVE;
+    for (int n = 2; new File(flatDir).exists(); n++) flatDir = OUT_DIR + "/" + NAME + "_flat_" + FLAT_OBJECTIVE + "_" + n;
+    say("flat field (" + FLAT_OBJECTIVE + ", exposure " + f3(mmc.getExposure()) + " ms): " + FLAT_FRAMES + " frames " + f1(step_) +
+        " um apart around " + f1(X0) + ", " + f1(Y0) + ", focus " + FLAT_FOCUS + " -> " + flatDir);
+    REF = reference(snapBlocks());                                // substrate colour from the start frame
+    say("  substrate R/G " + f3(REF[0]) + ", B/G " + f3(REF[1]) + ", G " + f1(REF[2]) + " counts");
+    zf_ = hasZ ? zRead() : 0.0;
+    fsc_ = fullScale();
+    nSaved = 0; nTried = 0; ring = 0;
+    // positions on square rings around the start: (0,0), then ring 1, ring 2, ...
+    while (nSaved < FLAT_FRAMES && ring <= 12) {
+        pts_ = new java.util.ArrayList();
+        if (ring == 0) pts_.add(new int[] { 0, 0 });
+        for (int i = -ring; i <= ring && ring > 0; i++) { pts_.add(new int[] { i, -ring }); pts_.add(new int[] { i, ring }); }
+        for (int j = -ring + 1; j <= ring - 1 && ring > 0; j++) { pts_.add(new int[] { -ring, j }); pts_.add(new int[] { ring, j }); }
+        for (int q = 0; q < pts_.size() && nSaved < FLAT_FRAMES; q++) {
+            g_ = (int[]) pts_.get(q);
+            px_ = X0 + g_[0] * step_; py_ = Y0 + g_[1] * step_;
+            if (Math.hypot(px_ - X0, py_ - Y0) > MAX_TRAVEL_UM) continue;
+            nTried = nTried + 1;
+            moveTo(px_, py_);
+            if (hasZ && FLAT_FOCUS.equals("auto")) {
+                r_ = autofocus(zf_, FLAT_OBJECTIVE.equals("100x") ? AF100 : AF10);
+                if (r_[2] > 0.5) zf_ = r_[0]; else { setZ(zf_); say("    no focus signal here: kept Z " + f3(zf_)); }
+            } else if (hasZ) { setZ(zf_ - AF_BACKLASH_UM); setZ(zf_); }
+            bl_ = snapBlocks();
+            sf_ = substrateFraction(bl_);
+            satN_ = 0;
+            for (int i = 0; i < bl_.length; i++) if (bl_[i][3] + DARK >= fsc_ - 2 || bl_[i][2] + DARK >= fsc_ - 2) satN_ = satN_ + 1;
+            if (sf_ < FLAT_MIN_SUBSTRATE || satN_ > 0) {
+                say("    " + f1(px_) + ", " + f1(py_) + ": " + (satN_ > 0 ? "saturated pixels" : "substrate fraction " + f3(sf_)) + ", skipped");
+                continue;
+            }
+            lbl_ = "Pos-" + pad3(nSaved) + "_000";
+            saveTile(flatDir + "/" + lbl_, nSaved, lbl_, nSaved, 0, zf_);
+            nSaved = nSaved + 1;
+            say("    frame " + nSaved + "/" + FLAT_FRAMES + " at " + f1(px_) + ", " + f1(py_) + " (substrate " + f3(sf_) + ")");
+        }
+        ring = ring + 1;
+    }
+    moveTo(X0, Y0);
+    if (hasZ) setZ(zf_);
+    if (nSaved < FLAT_FRAMES) say("  WARNING: only " + nSaved + " clean positions found in " + nTried + " tried: move to a cleaner area or lower FLAT_MIN_SUBSTRATE");
+    say("  " + nSaved + " flat frames in " + flatDir);
+    darkDir = "";
+    if (FLAT_DARK_FRAMES > 0) {
+        blocked_ = false;
+        if (has(mmc, "mockDark")) { mmc.mockDark(true); blocked_ = true; }               // simulator
+        else if (!java.awt.GraphicsEnvironment.isHeadless())
+            blocked_ = javax.swing.JOptionPane.showConfirmDialog(null, "Flat frames done (" + nSaved + ").\n\nNow block all light to the camera " +
+                "(close the lamp shutter or the light path), then press OK to record " + FLAT_DARK_FRAMES + " dark frames.\nCancel = no dark frames.",
+                NAME + ": dark frames", javax.swing.JOptionPane.OK_CANCEL_OPTION) == javax.swing.JOptionPane.OK_OPTION;
+        if (blocked_) {
+            lv_ = frameLevel();
+            if (lv_[0] > 0.05) say("  WARNING: the 'dark' frame is " + f3(lv_[0] * 100) + " % of full scale: is the light really blocked?");
+            darkDir = OUT_DIR + "/" + NAME + "_dark_" + FLAT_OBJECTIVE;
+            for (int n = 2; new File(darkDir).exists(); n++) darkDir = OUT_DIR + "/" + NAME + "_dark_" + FLAT_OBJECTIVE + "_" + n;
+            for (int k = 0; k < FLAT_DARK_FRAMES; k++) { lbl_ = "Pos-" + pad3(k) + "_000"; saveTile(darkDir + "/" + lbl_, k, lbl_, k, 0, zf_); }
+            say("  " + FLAT_DARK_FRAMES + " dark frames in " + darkDir + " (unblock the light again)");
+            if (has(mmc, "mockDark")) mmc.mockDark(false);
+        } else say("  no dark frames");
+    }
+    say("  build the flat field on the analysis computer:");
+    say("    python -m flakeid.mm flat \"" + flatDir + "\"" + (darkDir.length() > 0 ? " --dark \"" + darkDir + "\"" : "") +
+        " -o flat_" + FLAT_OBJECTIVE + "_" + ((int) Math.round(mmc.getExposure())) + "ms.npz");
+}
+
+// ================================================================ material (graphite: stacking-domain imaging is offered)
+if (MATERIAL.equals("ask")) {
+    // multi / chip mode: asked for every piece together with the oxide (the piece dialog starts at hBN)
+    if (java.awt.GraphicsEnvironment.isHeadless() || MODE.equals("flat") || MODE.equals("multi") || MODE.equals("chip")) MATERIAL = "hbn";
+    else {
+        Object[] mo_ = new Object[] { "hBN", "graphite", "Cancel" };
+        mi_ = javax.swing.JOptionPane.showOptionDialog(null, "Which flakes are on the pieces?\n\n(graphite: after the 100x images you can image " +
+            "flakes of " + DOMAIN_MIN_LAYERS + "+ layers\nfor stacking domains with the domain camera)", "Scan: material",
+            javax.swing.JOptionPane.DEFAULT_OPTION, javax.swing.JOptionPane.QUESTION_MESSAGE, null, mo_, mo_[0]);
+        if (mi_ != 0 && mi_ != 1) throw fail("cancelled");
+        MATERIAL = mi_ == 0 ? "hbn" : "graphite";
+    }
+}
+if (!MATERIAL.equals(MATERIAL.toLowerCase())) MATERIAL = MATERIAL.toLowerCase();   // (not at the line start: harnesses set ^MATERIAL =)
+if (!MATERIAL.equals("hbn") && !MATERIAL.equals("graphite")) throw fail("MATERIAL must be \"hbn\", \"graphite\" or \"ask\"");
+if (!MODE.equals("multi") && !MODE.equals("chip"))
+    say("  material " + MATERIAL + (MATERIAL.equals("graphite") ? " (stacking-domain imaging: " + DOMAIN_IMAGING + ", flakes of " + DOMAIN_MIN_LAYERS + "+ layers)" : ""));
+DOMAIN_LIST = new java.util.ArrayList();                          // graphite flakes imaged at 100x for the domain camera
+DOMAIN_MIN_NM = (DOMAIN_MIN_LAYERS - 0.5) * 0.335;
+
+// ================================================================ pieces (MODE "chip": one, at the start position)
+PIECES = new java.util.ArrayList();                               // {name, {x, y, z}, state}
+PIECE_FOCUS = new java.util.ArrayList();                          // per piece: {{fa, fb, fc}, FQ}
+RUN_MANIFEST = null;
+lines = null; sideType = null; arcs = null; REF = null;           // (globals used by the methods)
+if (MODE.equals("multi")) {
+    centres_ = askPieces();
+    if (RUN_DIR.length() == 0) {
+        if (java.awt.GraphicsEnvironment.isHeadless()) RUN_DIR = OUT_DIR;
+        else {
+            fc_ = new javax.swing.JFileChooser(OUT_DIR);
+            fc_.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+            fc_.setDialogTitle("Folder for this scan (" + centres_.size() + " pieces)");
+            if (fc_.showDialog(null, "Use this folder") != javax.swing.JFileChooser.APPROVE_OPTION) throw fail("no folder chosen");
+            RUN_DIR = fc_.getSelectedFile().getPath();
+        }
+    }
+    today_ = new java.text.SimpleDateFormat("yyyyMMdd").format(new java.util.Date());
+    if (RUN_NAME.length() == 0 && !java.awt.GraphicsEnvironment.isHeadless()) {
+        nm_ = javax.swing.JOptionPane.showInputDialog(null, "Name for this scan (letters, digits, - and _).\n" +
+              "Leave empty for today's date (" + today_ + ").  The pieces become <name>_1, <name>_2, ...", "Multi-piece scan: name",
+              javax.swing.JOptionPane.QUESTION_MESSAGE);
+        if (nm_ == null) throw fail("cancelled");
+        RUN_NAME = nm_;
+    }
+    base_ = safeName(RUN_NAME);
+    if (base_.length() == 0) base_ = today_;
+    new File(RUN_DIR).mkdirs();
+    n0_ = freeIndex(RUN_DIR, base_);                              // never reuse an index already in the folder
+    for (int i = 0; i < centres_.size(); i++) {
+        inf_ = (Object[]) PIECE_INFO.get(i);
+        PIECES.add(new Object[] { base_ + "_" + (n0_ + i), centres_.get(i), "planned", inf_[0], inf_[1] });
+    }
+    openLog(RUN_DIR + "/" + base_ + "_run_" + n0_ + "_log.txt", false);
+    RUN_MANIFEST = RUN_DIR + "/" + base_ + "_run_" + n0_ + ".json";
+    writeManifest(RUN_MANIFEST, PIECES, "scanning");
+    say("  " + PIECES.size() + " pieces: " + ((Object[]) PIECES.get(0))[0] + (PIECES.size() > 1 ? " .. " + ((Object[]) PIECES.get(PIECES.size() - 1))[0] : "") +
+        " in " + RUN_DIR + "  (run file " + new File(RUN_MANIFEST).getName() + ")");
+    say("  analysis computer: python -m flakeid.live \"" + RUN_DIR + "\" --flat ... -o <results>  (material and oxide of each piece from the run file; tile TIFFs deleted after analysis unless --keep-tiles); writes <piece>_targets.csv here");
+    RUN_SCAN = true; SCAN_METHOD = "script";
+    OUT_DIR = RUN_DIR;
+} else if (MODE.equals("chip")) {
+    inf_ = java.awt.GraphicsEnvironment.isHeadless() ? new Object[] { MATERIAL, new Double(OXIDE_NM) }
+                                                    : askPieceInfo("Chip scan: material and oxide", "Piece " + NAME, MATERIAL, OXIDE_NM);
+    if (inf_ == null) throw fail("cancelled");
+    PIECES.add(new Object[] { NAME, new double[] { X0, Y0, Z0 }, "planned", inf_[0], inf_[1] });
+}
+
+for (int pi = 0; pi < PIECES.size() && !STOP_ALL; pi++) {
+    pc_ = (Object[]) PIECES.get(pi);
+    NAME = (String) pc_[0];
+    MATERIAL = (String) pc_[3]; OXIDE_NM = ((Double) pc_[4]).doubleValue();       // this piece's material and oxide
+    if (MODE.equals("multi")) {
+        cc_ = (double[]) pc_[1];
+        say("");
+        say("==== piece " + (pi + 1) + " of " + PIECES.size() + ": " + NAME + ", centre " + f1(cc_[0]) + ", " + f1(cc_[1]) + " um, Z " + f1(cc_[2]) +
+            ", " + MATERIAL + " on " + f1(OXIDE_NM) + " nm oxide");
+        X0 = cc_[0]; Y0 = cc_[1]; Z0 = cc_[2];
+        moveTo(X0, Y0);
+        if (hasZ) { setZ(Z0 - AF_BACKLASH_UM); setZ(Z0); }
+        pc_[2] = "scanning";
+        writeManifest(RUN_MANIFEST, PIECES, "scanning");
+    }
+    fa = 0.0; fb = 0.0; fc = Z0; FQ = null;
+    try {
+        if (MODE.equals("multi")) checkExposure(AUTO_EXPOSURE);
+        start = snapBlocks();
+        REF = reference(start);
+        fstart = substrateFraction(start);
+        say("  reference substrate R/G " + f3(REF[0]) + ", B/G " + f3(REF[1]) + ", G " + f1(REF[2]) +
+              " counts; substrate fraction of the start frame " + f3(fstart));
+        if (fstart < 0.5) {
+            // lots of residue / flakes here (the most common colour may not be the substrate): take the
+            // reference from the neighbouring field where it matches the most area
+            say("  start frame has little bare substrate; checking the 8 neighbouring fields");
+            bestF = fstart; bestRef = REF; bestPos = null;
+            offs = new double[][] { {1,0}, {-1,0}, {0,1}, {0,-1}, {1,1}, {-1,1}, {1,-1}, {-1,-1} };
+            for (int i = 0; i < offs.length; i++) {
+                nx_ = X0 + offs[i][0] * FOVX; ny_ = Y0 + offs[i][1] * FOVY;
+                moveTo(nx_, ny_);
+                bl_ = snapBlocks();
+                REF = reference(bl_);
+                f_ = substrateFraction(bl_);
+                if (VERBOSE) say("    field " + f1(nx_) + ", " + f1(ny_) + ": substrate fraction " + f3(f_));
+                if (f_ > bestF) { bestF = f_; bestRef = REF; bestPos = new double[] { nx_, ny_ }; }
+            }
+            REF = bestRef;
+            moveTo(X0, Y0);
+            fstart = substrateFraction(snapBlocks());
+            if (bestPos != null)
+                say("  reference from " + f1(bestPos[0]) + ", " + f1(bestPos[1]) + ": R/G " + f3(REF[0]) + ", B/G " + f3(REF[1]) +
+                    ", G " + f1(REF[2]) + " (substrate fraction there " + f3(bestF) + ", at the start " + f3(fstart) + ")");
+            if (bestF < START_MIN_SUBSTRATE)
+                throw fail("no bare substrate found around the start (best fraction " + f3(bestF) + "): move to a cleaner part of the chip, " +
+                           "or set SUBSTRATE_COLOUR (e.g. { 0.54, 0.94 } for hBN on 285 nm with this camera) and retry");
+        }
+
+        dirs = new double[][] { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+        names = new String[] { "+X", "-X", "+Y", "-Y" };
+        // first pass through the centre: chip extent
+        dist0 = new double[4];
+        for (int e = 0; e < 4; e++) {
+            dist0[e] = findEdge(X0, Y0, dirs[e][0], dirs[e][1]);
+            if (dist0[e] < 0) { moveTo(X0, Y0); throw fail("no edge found towards " + names[e] + " within MAX_TRAVEL_UM"); }
+            say("  edge " + names[e] + ": " + f1(dist0[e]) + " um from the start");
+        }
+        sizeX = dist0[0] + dist0[1]; sizeY = dist0[2] + dist0[3];
+        cx = X0 + (dist0[0] - dist0[1]) / 2.0; cy = Y0 + (dist0[2] - dist0[3]) / 2.0;
+
+        // edge lines {ex, ey, nx, ny}: point on the edge and outward normal; inside: n.(p - e) <= 0
+        lines = new double[4][];
+        sideType = new int[4];                                           // 0 straight, 1 arc, 2 bounding (neither)
+        arcs = new double[4][];                                          // {cx, cy, R} for arcs
+        nBadEdges = 0; nArcs = 0;
+        edgeOffs = (EDGE_POINTS >= 5) ? new double[] { -EDGE_SPREAD, -EDGE_SPREAD / 2, EDGE_SPREAD / 2, EDGE_SPREAD }
+                 : new double[] { -0.75 * EDGE_SPREAD, 0.75 * EDGE_SPREAD };
+        pts = new java.util.ArrayList();                                 // all measured edge points
+        for (int e = 0; e < 4; e++) {
+            edx = dirs[e][0]; edy = dirs[e][1];
+            ex = X0 + edx * dist0[e]; ey = Y0 + edy * dist0[e];
+            pts.add(new double[] { ex, ey });
+            enx = edx; eny = edy;
+            if (EDGE_POINTS >= 2) {
+                // measure again from start points shifted along the edge
+                acc = new java.util.ArrayList();
+                acc.add(new double[] { ex, ey });
+                for (int oi = 0; oi < edgeOffs.length; oi++) {
+                    span = edgeOffs[oi] * ((edx != 0) ? sizeY : sizeX);
+                    sgn = 1;
+                    // start LEAD fields inside the edge found through the centre (the chip is convex);
+                    // fall back to the centre line if that point is not on bare substrate.
+                    // (assigned outside any {}: BeanShell scopes first assignments inside {} to the block)
+                    lead = Math.max(dist0[e] - LEAD * ((edx != 0) ? FOVX : FOVY), 0.0);
+                    osx = (edx != 0) ? X0 + edx * lead : cx + sgn * span;
+                    osy = (edx != 0) ? cy + sgn * span : Y0 + edy * lead;
+                    moveTo(osx, osy);
+                    if (substrateFraction(snapBlocks()) < 0.5) {
+                        osx = (edx != 0) ? X0 : cx + sgn * span;
+                        osy = (edx != 0) ? cy + sgn * span : Y0;
+                        moveTo(osx, osy);
+                        if (substrateFraction(snapBlocks()) < 0.5) {
+                            say("  (" + names[e] + " edge: no bare substrate at " + f1(osx) + ", " + f1(osy) + ", point skipped)");
+                            continue;
+                        }
+                    }
+                    dd = findEdge(osx, osy, edx, edy);
+                    if (dd > 0) { pe = new double[] { osx + edx * dd, osy + edy * dd }; acc.add(pe); pts.add(pe); }
+                }
+                if (acc.size() >= 2) {
+                    // least-squares line through the edge points
+                    mx = 0.0; my = 0.0;
+                    for (int i = 0; i < acc.size(); i++) { mx += acc.get(i)[0]; my += acc.get(i)[1]; }
+                    mx /= acc.size(); my /= acc.size();
+                    sxx = 0.0; sxy = 0.0; syy = 0.0;
+                    for (int i = 0; i < acc.size(); i++) {
+                        ax = acc.get(i)[0] - mx; ay = acc.get(i)[1] - my;
+                        sxx += ax * ax; sxy += ax * ay; syy += ay * ay;
+                    }
+                    th = 0.5 * Math.atan2(2 * sxy, sxx - syy);            // direction along the edge
+                    enx = -Math.sin(th); eny = Math.cos(th);
+                    if (enx * edx + eny * edy < 0) { enx = -enx; eny = -eny; }
+                    ex = mx; ey = my;
+                    // the points must lie on one straight edge; near a corner of a strongly rotated
+                    // chip a search can hit the neighbouring edge instead
+                    worst = 0.0;
+                    for (int i = 0; i < acc.size(); i++)
+                        worst = Math.max(worst, Math.abs(enx * (acc.get(i)[0] - ex) + eny * (acc.get(i)[1] - ey)));
+                    if (worst > EDGE_TOL_UM) {
+                        // not straight: a circular arc (wafer rim)?  Else a conservative bounding edge.
+                        arc = (acc.size() >= 3) ? fitCircle(acc) : null;
+                        arcOk = false;
+                        aw = 0.0;                                        // (outside the {}: BeanShell block scope)
+                        if (arc != null) {
+                            for (int i = 0; i < acc.size(); i++)
+                                aw = Math.max(aw, Math.abs(Math.hypot(acc.get(i)[0] - arc[0], acc.get(i)[1] - arc[1]) - arc[2]));
+                            // centre on the inner side of the edge (the edge bulges outwards)
+                            inward = (arc[0] - mx) * edx + (arc[1] - my) * edy < 0;   // used only in this block
+                            arcOk = aw <= EDGE_TOL_UM && inward && arc[2] >= ARC_R_RANGE[0] && arc[2] <= ARC_R_RANGE[1];
+                            if (!arcOk) say("  " + names[e] + " edge: not straight (" + f1(worst) + " um off a line), not an arc either " +
+                                             "(radius " + f1(arc[2] / 1000) + " mm, " + f1(aw) + " um off)");
+                        }
+                        // bounding line: perpendicular to the search direction through the outermost point
+                        enx = edx; eny = edy; best = -1e30;
+                        for (int i = 0; i < acc.size(); i++) {
+                            dd = edx * acc.get(i)[0] + edy * acc.get(i)[1];
+                            if (dd > best) { best = dd; ex = acc.get(i)[0]; ey = acc.get(i)[1]; }
+                        }
+                        if (arcOk) {
+                            sideType[e] = 1; arcs[e] = arc; nArcs++;
+                            say("  " + names[e] + " edge is round: arc of radius " + f1(arc[2] / 1000) + " mm (points within " + f1(aw) + " um)");
+                        } else {
+                            sideType[e] = 2; nBadEdges++;
+                            say("  " + names[e] + " edge points are not on one line (" + f1(worst) + " um off); " +
+                                  "using a bounding edge there (a few extra tiles)");
+                        }
+                    }
+                }
+            }
+            lines[e] = new double[] { ex, ey, enx, eny };
+        }
+
+        // polygon corners: intersections of adjacent edges (+X,+Y), (-X,+Y), (-X,-Y), (+X,-Y)
+        corners = new double[][] { intersect(lines[0], lines[2]), intersect(lines[1], lines[2]),
+                                   intersect(lines[1], lines[3]), intersect(lines[0], lines[3]) };
+        rs_ = 0;                                                      // rotation from the first straight side
+        for (int e = 3; e >= 0; e--) if (sideType[e] == 0) rs_ = e;
+        rot = Math.toDegrees(Math.atan2(dirs[rs_][0] * lines[rs_][3] - dirs[rs_][1] * lines[rs_][2],
+                                        dirs[rs_][0] * lines[rs_][2] + dirs[rs_][1] * lines[rs_][3]));
+        say("  chip about " + f3(sizeX / 1000.0) + " x " + f3(sizeY / 1000.0) + " mm, rotation " + f1(rot) + " deg");
+        // consistency: for a rectangular chip every edge is turned by the same angle from its search
+        // direction.  A large spread means an edge was measured on the wrong side (strongly rotated chip)
+        // or the chip is not rectangular (broken piece): check the plan.
+        amin = 1e9; amax = -1e9;
+        for (int e = 0; e < 4; e++) {
+            if (sideType[e] != 0) continue;                              // only straight sides
+            ang = Math.toDegrees(Math.atan2(dirs[e][0] * lines[e][3] - dirs[e][1] * lines[e][2],
+                                            dirs[e][0] * lines[e][2] + dirs[e][1] * lines[e][3]));
+            amin = Math.min(amin, ang); amax = Math.max(amax, ang);
+        }
+        if (nArcs > 0) say("  " + nArcs + " round edge(s) (wafer rim)");
+        if (EDGE_POINTS >= 2 && amax > amin && amax - amin > 4.0)
+            say("  WARNING: the four edges disagree by " + f1(amax - amin) + " deg (chip rotated by more than ~12 deg, or " +
+                  "not rectangular); check the plan, or rotate the chip closer to the stage axes and rerun.");
+        else if (nBadEdges > 0)
+            say("  note: " + nBadEdges + " edge(s) not straight (broken corner or chipped edge) and replaced by bounding edges. " +
+                  "If all 4 are affected the chip is probably rotated by more than ~12 deg: rotate it and rerun.");
+        else if (Math.abs(rot) > 12.0)
+            say("  WARNING: chip rotated by " + f1(rot) + " deg; the edge search is reliable to ~12 deg. Check the plan.");
+
+        // ---------------------------------------------------------------- tile grid
+        stepX = FOVX * (1 - OVERLAP); stepY = FOVY * (1 - OVERLAP);
+        minx = 1e30; maxx = -1e30; miny = 1e30; maxy = -1e30;
+        for (int i = 0; i < 4; i++) {
+            minx = Math.min(minx, corners[i][0]); maxx = Math.max(maxx, corners[i][0]);
+            miny = Math.min(miny, corners[i][1]); maxy = Math.max(maxy, corners[i][1]);
+        }
+        minx -= MARGIN_UM; maxx += MARGIN_UM; miny -= MARGIN_UM; maxy += MARGIN_UM;
+        ncol = (int) Math.ceil(Math.max(maxx - minx - FOVX, 0) / stepX) + 1;
+        nrow = (int) Math.ceil(Math.max(maxy - miny - FOVY, 0) / stepY) + 1;
+        gx0 = (minx + maxx) / 2.0 - (ncol - 1) * stepX / 2.0;           // first tile centre
+        gy0 = (miny + maxy) / 2.0 - (nrow - 1) * stepY / 2.0;
+
+        tiles = new java.util.ArrayList();     // {x, y, col, row}
+        for (int r = 0; r < nrow; r++)             // raster order: every row in the same X direction (backlash)
+            for (int c = 0; c < ncol; c++) {
+                tx = gx0 + c * stepX; ty = gy0 + r * stepY;
+                if (tileNeeded(tx, ty)) tiles.add(new double[] { tx, ty, c, r });
+            }
+        say("  scan: " + tiles.size() + " tiles (grid " + ncol + " x " + nrow + ", overlap " + Math.round(OVERLAP * 100) +
+              " %), " + nSnaps + " frames used to find the edges");
+
+        // ---------------------------------------------------------------- focus plane
+        // Points near the corners: autofocus (FOCUS_MODE = "auto") or you focus when asked ("manual").
+        // z = fa x + fb y + fc is then evaluated at every tile.
+        fa = 0.0; fb = 0.0; fc = Z0; focusRms = -1.0;
+        fpts = new java.util.ArrayList();                                // {x, y, z}
+        FQ = null;
+        if (FOCUS_POINTS >= 3 && hasZ) {
+            headless = java.awt.GraphicsEnvironment.isHeadless();
+            ccx = 0.0; ccy = 0.0;
+            for (int i = 0; i < 4; i++) { ccx += corners[i][0] / 4.0; ccy += corners[i][1] / 4.0; }
+            // focus points: bilinear positions inside the chip outline (u from -X to +X, v from -Y to +Y)
+            nfp = FOCUS_MODE.equals("auto") ? FOCUS_POINTS_AUTO : FOCUS_POINTS;
+            // corners first, so that the points span the chip early (a plane through points on a line
+            // says nothing across it)
+            uv = (nfp >= 9) ? new double[][] { {1,1}, {0,1}, {0,0}, {1,0}, {0.5,0.5}, {0.5,1}, {0,0.5}, {0.5,0}, {1,0.5} }
+               : (nfp >= 4) ? new double[][] { {1,1}, {0,1}, {0,0}, {1,0} } : new double[][] { {1,1}, {0,1}, {1,0} };
+            stopFocus = false;
+            for (int k = 0; k < uv.length && !stopFocus; k++) {
+                uu = FOCUS_INSET + (1 - 2 * FOCUS_INSET) * uv[k][0]; vv = FOCUS_INSET + (1 - 2 * FOCUS_INSET) * uv[k][1];
+                // corners: 0 (+X,+Y), 1 (-X,+Y), 2 (-X,-Y), 3 (+X,-Y)
+                qx = (1 - uu) * (1 - vv) * corners[2][0] + uu * (1 - vv) * corners[3][0] + uu * vv * corners[0][0] + (1 - uu) * vv * corners[1][0];
+                qy = (1 - uu) * (1 - vv) * corners[2][1] + uu * (1 - vv) * corners[3][1] + uu * vv * corners[0][1] + (1 - uu) * vv * corners[1][1];
+                moveTo(qx, qy);
+                // start from the best guess so far (nearest focused point + tilt), so little refocusing is needed
+                if (fpts.size() > 0) setZ(predictZ(qx, qy, fpts, null, Z0));
+                zguess = zRead();
+                if (FOCUS_MODE.equals("auto")) {
+                    // autofocus; if there is no focus signal (bare substrate), try spots towards the centre
+                    ok_ = false;
+                    for (int tr = 0; tr <= AF_RETRIES && !ok_; tr++) {
+                        if (tr > 0) {
+                            qx = qx + (ccx - qx) * 0.12; qy = qy + (ccy - qy) * 0.12;
+                            moveTo(qx, qy);
+                        }
+                        r_ = autofocus(zguess, AF10);
+                        ok_ = r_[2] > 0.5;
+                    }
+                    if (!ok_) { say("  focus point " + (k + 1) + ": autofocus failed, point skipped"); continue; }
+                } else {
+                    ans = askFocus(NAME + " focus plane", "Focus point " + (k + 1) + " of " + uv.length + " at " + f1(qx) + ", " + f1(qy) + " um.");
+                    if (ans == 2) { stopFocus = true; continue; }
+                    if (ans == 1) continue;
+                }
+                zf = zRead();
+                fpts.add(new double[] { qx, qy, zf });
+                say("  focus point " + (k + 1) + ": " + f1(qx) + ", " + f1(qy) + " -> Z " + f1(zf));
+                pl3 = fitPlane(fpts);
+                if (pl3 != null) { fa = pl3[0]; fb = pl3[1]; fc = pl3[2]; }
+            }
+            if (fpts.size() >= 3) {
+                rr = 0.0;
+                for (int i = 0; i < fpts.size(); i++) { f = fpts.get(i); dz = f[2] - (fa * f[0] + fb * f[1] + fc); rr += dz * dz; }
+                focusRms = Math.sqrt(rr / fpts.size());
+                tilt = Math.hypot(fa, fb) * 1000.0;
+                say("  focus plane: tilt " + f3(tilt) + " um/mm (dZ/dX " + f3(fa * 1000) + ", dZ/dY " + f3(fb * 1000) + " um/mm)" +
+                      (fpts.size() > 3 ? ", rms " + f3(focusRms) + " um" : ""));
+                zmin = 1e30; zmax = -1e30;
+                for (int i = 0; i < tiles.size(); i++) { t = tiles.get(i); zz = fa * t[0] + fb * t[1] + fc; zmin = Math.min(zmin, zz); zmax = Math.max(zmax, zz); }
+                say("  tile Z from " + f1(zmin) + " to " + f1(zmax) + " um (start " + f1(Z0) + ")");
+                bad = tilt > MAX_TILT || (fpts.size() > 3 && focusRms > MAX_FOCUS_RMS);
+                clipped = zmin < Z0 - MAX_DZ_UM || zmax > Z0 + MAX_DZ_UM;
+                if (bad || clipped) {
+                    msg = "Focus plane looks suspicious: tilt " + f1(tilt) + " um/mm" + (fpts.size() > 3 ? ", rms " + f1(focusRms) + " um" : "") +
+                          (clipped ? "; tile Z would exceed the MAX_DZ_UM limit (clipped)" : "") + ".";
+                    say("  WARNING: " + msg);
+                    use = true;
+                    if (!headless) use = javax.swing.JOptionPane.showConfirmDialog(null, msg + "\n\nUse it anyway? (No = one Z for all tiles)",
+                                         NAME + " focus plane", javax.swing.JOptionPane.YES_NO_OPTION) == javax.swing.JOptionPane.YES_OPTION;
+                    if (!use) { fa = 0.0; fb = 0.0; fc = Z0; fpts.clear(); say("  using one Z for all tiles"); }
+                }
+                // bowed pieces: a quadratic through >= 6 points (the 3 x 3 grid of autofocus points)
+                if (FOCUS_SURFACE.equals("quadratic") && fpts.size() >= 6) {
+                    q_ = fitQuad(fpts);
+                    if (q_ != null) {
+                        FQ = q_;
+                        rq_ = 0.0;
+                        for (int i = 0; i < fpts.size(); i++) { f = fpts.get(i); dz = f[2] - zSurf(f[0], f[1]); rq_ += dz * dz; }
+                        rq_ = Math.sqrt(rq_ / fpts.size());
+                        bow_ = 0.0;                                      // largest quadratic - plane difference inside the focus points
+                        for (int i = 0; i <= 10; i++) for (int j = 0; j <= 10; j++) {
+                            gx_ = FQ[6] + (FQ[7] - FQ[6]) * i / 10.0; gy_ = FQ[8] + (FQ[9] - FQ[8]) * j / 10.0;
+                            bow_ = Math.max(bow_, Math.abs(zSurf(gx_, gy_) - (fa * gx_ + fb * gy_ + fc)));
+                        }
+                        if (bow_ > MAX_BOW_UM) { FQ = null; say("  quadratic focus surface not used: it bends " + f1(bow_) + " um away from the plane (MAX_BOW_UM)"); }
+                        else say("  focus surface: quadratic through " + fpts.size() + " points, rms " + f3(rq_) + " um (plane " + f3(focusRms) +
+                                 " um); bow up to " + f3(bow_) + " um from the plane");
+                    }
+                }
+                zmin = 1e30; zmax = -1e30;
+                for (int i = 0; i < tiles.size(); i++) { t = tiles.get(i); zz = zAt(t[0], t[1]); zmin = Math.min(zmin, zz); zmax = Math.max(zmax, zz); }
+                if (FQ != null) say("  tile Z from " + f1(zmin) + " to " + f1(zmax) + " um with the quadratic surface");
+            } else {
+                if (fpts.size() > 0) { fc = fpts.get(fpts.size() - 1)[2]; }
+                fa = 0.0; fb = 0.0;
+                say("  fewer than 3 focus points: one Z (" + f1(fc) + ") for all tiles");
+            }
+        } else if (FOCUS_POINTS >= 3) {
+            say("  no focus device: tiles get no Z");
+        }
+        for (int i = 0; i < tiles.size(); i++) { t = tiles.get(i); tiles.set(i, new double[] { t[0], t[1], t[2], t[3], zAt(t[0], t[1]) }); }
+
+        // ---------------------------------------------------------------- output
+        new File(OUT_DIR).mkdirs();
+        posPath = OUT_DIR + "/" + NAME + "_scan.pos";
+        zName = (zDev != null) ? zDev : "";
+        sb = new StringBuilder();
+        sb.append("{\n  \"encoding\": \"UTF-8\",\n  \"format\": \"Micro-Manager Property Map\",\n  \"major_version\": 2,\n  \"minor_version\": 0,\n");
+        sb.append("  \"map\": {\n    \"StagePositions\": {\n      \"type\": \"PROPERTY_MAP\",\n      \"array\": [\n");
+        for (int i = 0; i < tiles.size(); i++) {
+            t = tiles.get(i);
+            lbl = "Pos-" + pad3((int) t[2]) + "_" + pad3((int) t[3]);
+            sb.append("        {\"DefaultXYStage\": {\"type\": \"STRING\", \"scalar\": \"" + xyDev + "\"}, ");
+            sb.append("\"DefaultZStage\": {\"type\": \"STRING\", \"scalar\": \"" + zName + "\"}, ");
+            sb.append("\"DevicePositions\": {\"type\": \"PROPERTY_MAP\", \"array\": [");
+            sb.append("{\"Device\": {\"type\": \"STRING\", \"scalar\": \"" + xyDev + "\"}, \"Position_um\": {\"type\": \"DOUBLE\", \"array\": [" + t[0] + ", " + t[1] + "]}}");
+            if (zName.length() > 0)
+                sb.append(", {\"Device\": {\"type\": \"STRING\", \"scalar\": \"" + zName + "\"}, \"Position_um\": {\"type\": \"DOUBLE\", \"array\": [" + (t[4] * Z_SCALE) + "]}}");
+            sb.append("]}, \"GridCol\": {\"type\": \"INTEGER\", \"scalar\": " + (int) t[2] + "}, \"GridRow\": {\"type\": \"INTEGER\", \"scalar\": " + (int) t[3] + "}, ");
+            sb.append("\"Label\": {\"type\": \"STRING\", \"scalar\": \"" + lbl + "\"}, ");
+            sb.append("\"Properties\": {\"type\": \"PROPERTY_MAP\", \"scalar\": {\"Source\": {\"type\": \"STRING\", \"scalar\": \"mm_chip_scan\"}}}}");
+            sb.append(i < tiles.size() - 1 ? ",\n" : "\n");
+        }
+        sb.append("      ]\n    }\n  }\n}\n");
+        w = new FileWriter(posPath); w.write(sb.toString()); w.close();
+
+        js = new StringBuilder();
+        js.append("{\"material\": \"" + MATERIAL + "\", \"oxide_nm\": " + OXIDE_NM + ",\n");
+        js.append(" \"z_scale\": " + Z_SCALE + ", \"start\": [" + X0 + ", " + Y0 + ", " + Z0 + "], \"reference_rg_bg_g\": [" + REF[0] + ", " + REF[1] + ", " + REF[2] + "],\n");
+        js.append(" \"size_um\": [" + sizeX + ", " + sizeY + "], \"rotation_deg\": " + rot + ",\n \"corners\": [");
+        for (int i = 0; i < 4; i++) js.append((i > 0 ? ", " : "") + "[" + corners[i][0] + ", " + corners[i][1] + "]");
+        js.append("],\n \"edge_points\": [");
+        for (int i = 0; i < pts.size(); i++) js.append((i > 0 ? ", " : "") + "[" + pts.get(i)[0] + ", " + pts.get(i)[1] + "]");
+        js.append("],\n \"edges\": [");
+        for (int e = 0; e < 4; e++) js.append((e > 0 ? ", " : "") + "{\"dir\": \"" + names[e] + "\", \"point\": [" + lines[e][0] + ", " + lines[e][1] + "], \"normal\": [" + lines[e][2] + ", " + lines[e][3] + "]}");
+        js.append("],\n \"sides\": [");
+        for (int e = 0; e < 4; e++) js.append((e > 0 ? ", " : "") + "{\"type\": \"" + (sideType[e] == 0 ? "line" : sideType[e] == 1 ? "arc" : "bounding") +
+            "\", \"point\": [" + lines[e][0] + ", " + lines[e][1] + "], \"normal\": [" + lines[e][2] + ", " + lines[e][3] + "]" +
+            (sideType[e] == 1 ? ", \"arc\": [" + arcs[e][0] + ", " + arcs[e][1] + ", " + arcs[e][2] + "]" : "") + "}");
+        js.append("],\n \"focus_points\": [");
+        for (int i = 0; i < fpts.size(); i++) js.append((i > 0 ? ", " : "") + "[" + fpts.get(i)[0] + ", " + fpts.get(i)[1] + ", " + fpts.get(i)[2] + "]");
+        js.append("], \"focus_plane\": [" + fa + ", " + fb + ", " + fc + "], \"focus_rms_um\": " + focusRms + ",\n");
+        if (FQ != null) {
+            js.append(" \"focus_surface\": {\"type\": \"quadratic\", \"coef_um_mm\": [" + FQ[0] + ", " + FQ[1] + ", " + FQ[2] + ", " + FQ[3] + ", " + FQ[4] + ", " + FQ[5] +
+                      "], \"centre\": [" + FQ[10] + ", " + FQ[11] + "], \"box\": [" + FQ[6] + ", " + FQ[7] + ", " + FQ[8] + ", " + FQ[9] + "]},\n");
+        }
+        js.append(" \"camera\": {\"exposure_ms\": " + mmc.getExposure() + (mmc.hasProperty(mmc.getCameraDevice(), "Data format") ? ", \"data_format\": \"" + mmc.getProperty(mmc.getCameraDevice(), "Data format") + "\"" : "") + (mmc.hasProperty(mmc.getCameraDevice(), "Device output data bit depth") ? ", \"bit_depth\": \"" + mmc.getProperty(mmc.getCameraDevice(), "Device output data bit depth") + "\"" : "") + "},\n");
+        js.append(" \"M\": [[" + M00 + ", " + M01 + "], [" + M10 + ", " + M11 + "]], \"field_um\": [" + FOVX + ", " + FOVY + "], \"overlap\": " + OVERLAP + ", \"margin_um\": " + MARGIN_UM + ", \"n_tiles\": " + tiles.size() + "}\n");
+        w = new FileWriter(OUT_DIR + "/" + NAME + "_chip.json"); w.write(js.toString()); w.close();
+        say("  wrote " + posPath + " and " + NAME + "_chip.json");
+
+        // plan: stage X to the right, stage Y down.  Drawn off-screen (works without a display),
+        // saved as <NAME>_plan.png and shown in a window when there is a screen.
+        try {
+            S = 700.0 / Math.max(maxx - minx + FOVX, maxy - miny + FOVY);
+            pw = (int) ((maxx - minx + FOVX) * S) + 40; ph = (int) ((maxy - miny + FOVY) * S) + 60;
+            ox_ = minx - FOVX / 2.0; oy_ = miny - FOVY / 2.0 - 20.0 / S;
+            bi = new java.awt.image.BufferedImage(pw, ph, java.awt.image.BufferedImage.TYPE_INT_RGB);
+            gr = bi.createGraphics();
+            gr.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+            gr.setColor(java.awt.Color.WHITE); gr.fillRect(0, 0, pw, ph);
+            gr.setColor(new java.awt.Color(150, 150, 150));
+            for (int i = 0; i < tiles.size(); i++) {
+                t = tiles.get(i);
+                gr.drawRect((int) ((t[0] - FOVX / 2 - ox_) * S) + 20, (int) ((t[1] - FOVY / 2 - oy_) * S) + 20, (int) (FOVX * S), (int) (FOVY * S));
+            }
+            gr.setColor(java.awt.Color.RED); gr.setStroke(new java.awt.BasicStroke(2f));
+            // outline: walk each side between its corners; round sides follow the arc, and every point is
+            // pulled in to the chip outline (lines and arcs)
+            sideOfCorner = new int[] { 2, 1, 3, 0 };                     // side from corner i to corner i+1
+            for (int i = 0; i < 4; i++) {
+                a = corners[i]; b = corners[(i + 1) % 4];
+                px0 = -1; py0 = -1;
+                for (int k = 0; k <= 60; k++) {
+                    qx = a[0] + (b[0] - a[0]) * k / 60.0; qy = a[1] + (b[1] - a[1]) * k / 60.0;
+                    // pull towards the centre until on the chip
+                    for (int it = 0; it < 60 && !insideChip(qx, qy, 1.0); it++) { qx += (cx - qx) * 0.01; qy += (cy - qy) * 0.01; }
+                    gx1 = (int) ((qx - ox_) * S) + 20; gy1 = (int) ((qy - oy_) * S) + 20;
+                    if (px0 >= 0) gr.drawLine(px0, py0, gx1, gy1);
+                    px0 = gx1; py0 = gy1;
+                }
+            }
+            gr.setColor(java.awt.Color.BLUE);
+            for (int i = 0; i < pts.size(); i++) gr.fillOval((int) ((pts.get(i)[0] - ox_) * S) + 16, (int) ((pts.get(i)[1] - oy_) * S) + 16, 8, 8);
+            gr.setColor(new java.awt.Color(230, 120, 0));
+            for (int i = 0; i < fpts.size(); i++) {
+                gx = (int) ((fpts.get(i)[0] - ox_) * S) + 20; gy = (int) ((fpts.get(i)[1] - oy_) * S) + 20;
+                gr.drawRect(gx - 6, gy - 6, 12, 12);
+                gr.drawString("Z " + f1(fpts.get(i)[2]), gx + 9, gy + 4);
+            }
+            gr.setColor(new java.awt.Color(0, 160, 0));
+            gr.fillOval((int) ((X0 - ox_) * S) + 14, (int) ((Y0 - oy_) * S) + 14, 12, 12);
+            gr.setColor(java.awt.Color.BLACK);
+            gr.drawString(NAME + ": " + tiles.size() + " tiles, chip " + f3(sizeX / 1000.0) + " x " + f3(sizeY / 1000.0) +
+                          " mm, " + f1(rot) + " deg   (stage X ->, Y down; green = start)", 20, 16);
+            gr.dispose();
+            javax.imageio.ImageIO.write(bi, "png", new File(OUT_DIR + "/" + NAME + "_plan.png"));
+            if (!java.awt.GraphicsEnvironment.isHeadless()) new ij.ImagePlus(NAME + " scan plan", bi).show();
+        } catch (Throwable t) { say("  (plan image not drawn: " + t + ")"); }
+
+        moveTo(X0, Y0);
+        if (hasZ) { zWrite(zAt(X0, Y0)); mmc.waitForDevice(zDev); }
+
+        // load into Micro-Manager's position list (falls back to loading the .pos by hand)
+        loaded = false;
+        try {
+            plClass = Class.forName("org.micromanager.PositionList");
+            mspCtor = Class.forName("org.micromanager.MultiStagePosition").getConstructor(
+                new Class[] { String.class, Double.TYPE, Double.TYPE, String.class, Double.TYPE });
+            pl = plClass.newInstance();
+            for (int i = 0; i < tiles.size(); i++) {
+                t = tiles.get(i);
+                msp = mspCtor.newInstance(new Object[] { xyDev, new Double(t[0]), new Double(t[1]), zName, new Double(t[4] * Z_SCALE) });
+                if (has(msp, "setLabel")) msp.setLabel("Pos-" + pad3((int) t[2]) + "_" + pad3((int) t[3]));
+                if (has(msp, "setGridCoordinates")) msp.setGridCoordinates((int) t[3], (int) t[2]);
+                pl.addPosition(msp);
+            }
+            mgr = has(mm, "positions") ? mm.positions() : (has(mm, "getPositionListManager") ? mm.getPositionListManager() : null);
+            if (mgr != null && has(mgr, "setPositionList")) { mgr.setPositionList(pl); loaded = true; }
+            else if (has(mm, "setPositionList")) { mm.setPositionList(pl); loaded = true; }
+        } catch (Throwable t) {
+            say("  (" + t + ")");
+        }
+        if (loaded) say("  positions loaded into the Stage Position List");
+        else say("  could not load the positions automatically; use Stage Position List > Load: " + posPath);
+
+        if (RUN_SCAN && SCAN_METHOD.equals("script")) {
+            // acquire every tile here and write it to disk straight away
+            scanDir = OUT_DIR + "/" + NAME + "_tiles";
+            for (int n = 2; new File(scanDir).exists(); n++) scanDir = OUT_DIR + "/" + NAME + "_tiles_" + n;
+            // the scan parameters for the analysis (flakeid.live / find_flakes read them when no material / oxide is given)
+            new File(scanDir).mkdirs();
+            spw = new FileWriter(scanDir + "/scan_params.json", false);
+            spw.write("{\"piece\": \"" + jsonEsc(NAME) + "\", \"material\": \"" + MATERIAL + "\", \"oxide_nm\": " + OXIDE_NM +
+                      ", \"exposure_ms\": " + mmc.getExposure() + ", \"script_version\": \"" + SCRIPT_VERSION + "\"" +
+                      (RUN_MANIFEST != null ? ", \"run_file\": \"" + jsonEsc(new File(RUN_MANIFEST).getName()) + "\"" : "") + "}\n");
+            spw.close();
+            say("  scanning " + tiles.size() + " tiles into " + scanDir + " (" + MATERIAL + " on " + f1(OXIDE_NM) + " nm) ...");
+            tScan = System.currentTimeMillis();
+            for (int i = 0; i < tiles.size(); i++) {
+                t = tiles.get(i);
+                moveTo(t[0], t[1]);
+                if (hasZ) { setZ(t[4] - AF_BACKLASH_UM); setZ(t[4]); }
+                lbl = "Pos-" + pad3((int) t[2]) + "_" + pad3((int) t[3]);
+                saveTile(scanDir + "/" + lbl, i, lbl, (int) t[2], (int) t[3], t[4]);
+                if ((i + 1) % 25 == 0 || i == tiles.size() - 1) {
+                    el = (System.currentTimeMillis() - tScan) / 1000.0;
+                    say("    " + (i + 1) + " / " + tiles.size() + " tiles, " + f1(el) + " s, about " + f1(el / (i + 1) * (tiles.size() - i - 1)) + " s left");
+                }
+            }
+            moveTo(X0, Y0);
+            if (hasZ) setZ(zAt(X0, Y0));
+            say("  scan finished: " + scanDir + "  (python find_flakes.py \"" + scanDir + "\" auto auto --flat ... --viewer [--keep-tiles]: material and oxide from scan_params.json; TIFFs deleted unless --keep-tiles)");
+        } else if (RUN_SCAN) {
+            if (!loaded) throw fail("positions not loaded; not starting the acquisition");
+            started = false;
+            try {
+                acq = has(mm, "acquisitions") ? mm.acquisitions() : null;
+                if (acq != null && has(acq, "getAcquisitionSettings") && has(acq, "setAcquisitionSettings") && has(acq, "runAcquisition")) {
+                    ss = acq.getAcquisitionSettings();
+                    if (has(ss, "copyBuilder")) {
+                        bld = ss.copyBuilder();
+                        if (has(bld, "usePositionList")) ss = bld.usePositionList(true).build();
+                    } else {
+                        ss.usePositionList = true;
+                    }
+                    acq.setAcquisitionSettings(ss);
+                    say("  starting the Multi-D acquisition (" + tiles.size() + " positions) ...");
+                    started = true;
+                    acq.runAcquisition();
+                    say("  acquisition finished");
+                }
+            } catch (Throwable t) {
+                say("  (" + t + ")");
+            }
+            if (!started) say("  could not start the acquisition: tick 'Multiple positions' in the Multi-D window and press Acquire");
+        } else {
+            say("  RUN_SCAN = false: check the plan, then set RUN_SCAN = true (or run the Multi-D acquisition with 'Multiple positions' ticked)");
+        }
+
+        pc_[2] = "scanned";
+    } catch (Throwable t) {
+        if (!MODE.equals("multi")) throw t;
+        say("  piece " + NAME + " FAILED: " + t + "  (going on with the next piece)");
+        pc_[2] = "failed";
+    }
+    PIECE_FOCUS.add(new Object[] { new double[] { fa, fb, fc }, FQ });
+    if (RUN_MANIFEST != null) writeManifest(RUN_MANIFEST, PIECES, pi == PIECES.size() - 1 ? "scans_done" : "scanning");
+}
+
+// ================================================================ 100x: targets (MODE "targets", or after the scans in "multi")
+JOBS = new java.util.ArrayList();                                 // {targets csv, chip json, name, folder, piece index}
+expChecked_ = !MODE.equals("multi");
+if (MODE.equals("targets")) JOBS.add(new Object[] { TARGETS_CSV, CHIP_JSON, NAME, OUT_DIR, new Integer(-1) });
+if (MODE.equals("multi") && !STOP_ALL) {
+    nScanned_ = 0; nReady_ = 0;
+    for (int i = 0; i < PIECES.size(); i++) {
+        pc_ = (Object[]) PIECES.get(i);
+        if (!"scanned".equals(pc_[2])) continue;
+        nScanned_ = nScanned_ + 1;
+        if (new File(RUN_DIR + "/" + pc_[0] + "_targets.csv").exists()) nReady_ = nReady_ + 1;
+        JOBS.add(new Object[] { RUN_DIR + "/" + pc_[0] + "_targets.csv", RUN_DIR + "/" + pc_[0] + "_chip.json", pc_[0], RUN_DIR, new Integer(i) });
+    }
+    say("");
+    say("==== scans finished: " + nScanned_ + " of " + PIECES.size() + " pieces scanned; target lists ready for " + nReady_);
+    if (nScanned_ > 0 && OBJECTIVE_PROMPT) {
+        if (!java.awt.GraphicsEnvironment.isHeadless()) {
+            ans_ = javax.swing.JOptionPane.showConfirmDialog(null,
+                "All pieces are scanned (" + nScanned_ + " of " + PIECES.size() + ").  Target lists ready: " + nReady_ + " of " + nScanned_ + ".\n\n" +
+                "Switch to the 100x objective now, without changing the focus.\n" +
+                "Press OK when the 100x objective is in place: the 100x images start then\n" +
+                "(the script waits for target lists that are not ready yet).",
+                "Multi-piece scan: change the objective", javax.swing.JOptionPane.OK_CANCEL_OPTION);
+            if (ans_ != javax.swing.JOptionPane.OK_OPTION) { say("  100x part cancelled"); JOBS.clear(); }
+        } else if (has(mmc, "mockObjective")) mmc.mockObjective(100);       // simulator: the simulated user switches
+    }
+    if (JOBS.size() > 0) {
+        writeManifest(RUN_MANIFEST, PIECES, "imaging");
+        EXPOSURE_MS = TARGET_EXPOSURE_MS;
+        mmc.setExposure(EXPOSURE_MS);
+        hasZ = zDev != null && zDev.length() > 0;
+    }
+}
+STOP_100X = false;                                                // "Stop 100x imaging" pressed: no more pieces at 100x
+pane100_ = null; dlg100_ = null;
+for (int ji = 0; ji < JOBS.size() && !STOP_ALL && !STOP_100X; ji++) {
+    job_ = (Object[]) JOBS.get(ji);
+    if (!hasZ) throw fail("no focus device");
+    TARGETS_CSV = (String) job_[0]; CHIP_JSON = (String) job_[1]; NAME = (String) job_[2]; OUT_DIR = (String) job_[3];
+    fi_ = ((Integer) job_[4]).intValue();
+    if (MODE.equals("multi")) {
+        say("");
+        say("==== 100x, piece " + NAME + " (" + (ji + 1) + " of " + JOBS.size() + ")");
+        if (!waitForFile(TARGETS_CSV, TARGETS_WAIT_S, "the target list of " + NAME)) { say("  no target list for " + NAME + ": piece skipped"); continue; }
+        if (!new File(CHIP_JSON).exists()) CHIP_JSON = "";
+        X0 = mmc.getXPosition(xyDev); Y0 = mmc.getYPosition(xyDev);
+        // this piece's 10x focus surface: Z at 10x for targets without a z10_um value
+        pf_ = (Object[]) PIECE_FOCUS.get(fi_);
+        fa = ((double[]) pf_[0])[0]; fb = ((double[]) pf_[0])[1]; fc = ((double[]) pf_[0])[2]; FQ = (double[]) pf_[1];
+        pj_ = (Object[]) PIECES.get(fi_);
+        MATERIAL = (String) pj_[3]; OXIDE_NM = ((Double) pj_[4]).doubleValue();   // graphite pieces: flakes for the domain camera
+    }
+    // --- read the targets: {x, y} + label
+    tx_ = new java.util.ArrayList(); tl_ = new java.util.ArrayList();
+    if (TARGETS_CSV.length() > 0) {
+        br = new BufferedReader(new FileReader(TARGETS_CSV));
+        hdr = br.readLine().split(",");
+        il = -1; ix = -1; iy = -1; iz10 = -1; ith = -1;
+        for (int i = 0; i < hdr.length; i++) {
+            h_ = hdr[i].trim();
+            if (h_.equals("z10_um")) iz10 = i;
+            if (h_.equals("thickness_nm")) ith = i;
+            if (h_.equals("label")) il = i;
+            if (h_.equals("stage_x_um")) ix = i;
+            if (h_.equals("stage_y_um")) iy = i;
+        }
+        if (ix < 0 || iy < 0) throw fail(TARGETS_CSV + " has no stage_x_um / stage_y_um columns");
+        while ((line = br.readLine()) != null) {
+            if (line.trim().length() == 0) continue;
+            f_ = line.split(",");
+            z10v = (iz10 >= 0 && iz10 < f_.length && f_[iz10].trim().length() > 0) ? Double.parseDouble(f_[iz10]) : Double.NaN;
+            if (Double.isNaN(z10v) && fi_ >= 0) z10v = zSurf(Double.parseDouble(f_[ix]), Double.parseDouble(f_[iy]));
+            thv = Double.NaN;
+            try { if (ith >= 0 && ith < f_.length && f_[ith].trim().length() > 0) thv = Double.parseDouble(f_[ith]); } catch (Throwable t) { }
+            tx_.add(new double[] { Double.parseDouble(f_[ix]), Double.parseDouble(f_[iy]), z10v, thv });
+            tl_.add(il >= 0 ? f_[il] : ("T" + pad3(tx_.size())));
+        }
+        br.close();
+    } else {
+        mgr = has(mm, "positions") ? mm.positions() : (has(mm, "getPositionListManager") ? mm.getPositionListManager() : null);
+        pl = (mgr != null && has(mgr, "getPositionList")) ? mgr.getPositionList() : null;
+        if (pl == null || !has(pl, "getNumberOfPositions")) throw fail("no TARGETS_CSV and no Stage Position List available");
+        for (int i = 0; i < pl.getNumberOfPositions(); i++) {
+            msp = pl.getPosition(i);
+            tx_.add(new double[] { msp.getX(), msp.getY(), Double.NaN, Double.NaN });
+            tl_.add(has(msp, "getLabel") ? msp.getLabel() : ("T" + pad3(i + 1)));
+        }
+    }
+    say("  " + tx_.size() + " targets from " + (TARGETS_CSV.length() > 0 ? TARGETS_CSV : "the Stage Position List"));
+    if (tx_.size() == 0) {
+        if (MODE.equals("multi")) { say("  no flakes selected on " + NAME + ": nothing to image"); continue; }
+        throw fail("no targets");
+    }
+    bx0 = X0; bx1 = X0; by0 = Y0; by1 = Y0; n10 = 0;
+    for (int i = 0; i < tx_.size(); i++) {
+        q_ = tx_.get(i);
+        bx0 = Math.min(bx0, q_[0]); bx1 = Math.max(bx1, q_[0]); by0 = Math.min(by0, q_[1]); by1 = Math.max(by1, q_[1]);
+        if (!Double.isNaN(q_[2])) n10++;
+    }
+    MOVE_BOX = new double[] { bx0 - TARGET_BOX_MARGIN_UM, bx1 + TARGET_BOX_MARGIN_UM, by0 - TARGET_BOX_MARGIN_UM, by1 + TARGET_BOX_MARGIN_UM };
+    say("  moves allowed within X " + f1(MOVE_BOX[0]) + " .. " + f1(MOVE_BOX[1]) + ", Y " + f1(MOVE_BOX[2]) + " .. " + f1(MOVE_BOX[3]) +
+        " (targets + start + " + f1(TARGET_BOX_MARGIN_UM) + " um)");
+    say("  10x focus known for " + n10 + " of " + tx_.size() + " targets" + (n10 > 0 ? "; focus offset 100x - 10x: " +
+        (Double.isNaN(FOCUS_OFFSET_UM) ? "to be measured at the first focused flake" : f3(FOCUS_OFFSET_UM) + " um (FOCUS_OFFSET_UM)") : ""));
+    imgDir = OUT_DIR + "/" + NAME + "_100x";
+    new File(imgDir).mkdirs();
+    idx = new FileWriter(imgDir + "/" + NAME + "_100x_index.csv", false);
+    idx.write("order,label,stage_x_um,stage_y_um,z_um,z_drive,z10_um,offset_um,focus,af_ratio,saturated_frac,file,shift_files,shift_um,exposure_ms\r\n");
+    offs_ = new java.util.ArrayList();                            // measured 100x - 10x offsets
+    fs_ = fullScale();
+    cam_ = mmc.getCameraDevice();
+    chipTilt = null;
+    if (CHIP_JSON.length() > 0) {
+        txt_ = new String(java.nio.file.Files.readAllBytes(new File(CHIP_JSON).toPath()));
+        mt_ = java.util.regex.Pattern.compile("\"focus_plane\":\\s*\\[([^,\\]]+),\\s*([^,\\]]+),").matcher(txt_);
+        if (mt_.find()) {
+            chipTilt = new double[] { Double.parseDouble(mt_.group(1).trim()), Double.parseDouble(mt_.group(2).trim()) };
+            say("  chip tilt from " + CHIP_JSON + ": dZ/dX " + f3(chipTilt[0] * 1000) + ", dZ/dY " + f3(chipTilt[1] * 1000) + " um/mm");
+        } else say("  (no focus_plane in " + CHIP_JSON + ")");
+    }
+    focused = new java.util.ArrayList();                          // {x, y, z} of flakes focused so far
+    nOk = 0; nImg = 0; stop_ = false;
+    failRun_ = 0; lastRej_ = Double.NaN;                          // flakes in a row not focused; last rejected deviation
+    // a small window that stays open while this piece is imaged: skip the rest of its list, or stop the 100x part
+    if (!java.awt.GraphicsEnvironment.isHeadless()) {
+        pane100_ = new javax.swing.JOptionPane("100x imaging of " + NAME + ": " + tx_.size() + " flakes.\n\n" +
+            "\"Skip the rest of this piece\" finishes the current flake and goes on with the next piece;\n" +
+            "\"Stop 100x imaging\" ends the 100x part for all pieces (the stacking-domain step is still offered).",
+            javax.swing.JOptionPane.INFORMATION_MESSAGE, javax.swing.JOptionPane.DEFAULT_OPTION, null,
+            new Object[] { "Skip the rest of this piece", "Stop 100x imaging" });
+        dlg100_ = pane100_.createDialog(null, "100x imaging: " + NAME);
+        dlg100_.setModal(false);
+        dlg100_.setVisible(true);
+    }
+    for (int k = 0; k < tx_.size() && !stop_; k++) {
+        if (pane100_ != null) {
+            v100_ = pane100_.getValue();
+            if ("Skip the rest of this piece".equals(v100_)) { say("  rest of " + NAME + " skipped (" + (tx_.size() - k) + " flakes not imaged)"); break; }
+            if ("Stop 100x imaging".equals(v100_)) { say("  100x imaging stopped (" + (tx_.size() - k) + " flakes of " + NAME + " not imaged)"); STOP_100X = true; break; }
+        }
+        xy_ = tx_.get(k); lab_ = tl_.get(k);
+        say("  [" + (k + 1) + "/" + tx_.size() + "] " + lab_ + " at " + f1(xy_[0]) + ", " + f1(xy_[1]));
+        moveTo(xy_[0], xy_[1]);
+        if (MODE.equals("multi") && !expChecked_) { checkExposure(TARGET_AUTO_EXPOSURE); expChecked_ = true; }
+        // predicted Z: 10x focus here + the 100x-10x offset (measured median, or FOCUS_OFFSET_UM);
+        // without a 10x focus: from the flakes focused so far
+        // offset here: the nearest focused flake's, or a plane through them once they span the piece
+        // (the offset drifts slowly across a piece: the 10x map's tilt is not exact)
+        offKnown_ = (offs_.size() > 0) ? idwOffset(xy_[0], xy_[1], offs_) : FOCUS_OFFSET_UM;
+        if (!Double.isNaN(xy_[2]) && !Double.isNaN(offKnown_)) zg_ = xy_[2] + offKnown_;
+        else zg_ = predictZ(xy_[0], xy_[1], focused, chipTilt, zRead());
+        if (VERBOSE) say("    start Z " + f3(zg_) + (!Double.isNaN(xy_[2]) ? " (10x focus " + f3(xy_[2]) + (Double.isNaN(offKnown_) ? ", offset not known yet)" : " + offset " + f3(offKnown_) + ")") : ""));
+        known_ = focused.size() > 0 || (!Double.isNaN(xy_[2]) && !Double.isNaN(offKnown_));
+        ZREF = known_ ? zg_ : Double.NaN;                        // Z safety limit around the prediction
+        how_ = ""; ratio_ = 0.0; rej_ = Double.NaN;
+        if (FOCUS_MODE.equals("auto")) {
+            wide_ = failRun_ >= 2;                                   // the prediction failed twice in a row: search as at the first flake
+            if (wide_ && known_) say("    the last " + failRun_ + " flakes were not focused: wide search");
+            r_ = autofocus(zg_, (known_ && !wide_) ? AF100 : AF100_FIRST);
+            if (r_[2] < 0.5 && known_ && !wide_) r_ = autofocus(zg_, AF100_FIRST);      // wider search once
+            // plausibility: a result far from a good prediction is a false peak (residue, dust).  The
+            // window grows with the distance from the nearest focused flake.
+            tol_ = AF_MAX_DEV_UM[(focused.size() >= 5 && !wide_) ? 1 : 0] + AF_DEV_PER_MM * Math.min(nearestDist(xy_[0], xy_[1], focused), 1.0e5) / 1000.0;
+            tol_ = Math.min(tol_, AF_MAX_DEV_CAP);
+            if (r_[2] > 0.5 && known_ && Math.abs(r_[0] - zg_) > tol_) {
+                dev_ = r_[0] - zg_;
+                if (!Double.isNaN(lastRej_) && Math.abs(dev_ - lastRej_) <= AF_AGREE_UM) {
+                    say("    autofocus result " + f3(r_[0]) + " is " + f3(dev_) + " um from the prediction, as at the previous flake (" +
+                        f3(lastRej_) + "): the prediction is off here; accepted");
+                } else {
+                    say("    autofocus result " + f3(r_[0]) + " is " + f3(dev_) + " um from the prediction (limit " + f1(tol_) + "): rejected, retrying around the prediction");
+                    rej_ = dev_;
+                    r_ = autofocus(zg_, new double[] { tol_, AF100[1] / 2, AF100[2], AF100[3], AF100[4] });
+                    if (r_[2] > 0.5 && Math.abs(r_[0] - zg_) > tol_) r_ = new double[] { zg_, r_[1], 0 };
+                }
+            }
+            ratio_ = r_[1];
+            if (r_[2] > 0.5) how_ = "auto";
+            else if (askOnFail(focused.size()) && (!java.awt.GraphicsEnvironment.isHeadless() || has(mmc, "mockFocus"))) {
+                setZ(zg_);
+                a_ = askFocusT(NAME + " 100x", "Autofocus failed on " + lab_ + ". Focus by hand?", FOCUS_DIALOG_TIMEOUT_S);
+                if (a_ == 0) how_ = "manual"; else if (a_ == 2) stop_ = true;
+                else if (a_ == 3) { setZ(zg_); how_ = "predicted"; say("    no answer within " + ((int) FOCUS_DIALOG_TIMEOUT_S) + " s: imaged at the predicted Z"); }
+            } else {
+                setZ(zg_); how_ = "predicted";
+                say("    autofocus failed: imaged at the predicted Z " + f3(zg_) + " (focus \"predicted\" in the index)");
+            }
+        } else {
+            setZ(zg_);
+            a_ = askFocus(NAME + " 100x", "Flake " + (k + 1) + " of " + tx_.size() + ": " + lab_);
+            if (a_ == 0) how_ = "manual"; else if (a_ == 2) stop_ = true;
+        }
+        if (how_.equals("auto") || how_.equals("manual")) { failRun_ = 0; lastRej_ = Double.NaN; }
+        else { failRun_ = failRun_ + 1; lastRej_ = rej_; }
+        if (how_.length() == 0) { say("    skipped"); continue; }
+        zz_ = zRead();
+        off_ = Double.NaN;
+        if (!how_.equals("predicted")) {
+            focused.add(new double[] { xy_[0], xy_[1], zz_ }); nOk++;
+            if (!Double.isNaN(xy_[2])) {
+                off_ = zz_ - xy_[2];
+                offs_.add(new double[] { xy_[0], xy_[1], off_ });
+                say("    focus offset here (100x - 10x): " + f3(off_) + " um");
+            }
+        }
+        // image
+        im_ = snapGood(lab_);
+        ip_ = ((int) mmc.getBytesPerPixel() == 2) ? (ij.process.ImageProcessor) new ij.process.ShortProcessor(W, H, (short[]) im_, null)
+                                                  : (ij.process.ImageProcessor) new ij.process.ColorProcessor(W, H, (int[]) im_);
+        sat_ = 0.0;
+        if ((int) mmc.getBytesPerPixel() == 2) {
+            hist_ = ip_.getHistogram();
+            for (int b = (int) fs_ - 1; b < hist_.length && b <= (int) fs_; b++) sat_ += hist_[b];
+            sat_ /= (double) (W * H);
+        }
+        fn_ = pad3(k + 1) + "_" + lab_.replaceAll("[^A-Za-z0-9_.-]", "_") + ".tif";
+        imp_ = new ij.ImagePlus(lab_, ip_);
+        imp_.setProperty("Info", "label=" + lab_ + "\nstage_x_um=" + mmc.getXPosition(xyDev) + "\nstage_y_um=" + mmc.getYPosition(xyDev) +
+                         "\nz_um=" + zz_ + "\nz_drive=" + (zz_ * Z_SCALE) + "\nfocus=" + how_ + "\naf_ratio=" + ratio_ + "\nexposure_ms=" + mmc.getExposure() +
+                         "\ncamera=" + cam_ + "\nformat=" + (mmc.hasProperty(cam_, "Data format") ? mmc.getProperty(cam_, "Data format") : "") +
+                         "\nbit_depth=" + fs_ + "\nbayer=RGGB (R at top-left)");
+        ij.IJ.saveAsTiff(imp_, imgDir + "/" + fn_);
+        nImg++;
+        // the same flake at shifted stage positions (same Z): optics artifacts stay, the flake moves
+        sx0_ = mmc.getXPosition(xyDev); sy0_ = mmc.getYPosition(xyDev);
+        shf_ = ""; shu_ = "";
+        if (HUNDRED_SHIFTS_UM != null) for (int j = 0; j < HUNDRED_SHIFTS_UM.length; j++) {
+            moveTo(sx0_ + HUNDRED_SHIFTS_UM[j][0], sy0_ + HUNDRED_SHIFTS_UM[j][1]);
+            ims_ = snapGood(lab_ + " shift " + (j + 1));
+            ips_ = ((int) mmc.getBytesPerPixel() == 2) ? (ij.process.ImageProcessor) new ij.process.ShortProcessor(W, H, (short[]) ims_, null)
+                                                       : (ij.process.ImageProcessor) new ij.process.ColorProcessor(W, H, (int[]) ims_);
+            fns_ = fn_.replace(".tif", "_s" + (j + 1) + ".tif");
+            imps_ = new ij.ImagePlus(lab_ + " shift " + (j + 1), ips_);
+            imps_.setProperty("Info", "label=" + lab_ + "\nshift=" + (j + 1) + "\nstage_x_um=" + mmc.getXPosition(xyDev) + "\nstage_y_um=" + mmc.getYPosition(xyDev) +
+                              "\nz_um=" + zz_ + "\nexposure_ms=" + mmc.getExposure() + "\ncamera=" + cam_ + "\nbayer=RGGB (R at top-left)");
+            ij.IJ.saveAsTiff(imps_, imgDir + "/" + fns_);
+            shf_ = shf_ + (j > 0 ? ";" : "") + fns_;
+            shu_ = shu_ + (j > 0 ? ";" : "") + f3(mmc.getXPosition(xyDev) - sx0_) + ":" + f3(mmc.getYPosition(xyDev) - sy0_);
+        }
+        idx.write((k + 1) + "," + lab_ + "," + sx0_ + "," + sy0_ + "," + zz_ + "," + (zz_ * Z_SCALE) + "," +
+                  (Double.isNaN(xy_[2]) ? "" : "" + xy_[2]) + "," + (Double.isNaN(off_) ? "" : "" + off_) + "," + how_ + "," +
+                  f3(ratio_) + "," + sat_ + "," + fn_ + "," + shf_ + "," + shu_ + "," + mmc.getExposure() + "\r\n");
+        idx.flush();
+        say("    Z " + f3(zz_) + " (" + how_ + "), saved " + fn_ + (shf_.length() > 0 ? " + " + HUNDRED_SHIFTS_UM.length + " shifted" : "") +
+            (sat_ > 0.001 ? "   WARNING: " + f3(sat_ * 100) + " % of pixels saturated" : ""));
+        if (MATERIAL.equals("graphite") && !Double.isNaN(xy_[3]) && xy_[3] >= DOMAIN_MIN_NM && (DOMAIN_MAX_NM <= 0 || xy_[3] <= DOMAIN_MAX_NM))
+            DOMAIN_LIST.add(new Object[] { new double[] { xy_[0], xy_[1], zz_, xy_[3] }, lab_, NAME, OUT_DIR, how_ });
+    }
+    idx.close();
+    if (dlg100_ != null) { dlg100_.dispose(); dlg100_ = null; pane100_ = null; }
+    if (offs_.size() > 0) {
+        ov_ = new double[offs_.size()];
+        for (int i = 0; i < offs_.size(); i++) ov_[i] = ((double[]) offs_.get(i))[2];
+        java.util.Arrays.sort(ov_);
+        say("  focus offset 100x - 10x: median " + f3(median(ov_)) + " um (" + offs_.size() + " flakes, range " + f3(ov_[0]) + " .. " +
+            f3(ov_[ov_.length - 1]) + ").  Next time: FOCUS_OFFSET_UM = " + f3(median(ov_)) + ";");
+        FOCUS_OFFSET_UM = median(ov_);                            // starting offset for the next piece
+        po_ = fitPlane(offs_);
+        if (po_ != null && offs_.size() >= 4)
+            say("  offset varies by " + f3(po_[0] * 1000) + " um/mm in X, " + f3(po_[1] * 1000) + " um/mm in Y across the piece (10x map tilt error)");
+    }
+    pz_ = fitPlane(focused);
+    if (pz_ != null && focused.size() >= 4) say("  focus plane through the focused flakes: dZ/dX " + f3(pz_[0] * 1000) + ", dZ/dY " + f3(pz_[1] * 1000) + " um/mm");
+    say("  " + nImg + " images (" + nOk + " focused) in " + imgDir);
+    MOVE_BOX = null;
+}
+// ================================================================ stacking domains (graphite): the domain objective + camera + filter
+// Every graphite flake of DOMAIN_MIN_LAYERS+ layers imaged at 100x is imaged again, at its 100x position + DOMAIN_XY_OFFSET_UM,
+// focused around its 100x focus + DOMAIN_FOCUS_OFFSET_UM (then the offsets measured on the flakes so far).
+// Images: <piece>_domains/<order>_<label>.tif + <piece>_domains_index.csv
+// (BeanShell: an untyped variable first assigned inside a nested block is local to that block; r_ is assigned
+// in an if/else below and read after it, so it is defined here, at the top level)
+r_ = null;
+anyGraphite_ = MATERIAL.equals("graphite");
+for (int i = 0; i < PIECES.size(); i++) if (((Object[]) PIECES.get(i)).length > 3 && "graphite".equals(((Object[]) PIECES.get(i))[3])) anyGraphite_ = true;
+if (anyGraphite_ && !DOMAIN_IMAGING.equals("no") && !STOP_ALL && (MODE.equals("multi") || MODE.equals("targets"))) {
+    say("");
+    if (DOMAIN_LIST.size() == 0) say("==== stacking domains: no graphite flake of " + DOMAIN_MIN_LAYERS + "+ layers (>= " + f3(DOMAIN_MIN_NM) + " nm) was imaged at 100x");
+    else {
+        pn_ = new java.util.LinkedHashSet();
+        for (int i = 0; i < DOMAIN_LIST.size(); i++) pn_.add(((Object[]) DOMAIN_LIST.get(i))[2]);
+        what_ = DOMAIN_LIST.size() + " graphite flake" + (DOMAIN_LIST.size() > 1 ? "s" : "") + " of " + DOMAIN_MIN_LAYERS + " layers or more" +
+                (pn_.size() > 1 ? " on " + pn_.size() + " pieces" : "") + " were imaged at 100x.";
+        go_ = true;
+        if (java.awt.GraphicsEnvironment.isHeadless()) {
+            go_ = has(mmc, "mockDomain");
+            if (go_) mmc.mockDomain();                                // simulator: the simulated user changes the hardware
+        } else {
+            if (DOMAIN_IMAGING.equals("ask")) {
+                ans_ = javax.swing.JOptionPane.showConfirmDialog(null, what_ + "\n\nImage them for stacking domains with the domain camera?",
+                    "Stacking domains", javax.swing.JOptionPane.YES_NO_OPTION);
+                go_ = ans_ == javax.swing.JOptionPane.YES_OPTION;
+            }
+            if (go_) {
+                ans_ = javax.swing.JOptionPane.showConfirmDialog(null,
+                    "Change to the stacking-domain configuration now:\n" +
+                    "   - the domain objective\n" +
+                    "   - the domain camera" + (DOMAIN_CAMERA.length() > 0 ? " (" + DOMAIN_CAMERA + ", selected by the script)" : " (select it in Micro-Manager)") + "\n" +
+                    "   - the filter\n\n" +
+                    "Do not move the stage or the focus.  Press OK when everything is in place.",
+                    "Stacking domains: change objective, camera and filter", javax.swing.JOptionPane.OK_CANCEL_OPTION);
+                go_ = ans_ == javax.swing.JOptionPane.OK_OPTION;
+            }
+        }
+        if (!go_) say("==== stacking domains: not imaged (" + what_ + ")");
+        else {
+            say("==== stacking domains: " + what_);
+            if (RUN_MANIFEST != null) writeManifest(RUN_MANIFEST, PIECES, "domains");
+            stopStreaming();
+            camScan_ = mmc.getCameraDevice(); expScan_ = mmc.getExposure(); wScan_ = W; hScan_ = H;
+            if (DOMAIN_CAMERA.length() > 0 && !DOMAIN_CAMERA.equals(camScan_)) {
+                try { mmc.setCameraDevice(DOMAIN_CAMERA); } catch (Throwable t) { throw fail("cannot select the domain camera " + DOMAIN_CAMERA + ": " + t.getMessage()); }
+            }
+            camD_ = mmc.getCameraDevice();
+            setProps(camD_, DOMAIN_CAMERA_PROPS);
+            mmc.setExposure(DOMAIN_EXPOSURE_MS);
+            mmc.waitForDevice(camD_);
+            W = (int) mmc.getImageWidth(); H = (int) mmc.getImageHeight();
+            // full scale from the image bit depth (the scan camera's "Image data bit depth" property does not apply here)
+            fsD_ = ((int) mmc.getBytesPerPixel() == 4) ? 255.0 : Math.pow(2, (double) mmc.getImageBitDepth()) - 1;
+            say("  camera " + camD_ + " " + W + " x " + H + ", exposure " + f3(mmc.getExposure()) + " ms, full scale " + ((int) fsD_) +
+                "; XY offset " + f3(DOMAIN_XY_OFFSET_UM[0]) + ", " + f3(DOMAIN_XY_OFFSET_UM[1]) + " um, focus offset " +
+                (Double.isNaN(DOMAIN_FOCUS_OFFSET_UM) ? "not known (found at the first flake)" : f3(DOMAIN_FOCUS_OFFSET_UM) + " um"));
+            bx0 = 1e30; bx1 = -1e30; by0 = 1e30; by1 = -1e30;
+            for (int i = 0; i < DOMAIN_LIST.size(); i++) {
+                q_ = (double[]) ((Object[]) DOMAIN_LIST.get(i))[0];
+                bx0 = Math.min(bx0, q_[0]); bx1 = Math.max(bx1, q_[0]); by0 = Math.min(by0, q_[1]); by1 = Math.max(by1, q_[1]);
+            }
+            MOVE_BOX = new double[] { bx0 + DOMAIN_XY_OFFSET_UM[0] - TARGET_BOX_MARGIN_UM, bx1 + DOMAIN_XY_OFFSET_UM[0] + TARGET_BOX_MARGIN_UM,
+                                      by0 + DOMAIN_XY_OFFSET_UM[1] - TARGET_BOX_MARGIN_UM, by1 + DOMAIN_XY_OFFSET_UM[1] + TARGET_BOX_MARGIN_UM };
+            domOffs_ = new java.util.ArrayList();                     // {x, y, domain Z - 100x Z} measured on the flakes
+            curPiece_ = ""; didx_ = null; nD_ = 0; nDok_ = 0; stopD_ = false; dDir_ = "";
+            for (int k = 0; k < DOMAIN_LIST.size() && !stopD_; k++) {
+                e_ = (Object[]) DOMAIN_LIST.get(k);
+                q_ = (double[]) e_[0]; lab_ = (String) e_[1]; how100_ = (String) e_[4];
+                if (!curPiece_.equals((String) e_[2])) {
+                    if (didx_ != null) didx_.close();
+                    curPiece_ = (String) e_[2];
+                    dDir_ = ((String) e_[3]) + "/" + curPiece_ + "_domains";
+                    new File(dDir_).mkdirs();
+                    didx_ = new FileWriter(dDir_ + "/" + curPiece_ + "_domains_index.csv", false);
+                    didx_.write("order,label,thickness_nm,stage_x_um,stage_y_um,z_um,z100_um,offset_um,focus,af_ratio,frames,exposure_ms,saturated_frac,file\r\n");
+                    say("  piece " + curPiece_ + " -> " + dDir_);
+                }
+                dx_ = q_[0] + DOMAIN_XY_OFFSET_UM[0]; dy_ = q_[1] + DOMAIN_XY_OFFSET_UM[1];
+                say("  [" + (k + 1) + "/" + DOMAIN_LIST.size() + "] " + lab_ + " (" + f1(q_[3]) + " nm, " + f1(q_[3] / 0.335) + " layers) at " + f1(dx_) + ", " + f1(dy_));
+                moveTo(dx_, dy_);
+                offK_ = domOffs_.size() > 0 ? idwOffset(dx_, dy_, domOffs_) : DOMAIN_FOCUS_OFFSET_UM;
+                known_ = !Double.isNaN(offK_);
+                zg_ = q_[2] + (known_ ? offK_ : 0.0);
+                ZREF = zg_;
+                how_ = ""; ratio_ = 0.0;
+                if (FOCUS_MODE.equals("auto")) {
+                    if (!known_) r_ = autofocus(zg_, DOMAIN_SEARCH);                       // offset not known: wide search
+                    else {
+                        r_ = autofocus(zg_, how100_.equals("predicted") ? DOMAIN_AF_FIRST : DOMAIN_AF);
+                        if (r_[2] < 0.5) r_ = autofocus(zg_, DOMAIN_AF_FIRST);
+                        if (r_[2] > 0.5 && Math.abs(r_[0] - zg_) > DOMAIN_MAX_DEV_UM && !how100_.equals("predicted")) {
+                            say("    autofocus result " + f3(r_[0]) + " is " + f3(r_[0] - zg_) + " um from the prediction: rejected, retrying around it");
+                            r_ = autofocus(zg_, new double[] { DOMAIN_MAX_DEV_UM, DOMAIN_AF[1] / 2, DOMAIN_AF[2], DOMAIN_AF[3], DOMAIN_AF[4] });
+                            if (r_[2] > 0.5 && Math.abs(r_[0] - zg_) > DOMAIN_MAX_DEV_UM) r_ = new double[] { zg_, r_[1], 0 };
+                        }
+                    }
+                    ratio_ = r_[1];
+                    if (r_[2] > 0.5) how_ = "auto";
+                    else if (askOnFail(domOffs_.size()) && (!java.awt.GraphicsEnvironment.isHeadless() || has(mmc, "mockFocus"))) {
+                        setZ(zg_);
+                        a_ = askFocusT(curPiece_ + " domains", "Autofocus failed on " + lab_ + " (domain camera). Focus by hand?", FOCUS_DIALOG_TIMEOUT_S);
+                        if (a_ == 0) how_ = "manual"; else if (a_ == 2) stopD_ = true;
+                        else if (a_ == 3 && known_) { setZ(zg_); how_ = "predicted"; }
+                    } else if (known_) { setZ(zg_); how_ = "predicted"; }
+                } else {
+                    setZ(zg_);
+                    a_ = askFocus(curPiece_ + " domains", "Flake " + (k + 1) + " of " + DOMAIN_LIST.size() + ": " + lab_ + " (domain camera)");
+                    if (a_ == 0) how_ = "manual"; else if (a_ == 2) stopD_ = true;
+                }
+                if (how_.length() == 0) { say("    skipped"); continue; }
+                zz_ = zRead();
+                off_ = zz_ - q_[2];
+                if (!how_.equals("predicted") && !how100_.equals("predicted")) {
+                    domOffs_.add(new double[] { dx_, dy_, off_ }); nDok_++;
+                    say("    focus offset here (domain - 100x): " + f3(off_) + " um");
+                }
+                // image (DOMAIN_FRAMES > 1: averaged, saved as 32-bit)
+                acc_ = null; ip_ = null; sat_ = 0.0;
+                stopStreaming();
+                for (int fr = 0; fr < Math.max(1, DOMAIN_FRAMES); fr++) {
+                    mmc.snapImage();
+                    ip_ = toIP(mmc.getImage(), W, H);
+                    if (ip_ instanceof ij.process.ShortProcessor) {
+                        hist_ = ip_.getHistogram(); ns_ = 0;
+                        for (int b = (int) fsD_ - 1; b < hist_.length; b++) ns_ += hist_[b];
+                        sat_ = Math.max(sat_, ns_ / (double) (W * H));
+                    }
+                    if (DOMAIN_FRAMES > 1) {
+                        fp_ = ip_.convertToFloat();
+                        if (acc_ == null) acc_ = fp_; else acc_.copyBits(fp_, 0, 0, ij.process.Blitter.ADD);
+                    }
+                }
+                if (DOMAIN_FRAMES > 1) { acc_.multiply(1.0 / DOMAIN_FRAMES); ip_ = acc_; }
+                fn_ = pad3(k + 1) + "_" + lab_.replaceAll("[^A-Za-z0-9_.-]", "_") + ".tif";
+                imp_ = new ij.ImagePlus(lab_, ip_);
+                imp_.setProperty("Info", "label=" + lab_ + "\nthickness_nm=" + q_[3] + "\nstage_x_um=" + mmc.getXPosition(xyDev) + "\nstage_y_um=" + mmc.getYPosition(xyDev) +
+                                 "\nz_um=" + zz_ + "\nz100_um=" + q_[2] + "\nfocus=" + how_ + "\naf_ratio=" + ratio_ + "\nexposure_ms=" + mmc.getExposure() +
+                                 "\nframes=" + Math.max(1, DOMAIN_FRAMES) + "\ncamera=" + camD_ + "\nbit_depth=" + fsD_ + "\nconfiguration=stacking domains");
+                ij.IJ.saveAsTiff(imp_, dDir_ + "/" + fn_);
+                nD_++;
+                didx_.write((k + 1) + "," + lab_ + "," + q_[3] + "," + mmc.getXPosition(xyDev) + "," + mmc.getYPosition(xyDev) + "," + zz_ + "," + q_[2] + "," +
+                            off_ + "," + how_ + "," + f3(ratio_) + "," + Math.max(1, DOMAIN_FRAMES) + "," + mmc.getExposure() + "," + sat_ + "," + fn_ + "\r\n");
+                didx_.flush();
+                say("    Z " + f3(zz_) + " (" + how_ + "), saved " + fn_ + (sat_ > 0.001 ? "   WARNING: " + f3(sat_ * 100) + " % of pixels saturated" : ""));
+            }
+            if (didx_ != null) didx_.close();
+            if (domOffs_.size() > 0) {
+                ov_ = new double[domOffs_.size()];
+                for (int i = 0; i < domOffs_.size(); i++) ov_[i] = ((double[]) domOffs_.get(i))[2];
+                java.util.Arrays.sort(ov_);
+                say("  focus offset domain - 100x: median " + f3(median(ov_)) + " um (" + ov_.length + " flakes, range " + f3(ov_[0]) + " .. " + f3(ov_[ov_.length - 1]) +
+                    ").  Next time: DOMAIN_FOCUS_OFFSET_UM = " + f3(median(ov_)) + ";");
+            }
+            say("  " + nD_ + " domain images (" + nDok_ + " focused)");
+            MOVE_BOX = null; ZREF = Double.NaN;
+            if (DOMAIN_RESTORE_CAMERA && !camD_.equals(camScan_)) {
+                try { mmc.setCameraDevice(camScan_); mmc.setExposure(expScan_); W = wScan_; H = hScan_; say("  camera " + camScan_ + " selected again"); }
+                catch (Throwable t) { say("  (could not select " + camScan_ + " again: " + t.getMessage() + ")"); }
+            }
+            say("  the domain objective, camera and filter are still in: change back to the scan configuration before the next run");
+        }
+    }
+}
+
+if (MODE.equals("targets")) { moveTo(X0, Y0); setZ(Z0); }
+
+if (RUN_MANIFEST != null) writeManifest(RUN_MANIFEST, PIECES, STOP_ALL ? "stopped" : "done");
+say("done");
+try { LOG.close(); } catch (Throwable t) { }

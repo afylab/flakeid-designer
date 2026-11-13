@@ -1,0 +1,30 @@
+{
+ "profile": "bx51_xc10_mm_raw16",
+ "oxide_nm": 81.9,
+ "nominal_nm": 90.0,
+ "oxide_tol_nm": 6.0,
+ "green": [
+  -0.135,
+  -0.254,
+  -0.365,
+  -0.46
+ ],
+ "sd": [
+  0.004,
+  0.005,
+  0.004,
+  0.006
+ ],
+ "k_sd": 3.0,
+ "min_tol": 0.02,
+ "source": "terrace green-contrast histogram peaks, multitest chip_2 (graphite on ~90 nm SiO2, oxide fit 81.9 nm), 2026-10-02, using only near-neutral terraces (R/G 0.8-1.2, B/G 0.5-0.85): ~12-15 nm graphite has the same green contrast as 1-4 layers but R/G >= 1.5 and B/G <= 0.35 (e.g. flakes 7, 63). Layer assignment 1-4 from the peak sequence (consistent with the user's identification of flakes 69, 89, 92, 97, 101, 105 as mono/bilayer)",
+ "r_over_g": [
+  0.8,
+  1.2
+ ],
+ "b_over_g": [
+  0.5,
+  0.85
+ ],
+ "nominal_note": "used for chips entered as this nominal oxide whatever the analysis's fitted oxide (which depends on the colour model: 78-82 nm with the 2026-10 profile for wafers measured at ~93 nm); oxide_nm +- oxide_tol_nm applies only when no nominal oxide is known"
+}

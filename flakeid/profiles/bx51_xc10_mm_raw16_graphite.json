@@ -1,0 +1,122 @@
+{
+ "camera": {
+  "lamp_temp_k": 3100.0,
+  "centers_nm": [
+   613.1653,
+   542.4851,
+   493.0816
+  ],
+  "fwhm_nm": [
+   61.6561,
+   70.8304,
+   97.6026
+  ],
+  "ir_cut_nm": 690.8326369278593,
+  "gamma": 1.0,
+  "ccm": null,
+  "flare": [
+   0.0074,
+   0.0189,
+   0.055
+  ]
+ },
+ "na": 0.3595,
+ "notes": "Young Lab BX51, XIMEA XC10 RAW16 (as bx51_xc10_mm_raw16), refitted for GRAPHITE only (2026-10-19): camera channel centres / widths, flare, NA and graphite's optical constants fitted to graphite_20261019_run_1 (graphite on 90 nm SiO2): the 1-4 layer colours of profiles/graphite_layers.json as anchors of known thickness (matched within 0.002) and the run's 3400 terrace colours, unlabelled (median distance to the curve 0.012, 90 % within 0.024; with bx51_xc10_mm_raw16, calibrated on hBN, 0.15-0.20 for 5-12 nm graphite, which all landed at 8-11 nm).  Darkest red -0.92 at 5.3 nm.  Fitted oxide 83.1 nm.  Thickness above 1.3 nm is an extrapolation of the thin-film model until the AFM heights of chip graphite_20261019_3 (designer AFM list 'graphite contrast calibration') are in.",
+ "materials": {
+  "graphite": {
+   "index_table": [
+    [
+     380.0,
+     2.8249,
+     0.8078
+    ],
+    [
+     400.0,
+     2.8494,
+     0.8572
+    ],
+    [
+     450.0,
+     2.9106,
+     0.9805
+    ],
+    [
+     500.0,
+     2.9718,
+     1.1038
+    ],
+    [
+     550.0,
+     3.033,
+     1.2272
+    ],
+    [
+     600.0,
+     3.0942,
+     1.3506
+    ],
+    [
+     650.0,
+     3.1554,
+     1.4739
+    ],
+    [
+     700.0,
+     3.2166,
+     1.5972
+    ],
+    [
+     780.0,
+     3.3145,
+     1.7946
+    ]
+   ]
+  }
+ },
+ "calibration": {
+  "run": "graphite_20261019_run_1",
+  "fit": "tools: scratchpad gfit.py level B, blue weight 1",
+  "params": {
+   "n550": 3.033,
+   "k550": 1.2272,
+   "kslope": 0.2467,
+   "nslope": 0.1224,
+   "ox": 83.1135,
+   "c_r": 613.1653,
+   "c_g": 542.4851,
+   "c_b": 493.0816,
+   "w_r": 61.6561,
+   "w_g": 70.8304,
+   "w_b": 97.6026,
+   "f_r": 0.0074,
+   "f_g": 0.0189,
+   "f_b": 0.055,
+   "na": 0.3595
+  },
+  "anchors_err": [
+   [
+    -0.001,
+    -0.001,
+    -0.002
+   ],
+   [
+    -0.001,
+    -0.001,
+    -0.0
+   ],
+   [
+    -0.0,
+    0.001,
+    0.002
+   ],
+   [
+    0.001,
+    -0.0,
+    0.0
+   ]
+  ],
+  "median_dist": 0.012291626391549355,
+  "p90_dist": 0.0240631435829118,
+  "check": "graphite_20261019_3: F022 2.0 nm < F018 2.7 nm < F024 5.5 nm (Jordan: F022 thinner than F024)"
+ }
+}

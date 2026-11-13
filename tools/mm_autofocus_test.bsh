@@ -1,0 +1,356 @@
+// mm_autofocus_test.bsh -- test the autofocus of mm_chip_scan.bsh at the current position.
+//
+// Micro-Manager 2.0 Script Panel.  Put the objective you want to test in (OBJECTIVE below),
+// focus roughly on something with structure (flake edges, dust) and press Run.  The stage does
+// not move in X/Y.  The script:
+//   1. sweeps Z over +-SWEEP_RANGE_UM around the current Z and records the sharpness (the same
+//      measure as the chip script) and the brightness at every step -> <NAME>_sweep.csv and
+//      <NAME>_sweep.png (curve), and saves the frames at the start Z and at the sharpest Z;
+//   2. snaps REPEATS frames at the sharpest Z to measure the noise of the sharpness;
+//   3. runs the autofocus routine of the chip script from the start Z and from starts
+//      TEST_OFFSETS_UM away, and reports where it ends and whether it passed its checks;
+//   4. returns to the start Z and writes a summary with a diagnosis to <NAME>_log.txt.
+// Keep the autofocus code below identical to mm_chip_scan.bsh (sharpness, sweep, autofocusScript).
+
+import java.io.*;
+
+// ---------------------------------------------------------------- method reset (see mm_chip_scan.bsh)
+SCRIPT_VERSION = "af-2026-09-30i";
+try {
+    mf = bsh.NameSpace.class.getDeclaredField("methods");
+    mf.setAccessible(true);
+    mtab = mf.get(this.namespace);
+    if (mtab != null) {
+        ours = new String[] { "has", "say", "fail", "zRead", "zWrite", "f1", "f3", "median", "setZ", "sharpness", "sweep",
+                              "autofocusScript", "despike", "frameMedian", "saveFrame", "afVersion" };
+        for (int i = 0; i < ours.length; i++) mtab.remove(ours[i]);
+    }
+} catch (Throwable t) { print("  (could not reset old method definitions: " + t + ")"); }
+String afVersion() { return "af-2026-09-30i"; }
+if (!afVersion().equals(SCRIPT_VERSION))
+    throw new Exception("old script code is still loaded (" + afVersion() + "); restart Micro-Manager and run again");
+
+// ---------------------------------------------------------------- settings
+OUT_DIR        = "C:/scans";
+NAME           = "aftest";
+OBJECTIVE      = "10x";            // "10x" or "100x": which autofocus parameters to test
+SWEEP_RANGE_UM = 0.0;              // diagnostic sweep +-range; 0 = automatic (10x: 40 um, 100x: 10 um)
+SWEEP_STEP_UM  = 0.0;              // 0 = automatic (10x: 1 um, 100x: 0.2 um)
+REPEATS        = 8;                // frames at one Z for the noise of the sharpness
+TEST_OFFSETS_UM = null;            // autofocus starts relative to the start Z; null = automatic (10x: 0, +-10; 100x: 0, +-3)
+MAX_DZ_UM      = 150.0;            // safety: never further than this from the start Z (real um)
+Z_STEPSIZE_UM = 0.0250 / 12.0;   // focus drive step size to set (um per motor step): the Oasis default 0.0250 made
+                                 // 1200 "um" = one 100 um turn of the BX51 fine-focus knob (measured 2026-09-30).
+                                 // 0 = leave it; then Z_SCALE below converts instead
+Z_SCALE        = 12.0;             // (only with Z_STEPSIZE_UM = 0) focus-drive units per real um (as in mm_chip_scan.bsh; 1.0 once the drive is corrected)
+// the same values as in mm_chip_scan.bsh
+AF10           = new double[] { 30.0, 5.0, 6.0, 1.0, 0.8 };
+AF100_FIRST    = new double[] { 15.0, 1.0, 1.0, 0.25, 0.9 };
+AF_EXTEND      = 2;
+AF_MIN_RATIO   = 1.10;
+AF_BACKLASH_UM = 5.0;
+SPIKE_FACTOR   = 3.0;
+Z_SETTLE_MS    = 20;
+VERBOSE        = true;
+// ----------------------------------------------------------------
+
+boolean has(Object o, String name) {
+    if (o == null) return false;
+    java.lang.reflect.Method[] ms = o.getClass().getMethods();
+    for (int i = 0; i < ms.length; i++) if (ms[i].getName().equals(name)) return true;
+    return false;
+}
+new File(OUT_DIR).mkdirs();
+LOG = new FileWriter(OUT_DIR + "/" + NAME + "_log.txt", false);
+void say(String msg) {
+    print(msg);
+    try { LOG.write(msg + "\r\n"); LOG.flush(); } catch (Throwable t) { }
+}
+Exception fail(String msg) { say("ERROR: " + msg); return new Exception(msg); }
+String f1(double v) { return "" + (Math.round(v * 10.0) / 10.0); }
+String f3(double v) { return "" + (Math.round(v * 1000.0) / 1000.0); }
+double median(double[] a) { double[] c = java.util.Arrays.copyOf(a, a.length); java.util.Arrays.sort(c); return c[c.length / 2]; }
+
+zDev = mmc.getFocusDevice();
+if (zDev == null || zDev.length() == 0) throw fail("no focus device");
+if (has(mm, "live") && has(mm.live(), "setLiveMode") && mm.live().getIsLiveModeOn()) mm.live().setLiveMode(false);
+W = (int) mmc.getImageWidth();
+H = (int) mmc.getImageHeight();
+// Z in real um: the focus drive reports / moves in its own units = Z_SCALE x real um
+double zRead() { return mmc.getPosition(zDev) / Z_SCALE; }
+void zWrite(double z) { mmc.setPosition(zDev, z * Z_SCALE); }
+// focus-drive step size: set it so that Micro-Manager's Z is in real um; if it cannot be set, the
+// scripts convert with Z_SCALE = (drive step size) / Z_STEPSIZE_UM
+if (zDev != null && zDev.length() > 0 && Z_STEPSIZE_UM > 0) {
+    if (!mmc.hasProperty(zDev, "StepSize_um")) throw fail(zDev + " has no StepSize_um property; set Z_STEPSIZE_UM = 0 and Z_SCALE by hand");
+    zsOld = mmc.getProperty(zDev, "StepSize_um");
+    zrOld = mmc.getPosition(zDev);
+    if (Math.abs(Double.parseDouble(zsOld) - Z_STEPSIZE_UM) > 1e-7) {
+        try { mmc.setProperty(zDev, "StepSize_um", "" + Z_STEPSIZE_UM); mmc.waitForDevice(zDev); }
+        catch (Throwable t) { say("  (" + zDev + " StepSize_um cannot be set: " + t.getMessage() + ")"); }
+    }
+    zsNew = mmc.getProperty(zDev, "StepSize_um");
+    // whatever the drive uses now (set, rounded, or unchanged because read-only), convert the rest in
+    // software: drive units per real um = its step size / the true step size
+    Z_SCALE = Double.parseDouble(zsNew) / Z_STEPSIZE_UM;
+    say("  " + zDev + " StepSize_um: " + zsOld + " -> " + zsNew + " um per step; " +
+        (Math.abs(Z_SCALE - 1) < 1e-6 ? "Z in real um" : "converting in software, Z_SCALE " + f3(Z_SCALE) + " drive units per um") +
+        "; Z read " + f3(zrOld) + ", now " + f3(mmc.getPosition(zDev)));
+}
+Z0 = zRead();
+nSnaps = 0;
+
+// ---------------------------------------------------------------- autofocus code (as in mm_chip_scan.bsh)
+boolean setZ(double z) {
+    if (Math.abs(z - Z0) > MAX_DZ_UM) return false;
+    zWrite(z);
+    mmc.waitForDevice(zDev);
+    if (Z_SETTLE_MS > 0) Thread.sleep((long) Z_SETTLE_MS);
+    return true;
+}
+double sharpness(double roi) {
+    mmc.snapImage();
+    Object img = mmc.getImage();
+    nSnaps++;
+    ij.process.ImageProcessor ip = ((int) mmc.getBytesPerPixel() == 2)
+        ? (ij.process.ImageProcessor) new ij.process.ShortProcessor(W, H, (short[]) img, null)
+        : (ij.process.ImageProcessor) new ij.process.ColorProcessor(W, H, (int[]) img);
+    int rw = ((int) (W * roi)) & ~1, rh = ((int) (H * roi)) & ~1;
+    ip.setRoi(((W - rw) / 2) & ~1, ((H - rh) / 2) & ~1, rw, rh);
+    ij.process.ImageProcessor c = ip.crop().convertToFloat().bin(2);
+    double mean = c.getStatistics().mean;
+    c.findEdges();
+    return c.getStatistics().mean / Math.max(mean, 1.0);
+}
+int sweep(double[] zs, double[] ms, double roi) {
+    setZ(zs[0] - AF_BACKLASH_UM);
+    for (int i = 0; i < zs.length; i++) {
+        if (setZ(zs[i])) ms[i] = sharpness(roi); else ms[i] = -1.0;
+    }
+    despike(zs, ms, roi);
+    int bi = -1;
+    for (int i = 0; i < zs.length; i++) if (bi < 0 || ms[i] > ms[bi]) bi = i;
+    return bi;
+}
+
+// a single glitch frame (seen on the XC10: 13x the sharpness of its neighbours, not reproducible)
+// must not become the focus: re-measure points far above both neighbours
+void despike(double[] zs, double[] ms, double roi) {
+    for (int i = 0; i < zs.length; i++) {
+        if (ms[i] <= 0) continue;
+        double nb = -1;
+        if (i > 0) nb = Math.max(nb, ms[i - 1]);
+        if (i < zs.length - 1) nb = Math.max(nb, ms[i + 1]);
+        if (nb <= 0 || ms[i] < SPIKE_FACTOR * nb) continue;
+        setZ(zs[i] - AF_BACKLASH_UM); setZ(zs[i]);
+        double again = sharpness(roi);
+        if (VERBOSE) say("      sharpness spike at Z " + f3(zs[i]) + " (" + f3(ms[i]) + " vs neighbours " + f3(nb) + "): re-measured " + f3(again));
+        ms[i] = again;
+    }
+}
+double[] autofocusScript(double zc, double[] p) {
+    long t0 = System.currentTimeMillis();
+    double lo = zc - p[0], hi = zc + p[0];
+    double bestZ = zc, ratio = 0.0;
+    for (int ext = 0; ext <= AF_EXTEND; ext++) {
+        int n = (int) Math.round((hi - lo) / p[1]) + 1;
+        double[] zs = new double[n], ms = new double[n];
+        for (int i = 0; i < n; i++) zs[i] = lo + i * p[1];
+        int bi = sweep(zs, ms, p[4]);
+        double[] valid = new double[n]; int nv = 0;
+        for (int i = 0; i < n; i++) if (ms[i] >= 0) valid[nv++] = ms[i];
+        if (nv < 3) break;
+        ratio = ms[bi] / Math.max(median(java.util.Arrays.copyOf(valid, nv)), 1e-9);
+        bestZ = zs[bi];
+        if (ratio < AF_MIN_RATIO) break;
+        if (bi == 0 && ext < AF_EXTEND) { hi = lo + p[1]; lo = hi - 2 * p[0]; continue; }
+        if (bi == n - 1 && ext < AF_EXTEND) { lo = hi - p[1]; hi = lo + 2 * p[0]; continue; }
+        break;
+    }
+    if (ratio < AF_MIN_RATIO) {
+        if (VERBOSE) say("      autofocus: no focus signal (peak/median " + f3(ratio) + ")");
+        setZ(zc);
+        return new double[] { zc, ratio, 0 };
+    }
+    int nf = (int) Math.round(2 * p[2] / p[3]) + 1;
+    double[] zf = new double[nf], mf = new double[nf];
+    for (int i = 0; i < nf; i++) zf[i] = bestZ - p[2] + i * p[3];
+    int fi = sweep(zf, mf, p[4]);
+    // if the coarse sweep was a step off, the peak sits at an end of the fine window: re-centre once
+    if (fi <= 1 || fi >= nf - 2) {
+        double zc2 = zf[fi];
+        for (int i = 0; i < nf; i++) zf[i] = zc2 - p[2] + i * p[3];
+        fi = sweep(zf, mf, p[4]);
+        if (VERBOSE) say("      fine sweep re-centred on Z " + f3(zc2));
+    }
+    double z = zf[fi];
+    double mmin = 1e30;
+    for (int i = 0; i < nf; i++) if (mf[i] > 0) mmin = Math.min(mmin, mf[i]);
+    double thr = Math.log(mmin) + 0.5 * (Math.log(mf[fi]) - Math.log(mmin));
+    double s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, q0 = 0, q1 = 0, q2 = 0, zlo = 1e30, zhi = -1e30;
+    int np = 0;
+    for (int i = 0; i < nf; i++) {
+        if (mf[i] <= 0 || Math.log(mf[i]) < thr) continue;
+        double u = zf[i] - zf[fi], y = Math.log(mf[i]);
+        s0 += 1; s1 += u; s2 += u * u; s3 += u * u * u; s4 += u * u * u * u; q0 += y; q1 += u * y; q2 += u * u * y;
+        zlo = Math.min(zlo, zf[i]); zhi = Math.max(zhi, zf[i]); np++;
+    }
+    if (np >= 3) {
+        double det = s0 * (s2 * s4 - s3 * s3) - s1 * (s1 * s4 - s3 * s2) + s2 * (s1 * s3 - s2 * s2);
+        if (Math.abs(det) > 1e-12) {
+            double c1 = (s0 * (q1 * s4 - s3 * q2) - q0 * (s1 * s4 - s3 * s2) + s2 * (s1 * q2 - q1 * s2)) / det;
+            double c2 = (s0 * (s2 * q2 - q1 * s3) - s1 * (s1 * q2 - q1 * s2) + q0 * (s1 * s3 - s2 * s2)) / det;
+            if (c2 < 0) z = Math.max(zlo, Math.min(zhi, zf[fi] - c1 / (2 * c2)));
+        }
+    }
+    setZ(z - AF_BACKLASH_UM);
+    setZ(z);
+    if (VERBOSE) say("      autofocus: Z " + f3(z) + " (peak/median " + f3(ratio) + ", " +
+                     ((System.currentTimeMillis() - t0) / 1000.0) + " s)");
+    return new double[] { z, ratio, 1 };
+}
+// ---------------------------------------------------------------- test helpers
+double frameMedian() {                    // median of the last frame, as % of full scale (ImageJ: fast)
+    Object img = mmc.getImage();
+    ij.process.ImageProcessor ip = ((int) mmc.getBytesPerPixel() == 2)
+        ? (ij.process.ImageProcessor) new ij.process.ShortProcessor(W, H, (short[]) img, null)
+        : (ij.process.ImageProcessor) new ij.process.ColorProcessor(W, H, (int[]) img);
+    double med = ij.process.ImageStatistics.getStatistics(ip, ij.measure.Measurements.MEDIAN, null).median;
+    double fs = ((int) mmc.getBytesPerPixel() == 4) ? 255.0 : Math.pow(2, (double) mmc.getImageBitDepth()) - 1;
+    return 100.0 * med / fs;
+}
+void saveFrame(String file) {
+    mmc.snapImage();
+    Object img = mmc.getImage();
+    ij.process.ImageProcessor ip = ((int) mmc.getBytesPerPixel() == 2)
+        ? (ij.process.ImageProcessor) new ij.process.ShortProcessor(W, H, (short[]) img, null)
+        : (ij.process.ImageProcessor) new ij.process.ColorProcessor(W, H, (int[]) img);
+    ij.IJ.saveAsTiff(new ij.ImagePlus(file, ip), OUT_DIR + "/" + file);
+}
+
+// ---------------------------------------------------------------- run
+is100 = OBJECTIVE.equals("100x");
+P = is100 ? AF100_FIRST : AF10;
+range_ = SWEEP_RANGE_UM > 0 ? SWEEP_RANGE_UM : (is100 ? 10.0 : 40.0);
+step_ = SWEEP_STEP_UM > 0 ? SWEEP_STEP_UM : (is100 ? 0.2 : 1.0);
+offs_ = TEST_OFFSETS_UM != null ? TEST_OFFSETS_UM : (is100 ? new double[] { 0.0, 3.0, -3.0 } : new double[] { 0.0, 10.0, -10.0 });
+say("autofocus test (" + SCRIPT_VERSION + "), " + OBJECTIVE + ": start Z " + f3(Z0) + " um (" + zDev + " reads " + f3(Z0 * Z_SCALE) + ", Z_SCALE " + Z_SCALE + "), camera " + mmc.getCameraDevice() +
+    " " + W + " x " + H + ", exposure " + f3(mmc.getExposure()) + " ms, " + mmc.getImageBitDepth() + " bit; stage " +
+    f1(mmc.getXPosition(mmc.getXYStageDevice())) + ", " + f1(mmc.getYPosition(mmc.getXYStageDevice())));
+
+// 1. focus drive check: does Z go where it is sent?
+setZ(Z0 + 2.0);
+zr = zRead();
+setZ(Z0);
+say("  Z drive: sent " + f3(Z0 + 2.0) + ", reads " + f3(zr) + (Math.abs(zr - Z0 - 2.0) > 0.2 ? "   <-- does not follow (Z drive problem)" : "   ok"));
+saveFrame(NAME + "_start.tif");
+
+// timing: snap alone, sharpness alone (snap + analysis), Z move alone
+t0 = System.currentTimeMillis(); for (int i = 0; i < 5; i++) { mmc.snapImage(); mmc.getImage(); } tSnap = (System.currentTimeMillis() - t0) / 5000.0;
+t0 = System.currentTimeMillis(); for (int i = 0; i < 5; i++) sharpness(P[4]); tSharp = (System.currentTimeMillis() - t0) / 5000.0;
+t0 = System.currentTimeMillis(); for (int i = 0; i < 5; i++) { setZ(Z0 + ((i % 2 == 0) ? 1.0 : 0.0)); } tZ = (System.currentTimeMillis() - t0) / 5000.0;
+setZ(Z0);
+say("  timing: snap " + f3(tSnap) + " s, snap + sharpness " + f3(tSharp) + " s, 1 um Z move (incl. " + Z_SETTLE_MS + " ms settle) " + f3(tZ) + " s");
+
+// 2. diagnostic sweep
+t0 = System.currentTimeMillis();
+n_ = (int) Math.round(2 * range_ / step_) + 1;
+zs_ = new double[n_]; ms_ = new double[n_]; lv_ = new double[n_];
+setZ(Z0 - range_ - AF_BACKLASH_UM);
+for (int i = 0; i < n_; i++) {
+    zs_[i] = Z0 - range_ + i * step_;
+    if (!setZ(zs_[i])) { ms_[i] = -1; continue; }
+    ms_[i] = sharpness(P[4]);
+    lv_[i] = frameMedian();
+}
+despike(zs_, ms_, P[4]);
+sweepSec = (System.currentTimeMillis() - t0) / 1000.0;
+bi_ = 0;
+for (int i = 0; i < n_; i++) if (ms_[i] > ms_[bi_]) bi_ = i;
+v_ = new double[n_]; nv_ = 0;
+for (int i = 0; i < n_; i++) if (ms_[i] >= 0) v_[nv_++] = ms_[i];
+med_ = median(java.util.Arrays.copyOf(v_, nv_));
+// width of the peak at half height above the median
+half_ = med_ + 0.5 * (ms_[bi_] - med_);
+lo_ = bi_; while (lo_ > 0 && ms_[lo_ - 1] >= half_) lo_--;
+hi_ = bi_; while (hi_ < n_ - 1 && ms_[hi_ + 1] >= half_) hi_++;
+fwhm_ = (hi_ - lo_ + 1) * step_;
+csv_ = new FileWriter(OUT_DIR + "/" + NAME + "_sweep.csv", false);
+csv_.write("z_um,sharpness,median_percent_full_scale\r\n");
+for (int i = 0; i < n_; i++) csv_.write(zs_[i] + "," + ms_[i] + "," + lv_[i] + "\r\n");
+csv_.close();
+say("  sweep " + f1(Z0 - range_) + " .. " + f1(Z0 + range_) + " um in " + step_ + " um steps (" + n_ + " frames, " + f1(sweepSec) + " s, " +
+    f3(sweepSec / n_) + " s per frame)");
+say("  sharpest at Z " + f3(zs_[bi_]) + " (" + f3(zs_[bi_] - Z0) + " from the start); peak/median " + f3(ms_[bi_] / med_) +
+    ", peak width (FWHM) " + f1(fwhm_) + " um; frame median " + f1(lv_[bi_]) + " % of full scale");
+
+// 3. noise at the sharpest Z
+setZ(zs_[bi_] - AF_BACKLASH_UM); setZ(zs_[bi_]);
+saveFrame(NAME + "_best.tif");
+rep_ = new double[REPEATS];
+for (int i = 0; i < REPEATS; i++) rep_[i] = sharpness(P[4]);
+m_ = 0; for (int i = 0; i < REPEATS; i++) m_ += rep_[i] / REPEATS;
+sd_ = 0; for (int i = 0; i < REPEATS; i++) sd_ += (rep_[i] - m_) * (rep_[i] - m_) / REPEATS;
+cv_ = Math.sqrt(sd_) / m_;
+say("  sharpness noise at the peak: " + f3(cv_ * 100) + " % (" + REPEATS + " frames)");
+
+// plot
+try {
+    pw = 700; ph = 380;
+    bi = new java.awt.image.BufferedImage(pw, ph, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    gr = bi.createGraphics();
+    gr.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+    gr.setColor(java.awt.Color.WHITE); gr.fillRect(0, 0, pw, ph);
+    mn = 1e30; mx = -1e30;
+    for (int i = 0; i < n_; i++) if (ms_[i] >= 0) { mn = Math.min(mn, ms_[i]); mx = Math.max(mx, ms_[i]); }
+    gr.setColor(java.awt.Color.LIGHT_GRAY); gr.drawRect(50, 30, pw - 70, ph - 80);
+    gr.setColor(java.awt.Color.BLUE);
+    for (int i = 1; i < n_; i++) {
+        if (ms_[i] < 0 || ms_[i - 1] < 0) continue;
+        gr.drawLine(50 + (int) ((i - 1) * (pw - 70.0) / (n_ - 1)), ph - 50 - (int) ((ms_[i - 1] - mn) / Math.max(mx - mn, 1e-12) * (ph - 80)),
+                    50 + (int) (i * (pw - 70.0) / (n_ - 1)), ph - 50 - (int) ((ms_[i] - mn) / Math.max(mx - mn, 1e-12) * (ph - 80)));
+    }
+    gr.setColor(java.awt.Color.RED);
+    xs0 = 50 + (int) ((Z0 - zs_[0]) / (zs_[n_ - 1] - zs_[0]) * (pw - 70)); gr.drawLine(xs0, 30, xs0, ph - 50);
+    gr.setColor(java.awt.Color.BLACK);
+    gr.drawString(NAME + " " + OBJECTIVE + ": sharpness vs Z (red: start Z " + f1(Z0) + ")   peak/median " + f3(ms_[bi_] / med_) + ", FWHM " + f1(fwhm_) + " um", 10, 18);
+    gr.drawString(f1(zs_[0]), 40, ph - 30); gr.drawString(f1(zs_[n_ - 1]), pw - 60, ph - 30); gr.drawString("Z (um)", pw / 2 - 20, ph - 30);
+    gr.dispose();
+    javax.imageio.ImageIO.write(bi, "png", new File(OUT_DIR + "/" + NAME + "_sweep.png"));
+    if (!java.awt.GraphicsEnvironment.isHeadless()) new ij.ImagePlus(NAME + " sharpness vs Z", bi).show();
+} catch (Throwable t) { say("  (plot not drawn: " + t + ")"); }
+
+// 4. the autofocus routine itself, from several starts
+res_ = new java.util.ArrayList();
+for (int k = 0; k < offs_.length; k++) {
+    zst = zs_[bi_] + offs_[k];
+    say("  autofocus from Z " + f3(zst) + " (" + (offs_[k] >= 0 ? "+" : "") + f1(offs_[k]) + " from the sharpest):");
+    setZ(zst);
+    t1 = System.currentTimeMillis();
+    n0 = nSnaps;
+    r_ = autofocusScript(zst, P);
+    say("    -> " + (r_[2] > 0.5 ? "Z " + f3(r_[0]) + ", " + f3(r_[0] - zs_[bi_]) + " from the sharpest" : "FAILED") +
+        "; peak/median " + f3(r_[1]) + "; " + (nSnaps - n0) + " frames, " + f1((System.currentTimeMillis() - t1) / 1000.0) + " s");
+    res_.add(r_);
+    if (k == 0 && r_[2] > 0.5) saveFrame(NAME + "_af.tif");
+}
+setZ(Z0 - AF_BACKLASH_UM); setZ(Z0);
+
+// 5. diagnosis
+say("  --- diagnosis");
+ratio_ = ms_[bi_] / med_;
+if (ratio_ < AF_MIN_RATIO)
+    say("  * no clear sharpness peak over the sweep (peak/median " + f3(ratio_) + " < AF_MIN_RATIO " + AF_MIN_RATIO + "): " +
+        "the view has too little structure, the focus is outside the sweep, or Z does not move the focus. Look at " + NAME + "_start.tif / _best.tif.");
+else if (bi_ == 0 || bi_ == n_ - 1)
+    say("  * the sharpest Z is at the end of the sweep: focus is further than " + f1(range_) + " um away; increase SWEEP_RANGE_UM.");
+else say("  * sharpness peak found (peak/median " + f3(ratio_) + ", FWHM " + f1(fwhm_) + " um).");
+if (fwhm_ < 2.5 * P[3]) say("  * the peak is narrow compared with the fine step (" + P[3] + " um): use a smaller fine step.");
+if (fwhm_ > 0 && P[1] > fwhm_) say("  * the coarse step (" + P[1] + " um) is wider than the peak (" + f1(fwhm_) + " um): the coarse sweep can step over focus; use a smaller coarse step.");
+if (cv_ > 0.05) say("  * the sharpness is noisy (" + f3(cv_ * 100) + " % between frames): more light / exposure, or a larger ROI.");
+if (lv_[bi_] > 85) say("  * the frame is nearly saturated (" + f1(lv_[bi_]) + " %): lower the exposure.");
+if (lv_[bi_] < 3) say("  * the frame is very dark (" + f1(lv_[bi_]) + " %): lamp / light path?");
+nf_ = 0; for (int i = 0; i < res_.size(); i++) if (((double[]) res_.get(i))[2] < 0.5) nf_++;
+say("  * autofocus: " + (res_.size() - nf_) + " of " + res_.size() + " runs passed.");
+say("done: " + OUT_DIR + "/" + NAME + "_log.txt, _sweep.csv, _sweep.png, _start.tif, _best.tif, _af.tif (at the first autofocus result)");
+try { LOG.close(); } catch (Throwable t) { }

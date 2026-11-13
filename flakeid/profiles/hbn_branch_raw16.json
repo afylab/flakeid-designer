@@ -1,0 +1,29 @@
+{
+ "profile": "bx51_xc10_mm_raw16",
+ "material": "hbn",
+ "oxide_nm": 305.2,
+ "oxide_tol_nm": 10.0,
+ "thin_range_nm": [
+  0,
+  60
+ ],
+ "thick_range_nm": [
+  110,
+  250
+ ],
+ "max_fit": 0.15,
+ "gap": 0.2,
+ "features": [
+  "contrast_r",
+  "contrast_g",
+  "contrast_b"
+ ],
+ "coef": [
+  10.2526,
+  -3.7511,
+  -83.4615
+ ],
+ "intercept": 45.8294,
+ "cv": "5-fold CV x30 on the 148 ambiguous flakes: accuracy 0.93, AUC 0.98 (blue contrast alone: AUC 0.96)",
+ "source": "user thin/thick labels of 148 chip_1 (multitest, hBN, oxide fit 305.2 nm) flakes whose 10x colour fits both ~20 nm and ~150 nm (90 thick, 58 thin; F1090 corrected to thick after review), 2026-10-02; references 38/40 thin agree with the colour fit"
+}

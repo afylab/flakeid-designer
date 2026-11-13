@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="1024" height="1024">
+  <title>FlakeIdentifier</title>
+  <defs>
+    <linearGradient id="ox" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6c5cb4"/>
+      <stop offset="1" stop-color="#4a3e8e"/>
+    </linearGradient>
+    <clipPath id="lens"><circle cx="26" cy="25" r="15"/></clipPath>
+  </defs>
+  <rect width="64" height="64" fill="url(#ox)"/>
+  <line x1="37.5" y1="36.5" x2="52" y2="51" stroke="#f5f3ff" stroke-width="6.5" stroke-linecap="round"/>
+  <circle cx="26" cy="25" r="15" fill="#2f2668"/>
+  <g clip-path="url(#lens)">
+    <polygon points="14,22 22,12.5 33.5,14.5 39,24 33,34.5 20.5,36" fill="#4fc3b8"/>
+    <polygon points="20,23 25,18 31.5,19.5 33,26 27.5,30.5 21,29.5" fill="#f2c14e"/>
+  </g>
+  <circle cx="26" cy="25" r="15" fill="none" stroke="#f5f3ff" stroke-width="3.5"/>
+</svg>

@@ -1,0 +1,78 @@
+{
+  "camera": {
+    "lamp_temp_k": 3100.0,
+    "centers_nm": [
+      628.9565734263596,
+      549.7710860303846,
+      479.1887249875306
+    ],
+    "fwhm_nm": [
+      91.67390232361588,
+      83.2975552970558,
+      86.8244188738596
+    ],
+    "ir_cut_nm": 690.8326369278593,
+    "gamma": 1.0,
+    "ccm": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "flare": [
+      0.011263970298421988,
+      0.02853186870201651,
+      0.0072796761414597976
+    ]
+  },
+  "na": 0.3,
+  "notes": "Young Lab BX51, XIMEA XC10 via Micro-Manager, RAW16 12-bit (linear, dark-subtracted, flat-fielded), MPLFLN10xBD + 0.63x (1.091 um/px), halogen lamp. Unsupervised fit (python -m flakeid.calibrate --tone flare --no-ccm) to hBN on nominal 285 nm SiO2 (tiles_v3_1 3 ms, tiles_v2_1 6 ms; fitted oxide 301-305 nm). No colour matrix (raw sensor). Median distance of flat-flake contrasts to the model curve 0.044. hBN only: graphite on this camera not yet calibrated. Not validated against AFM.",
+  "materials": {},
+  "calibration": {
+    "images": [
+      [
+        "tiles_v3_1",
+        "hbn",
+        "285"
+      ],
+      [
+        "tiles_v2_1",
+        "hbn",
+        "285"
+      ]
+    ],
+    "same_settings": false,
+    "fitted_oxide_nm": {
+      "tiles_v3_1": 304.5,
+      "tiles_v2_1": 301.4
+    },
+    "params": {
+      "f_r": 0.0113,
+      "f_g": 0.0285,
+      "f_b": 0.0073,
+      "c_r": 628.9566,
+      "c_g": 549.7711,
+      "c_b": 479.1887,
+      "w_r": 91.6739,
+      "w_g": 83.2976,
+      "w_b": 86.8244,
+      "ir_cut": 690.8326,
+      "gr_n550": 2.8181,
+      "gr_k550": 1.2022,
+      "gr_kslope": 0.2323,
+      "oxide_0": 1.0686,
+      "oxide_1": 1.0574
+    }
+  }
+}

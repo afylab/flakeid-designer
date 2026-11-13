@@ -1,0 +1,11 @@
+# FlakeIdentifier on the microscope PC (Windows 7 SP1, 64-bit): Python 3.8.10, the last Python with a Windows 7 installer.
+# Newest releases of each package that still ship Python 3.8 wheels for Windows.  Checked 2026-10-03: the pipeline gives
+# identical results with these versions (Python 3.8) and with the analysis Mac's (Python 3.9).
+numpy==1.24.4
+scipy==1.10.1
+opencv-python-headless==4.8.1.78
+scikit-image==0.21.0
+scikit-learn==1.3.2
+tifffile==2023.7.10
+pillow==10.4.0
+certifi==2024.8.30                  # (Slack / email messages: an up-to-date certificate list on Windows 7)

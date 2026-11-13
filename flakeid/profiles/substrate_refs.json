@@ -1,0 +1,44 @@
+{
+ "note": "Blank-substrate references for flakeid.bgcheck, from the flat fields, keyed by objective and fitted oxide (nominal 285 nm wafers fit ~300-305 nm, 90 nm wafers ~82-85 nm). Add one per objective and wafer type.",
+ "refs": [
+  {
+   "objective": "10x",
+   "oxide_nm": 300.0,
+   "substrate_counts": [
+    526.3,
+    980.7,
+    926.1
+   ],
+   "exposure_ms": 3.0,
+   "bit_depth": 12,
+   "source": "example images/micromanager_test/flat_10x_3ms.npz",
+   "note": "nominal 285 nm wafer (fits ~303-305 nm); oxide inferred from colour: matches chip_1 (305 nm fit) within 5 %, far from chip_2 (82 nm)"
+  },
+  {
+   "objective": "100x",
+   "oxide_nm": 300.0,
+   "substrate_counts": [
+    713.8,
+    927.0,
+    613.3
+   ],
+   "exposure_ms": 27.0,
+   "bit_depth": 12,
+   "source": "flats/flat_100x_285nm.npz",
+   "note": "285 nm nominal wafer (fits ~303-305 nm)"
+  },
+  {
+   "objective": "100x",
+   "oxide_nm": 85.0,
+   "substrate_counts": [
+    449.3,
+    696.1,
+    376.7
+   ],
+   "exposure_ms": 27.0,
+   "bit_depth": 12,
+   "source": "flats/flat_100x_90nm.npz",
+   "note": "90 nm nominal wafer (fits ~82 nm)"
+  }
+ ]
+}

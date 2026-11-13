@@ -1,0 +1,9 @@
+{
+ "flat10": "C:/FlakeID/FlakeIdentifier/flats/flat_10x_3ms.npz",
+ "flat100": ["285=C:/FlakeID/FlakeIdentifier/flats/flat_100x_285nm.npz",
+             "90=C:/FlakeID/FlakeIdentifier/flats/flat_100x_90nm.npz"],
+ "analysis_workers": 3,
+ "targets_wait_s": 10800,
+ "nosepiece_port": "COM1",
+ "objective_positions": {"10x": 2, "100x": 5, "domain": 3}
+}

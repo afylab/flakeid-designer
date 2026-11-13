@@ -1,0 +1,4 @@
+{
+ "_note": "Nominal SiO2 thickness (as sold, as people enter it) -> the thickness the analysis models. The '90 nm' graphite wafers measure 80-83 nm at 10x (multitest chip_2 82.9 nm; pleasework_2 blocks at <= 81 nm, 2026-10-03; graphite layer calibration at 81.9 nm). Entries match within 0.5 nm; other values are used as entered. The oxide is still refined from the image.",
+ "90": 82.0
+}

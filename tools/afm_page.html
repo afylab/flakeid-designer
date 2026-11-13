@@ -1,0 +1,580 @@
+<title>bigbntest_2 AFM Calibration</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;650&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f2f3f0; --surface:#ffffff; --sunk:#e9ebe6; --ink:#1b1f1d; --muted:#626b66; --rule:#d7dbd5;
+  --accent:#2c6a88; --accent-ink:#ffffff; --accent-soft:#dbe9f0; --mark:#c27c0e; --site:#e0442b; --sub:#b3678f;
+  --good:#2b7a4b; --good-bg:#e0f0e6; --warn:#946010; --warn-bg:#f6ead2; --bad:#ad2a20; --bad-bg:#f7dedb;
+  --display:"Archivo",ui-sans-serif,system-ui,sans-serif;
+  --body:"Public Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark;
+  --bg:#131614; --surface:#1b1f1d; --sunk:#232825; --ink:#e8ece9; --muted:#9aa49e; --rule:#2f3532;
+  --accent:#6fb3d4; --accent-ink:#0d1a21; --accent-soft:#1d3440; --mark:#e6a443; --site:#ff6a50; --sub:#d796ba;
+  --good:#7ccb98; --good-bg:#18301f; --warn:#e2b061; --warn-bg:#352812; --bad:#f08a80; --bad-bg:#3a1b18;
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#131614; --surface:#1b1f1d; --sunk:#232825; --ink:#e8ece9; --muted:#9aa49e; --rule:#2f3532;
+  --accent:#6fb3d4; --accent-ink:#0d1a21; --accent-soft:#1d3440; --mark:#e6a443; --site:#ff6a50; --sub:#d796ba;
+  --good:#7ccb98; --good-bg:#18301f; --warn:#e2b061; --warn-bg:#352812; --bad:#f08a80; --bad-bg:#3a1b18;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--body);padding-inline:20px;padding-block:24px 80px}
+.wrap{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+h1{font:650 clamp(26px,3.6vw,36px)/1.1 var(--display);margin:0;letter-spacing:-.01em;text-wrap:balance}
+h2{font:650 19px/1.25 var(--display);margin:0}
+h3{font:600 15px/1.3 var(--body);margin:0}
+p{margin:0;max-width:72ch}
+.muted{color:var(--muted)}
+.mono,input.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+header{display:flex;flex-direction:column;gap:10px}
+.stats{display:flex;flex-wrap:wrap;gap:10px 28px}
+.stats div{display:flex;flex-direction:column}
+.stats b{font:500 22px/1.2 var(--mono)}
+.stats span{font-size:13px;color:var(--muted)}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+.step{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;font-size:14px}
+.step b{font:600 13px var(--mono);color:var(--accent)}
+section.panel{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{padding:6px 10px;border-bottom:1px solid var(--rule);text-align:left;white-space:nowrap;vertical-align:middle}
+th{font:500 11.5px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+td.n{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:0}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:4px 7px}
+input.num{width:96px;text-align:right}
+input.nm{width:78px}
+textarea{width:100%;min-height:34px;resize:vertical}
+button{font:500 13px var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--rule);border-radius:5px;padding:5px 11px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.row{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+.fit{font-size:14px}
+.fit .bad{color:var(--bad)} .fit .ok{color:var(--good)}
+.controls{position:sticky;top:env(safe-area-inset-top,0px);z-index:3;background:var(--bg);padding-block:10px;border-bottom:1px solid var(--rule)}
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-radius:0}
+.seg button+button{border-left:1px solid var(--rule)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.list{display:flex;flex-direction:column;gap:16px}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:14px;display:grid;grid-template-columns:52px minmax(0,1.1fr) minmax(0,1fr);gap:16px}
+.tw tr.meas td{background:var(--sunk);border-bottom:1px solid var(--rule)}
+.tw tr:not(.meas) td{border-bottom:0}
+.card.done{border-color:var(--good)}
+@media (max-width:980px){.card{grid-template-columns:44px minmax(0,1fr)}.card .right{grid-column:1/-1}}
+.num-badge{font:650 26px/1 var(--display)}
+.num-badge small{display:block;font:500 11px/1.5 var(--mono);color:var(--muted);margin-top:6px}
+.pill{display:inline-block;font-size:11.5px;line-height:1.3;padding:2px 7px;border-radius:999px;background:var(--sunk);color:var(--muted)}
+.pill.ref{background:var(--accent-soft);color:var(--accent)}
+.pill.p1{background:var(--warn-bg);color:var(--warn)}
+.pill.ok{background:var(--good-bg);color:var(--good)}
+.pill.bad{background:var(--bad-bg);color:var(--bad)}
+.imgs{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:8px}
+.imgs .stack{display:flex;flex-direction:column;gap:8px}
+figure{margin:0;display:flex;flex-direction:column;gap:3px}
+figcaption{font:11px var(--mono);color:var(--muted)}
+.ov{position:relative;line-height:0;background:var(--sunk);border-radius:3px;overflow:hidden}
+.ov img{width:100%;height:auto;display:block}
+.ov svg{position:absolute;inset:0;width:100%;height:100%}
+.right{display:flex;flex-direction:column;gap:10px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:13.5px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.tw{border:1px solid var(--rule);border-radius:5px;overflow-x:auto}
+.tw table td,.tw table th{padding:5px 8px}
+.swatch{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:-1px;margin-right:4px;border:1px solid var(--rule)}
+.afmpos{background:var(--sunk);border-radius:5px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+#save{font:12px var(--mono);color:var(--muted)}
+dialog{border:1px solid var(--rule);border-radius:8px;padding:0;background:var(--surface);color:var(--ink);width:min(1100px,96vw);max-height:92vh}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+.dhead{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--rule)}
+#chipWrap{position:relative;height:min(72vh,760px);background:#0d1011;touch-action:none}
+#chipCv{position:absolute;inset:0;width:100%;height:100%;cursor:grab}
+.hud{position:absolute;left:12px;bottom:10px;display:flex;gap:6px;align-items:center;font:12px var(--mono);color:#fff}
+.hud i{display:block;height:4px;background:#fff}
+.note{font-size:13.5px;color:var(--muted);max-width:80ch}
+code{font:12.5px var(--mono);background:var(--sunk);padding:1px 5px;border-radius:3px}
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow" id="eyebrow"></span>
+  <h1>AFM thickness calibration</h1>
+  <p class="muted" id="lede"></p>
+  <div class="stats" id="stats"></div>
+</header>
+
+<div class="steps">
+  <div class="step"><b>1 · References</b><span>Visit flakes 1–3 first. Centre the AFM camera crosshair on the <span style="color:var(--mark)">orange cross</span> (the middle of the flake's main terrace) and type the AFM stage X, Y on the card. Three points fix the stage transform. More points make it more accurate, so enter positions at later flakes too.</span></div>
+  <div class="step"><b>2 · Scan</b><span>Scan the <span style="color:var(--site)">red box</span>: 25 µm centred on a stretch of edge where the terrace meets bare SiO₂ ("step" boxes cross into a neighbouring terrace instead). The predicted AFM position is on each card once the transform is fixed.</span></div>
+  <div class="step"><b>3 · Report</b><span>Enter the step height in nm (terrace − SiO₂ from a histogram or a levelled line profile, not a single line) with an uncertainty, and set the status. Entries are saved as you type and are shared with everyone who opens this page.</span></div>
+</div>
+
+<section class="panel" id="xfPanel">
+  <div class="row" style="justify-content:space-between"><h2>Microscope → AFM stage transform</h2>
+    <div class="row"><label for="units">AFM units</label><select id="units"><option value="µm">µm</option><option value="mm">mm</option><option value="nm">nm</option></select>
+      <label><input type="checkbox" id="affine"> affine (≥ 4 points)</label></div></div>
+  <div class="fit" id="fit"></div>
+  <div class="fit" id="zfit"></div>
+  <div class="tablewrap"><table id="refTab"></table></div>
+  <div class="row"><label>Z offset added to every point <input class="num" id="zoff" type="number" step="any" value="0"></label>
+    <span class="muted" style="font-size:13px">same units and sign as the AFM's Z readout; 0 = the focus Z itself</span></div>
+  <div class="row"><button class="primary" id="exportPgm" disabled>Download NanoScope point list (.pgm)</button><button id="export" disabled>Download AFM site list (CSV)</button><button id="exportRes">Download measurements (CSV)</button><button id="importBtn" title="steps.csv written by tools/afm_steps.py --sites ...">Import AFM results (steps.csv)</button><input type="file" id="importFile" accept=".csv,text/csv" hidden><span id="exportMsg" class="muted" style="font-size:13px"></span></div>
+  <p class="note">Rotation, scale (units), translation and a possible mirror (AFM Y increasing the other way) are fitted from the flakes where you entered an AFM position, by least squares. With 4 or more points, "affine" also absorbs a skew or different axis scales. The residuals show how well each point fits.</p>
+  <p class="note">Focus Z: with the AFM optics focused on the sample surface at a reference flake, enter the Z reading next to its X and Y. With one Z, every point uses it. With 3 or more, a plane through them gives each scan site its own Z: the chip tilts (about 2 µm/mm on bigbntest_2, roughly 40 µm across this chip), which matters for the engage. The point list is a NanoScope programmed-move file (X, Y, Z per point, in path order). It comes as a .zip because the page cannot offer .pgm files directly.</p>
+</section>
+
+<div class="controls row">
+  <div class="seg" role="group" aria-label="Show">
+    <button id="fAll" aria-pressed="true">All flakes</button><button id="fP1" aria-pressed="false">Priority only</button><button id="fTodo" aria-pressed="false">Not measured</button>
+  </div>
+  <label><input type="checkbox" id="ovl" checked> outlines</label>
+  <button id="chipAllBtn">Chip map</button>
+  <span id="save"></span>
+</div>
+<div class="list" id="list"></div>
+</div>
+
+<dialog id="chipDlg" aria-label="Chip map">
+  <div class="dhead"><b id="chipTitle">Chip map</b><div class="row"><button id="chipFlake">Zoom to flake</button><button id="chipWhole">Whole chip</button><button id="chipClose">Close</button></div></div>
+  <div id="chipWrap"><canvas id="chipCv"></canvas><div class="hud"><i id="chipBar"></i><span id="chipBarL"></span></div></div>
+  <div class="dhead"><span class="muted" style="font-size:13px" id="chipInfo">Numbers are the visiting order; the line is the stage path. Drag to pan, scroll or pinch to zoom.</span></div>
+</dialog>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let DATA = null, db = null, dl = null;
+const MEAS = {};      // terrace id -> {h, err, status, note}
+const POS = {};       // flake id -> {x, y}
+let CFG = {units: "µm", affine: false};
+let XF = null;        // fitted transform
+let filter = "all";
+
+// ------------------------------------------------------------------ geometry
+function toStage(px, py) {               // mosaic pixel -> microscope stage (um), nearest tile
+  const sm = DATA.meta.stage_map, w = sm.frame_wh[0], h = sm.frame_wh[1];
+  let k = 0, best = Infinity;
+  for (let i = 0; i < sm.q.length; i++) {
+    const dx = px - sm.q[i][0] - w / 2, dy = py - sm.q[i][1] - h / 2, d = dx * dx + dy * dy;
+    if (d < best) { best = d; k = i; }
+  }
+  const ux = px - sm.q[k][0] - w / 2, uy = py - sm.q[k][1] - h / 2;
+  return [sm.P[k][0] + sm.M[0][0] * ux + sm.M[0][1] * uy, sm.P[k][1] + sm.M[1][0] * ux + sm.M[1][1] * uy];
+}
+function lsq(A, b) {                     // least squares via normal equations (small systems)
+  const n = A[0].length, N = Array.from({length: n}, () => new Array(n + 1).fill(0));
+  A.forEach((r, i) => { for (let j = 0; j < n; j++) { for (let k = 0; k < n; k++) N[j][k] += r[j] * r[k]; N[j][n] += r[j] * b[i]; } });
+  for (let c = 0; c < n; c++) {
+    let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(N[r][c]) > Math.abs(N[p][c])) p = r;
+    [N[c], N[p]] = [N[p], N[c]];
+    if (Math.abs(N[c][c]) < 1e-12) return null;
+    for (let r = 0; r < n; r++) if (r !== c) { const f = N[r][c] / N[c][c]; for (let k = c; k <= n; k++) N[r][k] -= f * N[c][k]; }
+  }
+  return N.map((r, i) => r[n] / r[i]);
+}
+function fitTransform(pts) {             // pts: [{s:[x,y] microscope, a:[x,y] afm}]
+  if (pts.length < 2) return null;
+  const cx = pts.reduce((s, p) => s + p.s[0], 0) / pts.length, cy = pts.reduce((s, p) => s + p.s[1], 0) / pts.length;
+  const fits = [];
+  const mk = (kind, f) => { if (f) fits.push(Object.assign(f, {kind})); };
+  for (const mirror of (pts.length >= 3 ? [false, true] : [false])) {
+    const A = [], b = [];
+    pts.forEach(p => {
+      const x = (p.s[0] - cx) / 1000, y = (p.s[1] - cy) / 1000;
+      if (!mirror) { A.push([x, -y, 1, 0]); b.push(p.a[0]); A.push([y, x, 0, 1]); b.push(p.a[1]); }
+      else { A.push([x, y, 1, 0]); b.push(p.a[0]); A.push([-y, x, 0, 1]); b.push(p.a[1]); }
+    });
+    const c = lsq(A, b);
+    if (!c) continue;
+    const [a1, b1, tx, ty] = c;
+    mk(mirror ? "similarity, mirrored" : "similarity", {
+      f: (X, Y) => { const x = (X - cx) / 1000, y = (Y - cy) / 1000; return mirror ? [a1 * x + b1 * y + tx, b1 * x - a1 * y + ty] : [a1 * x - b1 * y + tx, b1 * x + a1 * y + ty]; },
+      scale: Math.hypot(a1, b1) / 1000, rot: Math.atan2(b1, a1) * 180 / Math.PI, mirror});
+  }
+  if (CFG.affine && pts.length >= 4) {
+    const A = [], bx = [], by = [];
+    pts.forEach(p => { const x = (p.s[0] - cx) / 1000, y = (p.s[1] - cy) / 1000; A.push([x, y, 1]); bx.push(p.a[0]); by.push(p.a[1]); });
+    const u = lsq(A, bx), v = lsq(A, by);
+    if (u && v) {
+      const det = u[0] * v[1] - u[1] * v[0];
+      mk("affine", {f: (X, Y) => { const x = (X - cx) / 1000, y = (Y - cy) / 1000; return [u[0] * x + u[1] * y + u[2], v[0] * x + v[1] * y + v[2]]; },
+        scale: Math.sqrt(Math.abs(det)) / 1000, rot: Math.atan2(v[0], u[0]) * 180 / Math.PI, mirror: det < 0});
+    }
+  }
+  fits.forEach(F => {
+    F.res = pts.map(p => { const q = F.f(p.s[0], p.s[1]); return Math.hypot(q[0] - p.a[0], q[1] - p.a[1]); });
+    F.rms = Math.sqrt(F.res.reduce((s, r) => s + r * r, 0) / F.res.length);
+  });
+  fits.sort((p, q) => (q.kind === "affine") - (p.kind === "affine") || p.rms - q.rms);
+  const best = CFG.affine && pts.length >= 4 ? fits.find(F => F.kind === "affine") : fits.filter(F => F.kind !== "affine").sort((p, q) => p.rms - q.rms)[0];
+  return Object.assign(best, {n: pts.length, assumedNoMirror: pts.length < 3});
+}
+function afmOf(stage) { return XF ? XF.f(stage[0], stage[1]) : null; }
+let ZF = null;        // focus Z model in AFM coordinates: constant or plane
+function fitFocus() {
+  const P = Object.values(POS).filter(p => p.x != null && p.y != null && p.z != null);
+  if (!P.length) return null;
+  if (P.length < 3) { const z = P.reduce((s, p) => s + p.z, 0) / P.length; return {kind: "constant", n: P.length, f: () => z, z}; }
+  const mx = P.reduce((s, p) => s + p.x, 0) / P.length, my = P.reduce((s, p) => s + p.y, 0) / P.length;
+  const c = lsq(P.map(p => [(p.x - mx), (p.y - my), 1]), P.map(p => p.z));
+  if (!c) { const z = P.reduce((s, p) => s + p.z, 0) / P.length; return {kind: "constant", n: P.length, f: () => z, z}; }
+  const f = (x, y) => c[0] * (x - mx) + c[1] * (y - my) + c[2];
+  const rms = Math.sqrt(P.reduce((s, p) => s + (p.z - f(p.x, p.y)) ** 2, 0) / P.length);
+  return {kind: "plane", n: P.length, f, slope: [c[0], c[1]], rms};
+}
+function zOf(a) { return ZF && a ? ZF.f(a[0], a[1]) + (CFG.zoff || 0) : null; }
+const unitDigits = () => CFG.units === "mm" ? 4 : CFG.units === "nm" ? 0 : 1;
+const fmtA = v => v == null ? "–" : v.toFixed(unitDigits());
+
+// ------------------------------------------------------------------ rendering
+function flakeColor(i) { return ["#2c6a88", "#2b7a4b", "#8f4fa3", "#a0632b", "#3e7f86"][i % 5]; }
+function polyPts(poly, box) { const p = []; for (let i = 0; i < poly.length; i += 2) p.push(((poly[i] - box.x0) * box.s).toFixed(1) + "," + ((poly[i + 1] - box.y0) * box.s).toFixed(1)); return p.join(" "); }
+function overlay(F, box, small) {
+  const m = DATA.meta, sz = m.scan_um / m.pixel_um * box.s;
+  let g = "";
+  if ($("ovl").checked && !small) {
+    F.terraces.forEach((t, i) => t.poly.forEach(p => g += `<polygon points="${polyPts(p, box)}" fill="none" stroke="${t.target ? "#ffffff" : "rgba(255,255,255,.55)"}" stroke-width="${t.target ? 1.6 : 1}" stroke-dasharray="${t.target ? "" : "4 3"}"/>`));
+    F.terraces.forEach(t => { if (!t.site) return; const x = (t.site.px[0] - box.x0) * box.s, y = (t.site.px[1] - box.y0) * box.s;
+      g += `<rect x="${(x - sz / 2).toFixed(1)}" y="${(y - sz / 2).toFixed(1)}" width="${sz.toFixed(1)}" height="${sz.toFixed(1)}" fill="none" stroke="var(--site)" stroke-width="2"/>`;
+      g += `<text x="${(x + sz / 2 + 3).toFixed(1)}" y="${(y + 4).toFixed(1)}" fill="var(--site)" font-size="12" font-family="JetBrains Mono, monospace" paint-order="stroke" stroke="#000" stroke-width="2.5">T${t.id}</text>`; });
+  }
+  const cx = (F.target_px[0] - box.x0) * box.s, cy = (F.target_px[1] - box.y0) * box.s, r = small ? 10 : 9;
+  g += `<g stroke="var(--mark)" stroke-width="2"><line x1="${cx - r}" y1="${cy}" x2="${cx + r}" y2="${cy}"/><line x1="${cx}" y1="${cy - r}" x2="${cx}" y2="${cy + r}"/></g>`;
+  if (small) g += `<circle cx="${cx}" cy="${cy}" r="16" fill="none" stroke="var(--mark)" stroke-width="2"/>`;
+  return `<svg viewBox="0 0 ${box.w} ${box.h}" preserveAspectRatio="none" aria-hidden="true">${g}</svg>`;
+}
+function scaleBarLabel(box) { const um = 1 / box.s * DATA.meta.pixel_um; return um; }
+function statusPill(s) { return s === "measured" ? '<span class="pill ok">measured</span>' : s === "not found" || s === "unusable" ? `<span class="pill bad">${s}</span>` : s ? `<span class="pill">${esc(s)}</span>` : ""; }
+function card(F) {
+  const tgt = F.terraces.filter(t => t.target);
+  const done = tgt.length && tgt.every(t => (MEAS[t.id] || {}).status);
+  const pri = Math.min(...tgt.map(t => t.priority || 9));
+  const pos = POS[F.flake] || {};
+  const aT = afmOf(F.stage);
+  const rows = F.terraces.map(t => {
+    const m = MEAS[t.id] || {};
+    const col = `rgb(${t.c.map((c, i) => Math.max(0, Math.min(255, Math.round((c + 1) * [220, 151, 192][i])))).join(",")})`;
+    const aS = t.site ? afmOf(t.site.stage) : null;
+    return `<tr data-t="${t.id}">
+      <td class="mono">T${t.id}${t.target ? "" : ' <span class="muted">(other)</span>'}</td>
+      <td class="n"><span class="swatch" style="background:${col}"></span>${t.t.toFixed(1)}<span class="muted"> ${t.tlo.toFixed(0)}–${t.thi.toFixed(0)}</span>${t.alt ? `<br><span class="muted">or ${esc(t.alt)}</span>` : ""}</td>
+      <td class="n">${t.d.toFixed(0)}</td>
+      <td>${t.site ? `<span class="mono">${t.site.kind}</span> <span class="muted mono">q ${t.site.quality.toFixed(2)}</span><br><span class="mono muted">${t.site.stage[0].toFixed(0)}, ${t.site.stage[1].toFixed(0)}</span>${aS ? `<br><span class="mono" style="color:var(--accent)">AFM ${fmtA(aS[0])}, ${fmtA(aS[1])}</span>` : ""}` : '<span class="muted">–</span>'}</td>
+    </tr>
+    <tr class="meas"><td colspan="4"><div class="row" style="gap:6px 12px">
+      <label>AFM step <input class="num nm" id="h${t.id}" type="number" step="0.1" inputmode="decimal" placeholder="nm" value="${m.h ?? ""}" aria-label="AFM height of T${t.id} in nm"> nm</label>
+      <label>± <input class="num nm" id="e${t.id}" type="number" step="0.1" inputmode="decimal" placeholder="nm" value="${m.err ?? ""}" aria-label="uncertainty of T${t.id} in nm"></label>
+      <select id="s${t.id}" aria-label="status of T${t.id}">${["", "measured", "not found", "unusable", "skipped"].map(s => `<option ${m.status === s ? "selected" : ""} value="${s}">${s || "status"}</option>`).join("")}</select>
+      ${statusPill(m.status)}${m.src ? `<span class="muted mono" style="font-size:12px" title="imported from tools/afm_steps.py">from ${esc(m.src)}</span>` : ""}</div></td></tr>`;}).join("");
+  return `<article class="card ${done ? "done" : ""}" id="c${F.flake}" data-f="${F.flake}">
+    <div class="num-badge">${F.n}<small>F${F.flake}</small></div>
+    <div class="imgs">
+      <figure><div class="ov"><img loading="lazy" src="img/f${F.flake}_close.jpg" width="${F.close.w}" height="${F.close.h}" alt="10x close-up of flake ${F.flake}">${overlay(F, F.close, false)}</div>
+        <figcaption>10x · ${(F.close.w / F.close.s * DATA.meta.pixel_um).toFixed(0)} µm wide</figcaption></figure>
+      <div class="stack">
+        <figure><div class="ov"><img loading="lazy" src="img/f${F.flake}_ctx.jpg" width="${F.ctx.w}" height="${F.ctx.h}" alt="1.6 mm around flake ${F.flake}">${overlay(F, F.ctx, true)}</div>
+          <figcaption>1.6 mm around · <a href="#" data-chip="${F.flake}">find on chip</a></figcaption></figure>
+        ${F.has100 ? `<figure><div class="ov"><img loading="lazy" src="img/f${F.flake}_100x.jpg" alt="100x image of flake ${F.flake}"></div><figcaption>100x, centred on the orange cross${F.focus100 === "predicted" ? " · taken without autofocus, may be soft" : ""}</figcaption></figure>` : ""}
+      </div>
+    </div>
+    <div class="right">
+      <div class="row">${F.ref ? '<span class="pill ref">reference</span>' : ""}${pri === 1 ? '<span class="pill p1">priority</span>' : '<span class="pill">extra</span>'}${done ? '<span class="pill ok">done</span>' : ""}
+        <button data-chip="${F.flake}">Find on chip</button></div>
+      <dl class="kv">
+        <dt>microscope stage</dt><dd>${F.stage[0].toFixed(1)}, ${F.stage[1].toFixed(1)} µm</dd>
+        <dt>AFM (predicted)</dt><dd style="color:var(--accent)">${aT ? `${fmtA(aT[0])}, ${fmtA(aT[1])} ${CFG.units}` : "after 2–3 references"}</dd>
+        <dt>flake</dt><dd>${F.area.toFixed(0)} µm², ${F.terraces.length} terrace${F.terraces.length > 1 ? "s" : ""}, score ${F.score?.toFixed(2)}</dd>
+      </dl>
+      <div class="afmpos">
+        <span>AFM stage position of the <span style="color:var(--mark)">orange cross</span>${F.ref ? " (reference)" : " (optional; adds a reference point)"}:</span>
+        <div class="row"><label>X <input class="num" id="px${F.flake}" type="number" step="any" value="${pos.x ?? ""}"></label>
+          <label>Y <input class="num" id="py${F.flake}" type="number" step="any" value="${pos.y ?? ""}"></label>
+          <label title="Z reading with the AFM optics focused on the sample here">Z focus <input class="num" id="pz${F.flake}" type="number" step="any" value="${pos.z ?? ""}"></label>
+          <span class="muted">${CFG.units}</span>${pos.x != null && XF && XF.n >= 3 ? `<span class="mono muted">residual ${fmtA(XF.res[XF.pts.findIndex(p => p.id === F.flake)] ?? 0)}</span>` : ""}</div>
+      </div>
+      <div class="tw"><table><thead><tr><th>terrace</th><th>predicted nm</th><th>d µm</th><th>scan site (microscope / AFM)</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <label class="muted" style="font-size:13px" for="n${F.flake}">Notes</label>
+      <textarea id="n${F.flake}" placeholder="residue, bubbles, wrong flake, scan size used ...">${esc((MEAS["f" + F.flake] || {}).note || "")}</textarea>
+    </div>
+  </article>`;
+}
+function measuredCount() {
+  let n = 0, tot = 0;
+  DATA.flakes.forEach(F => F.terraces.forEach(t => { if (t.target) { tot++; if ((MEAS[t.id] || {}).status === "measured") n++; } }));
+  return [n, tot];
+}
+function renderStats() {
+  const [n, tot] = measuredCount();
+  const p1 = DATA.flakes.filter(F => F.terraces.some(t => t.target && t.priority === 1)).length;
+  $("stats").innerHTML = [[`${n} / ${tot}`, "terraces measured"], [DATA.flakes.length, `flakes (${p1} priority)`],
+    [DATA.meta.travel_mm + " mm", "stage path"], [Object.keys(POS).length, "AFM positions entered"]]
+    .map(([b, s]) => `<div><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join("");
+}
+function renderFit() {
+  const pts = DATA.flakes.filter(F => POS[F.flake] && POS[F.flake].x != null && POS[F.flake].y != null)
+    .map(F => ({id: F.flake, n: F.n, s: F.stage, a: [POS[F.flake].x, POS[F.flake].y]}));
+  XF = fitTransform(pts);
+  if (XF) XF.pts = pts;
+  const um = v => (v / XF.scale).toFixed(1);
+  $("fit").innerHTML = !XF ? `Enter the AFM position of at least 2 flakes (3 to detect a mirrored axis). ${pts.length} entered.` :
+    `<b>${XF.kind}</b> from ${XF.n} points: rotation ${XF.rot.toFixed(2)}°, scale ${XF.scale.toPrecision(5)} ${CFG.units} per µm${XF.mirror ? ", mirrored" : ""}` +
+    (XF.n >= 3 ? `; residual rms <b class="${XF.rms / XF.scale > 15 ? "bad" : "ok"}">${um(XF.rms)} µm</b>` : ". <span class='bad'>With 2 points a mirrored axis cannot be detected; add a third.</span>") +
+    (XF.n >= 3 && XF.rms / XF.scale > 15 ? " <span class='bad'>Large: check the positions, especially the one with the largest residual.</span>" : "");
+  ZF = fitFocus();
+  const sites = DATA.flakes.flatMap(F => F.terraces.filter(t => t.site).map(t => afmOf(t.site.stage))).filter(Boolean);
+  const zs = sites.map(zOf).filter(v => v != null);
+  $("zfit").innerHTML = !ZF ? `<b>Focus Z:</b> <span class="bad">not entered yet.</span> Focus the AFM optics on the sample at a reference flake and enter the Z reading on its card (one is enough; three give a tilted plane).` :
+    `<b>Focus Z:</b> ${ZF.kind === "plane" ? `plane through ${ZF.n} points, slope ${(ZF.slope[0] * 1000).toFixed(2)}, ${(ZF.slope[1] * 1000).toFixed(2)} per 1000 ${CFG.units} in X, Y; residual ${ZF.rms.toFixed(2)} ${CFG.units}` :
+      `${ZF.z.toFixed(2)} ${CFG.units} from ${ZF.n} point${ZF.n > 1 ? "s" : ""}, the same for every site (enter it at 3 flakes for a tilted plane)`}` +
+    (zs.length ? `; scan sites span Z ${Math.min(...zs).toFixed(2)} to ${Math.max(...zs).toFixed(2)} ${CFG.units}` : "") + (CFG.zoff ? ` (offset ${CFG.zoff} included)` : "");
+  $("refTab").innerHTML = `<thead><tr><th>#</th><th>flake</th><th>microscope x, y (µm)</th><th>AFM x, y (${CFG.units})</th><th>Z focus</th><th>predicted</th><th>residual (µm)</th></tr></thead><tbody>` +
+    DATA.flakes.filter(F => F.ref || POS[F.flake]).map(F => {
+      const p = POS[F.flake], i = XF ? XF.pts.findIndex(q => q.id === F.flake) : -1, pr = afmOf(F.stage);
+      return `<tr><td class="n">${F.n}</td><td class="mono">F${F.flake}${F.ref ? ' <span class="pill ref">ref</span>' : ""}</td><td class="n">${F.stage[0].toFixed(1)}, ${F.stage[1].toFixed(1)}</td>
+        <td class="n">${p && p.x != null ? `${p.x}, ${p.y}` : '<span class="muted">not entered</span>'}</td><td class="n">${p && p.z != null ? p.z : "–"}</td><td class="n">${pr ? `${fmtA(pr[0])}, ${fmtA(pr[1])}` : "–"}</td>
+        <td class="n">${i >= 0 && XF.n >= 3 ? um(XF.res[i]) : "–"}</td></tr>`;
+    }).join("") + "</tbody>";
+  $("export").disabled = !(XF && XF.n >= 3);
+  $("exportPgm").disabled = !(XF && XF.n >= 3);
+  $("exportPgm").title = !ZF ? "Enter the focus Z at a reference flake first" : "";
+}
+function renderList() {
+  const fl = DATA.flakes.filter(F => filter === "all" ? true : filter === "p1" ? F.terraces.some(t => t.target && t.priority === 1)
+    : !F.terraces.filter(t => t.target).every(t => (MEAS[t.id] || {}).status));
+  $("list").innerHTML = fl.map(card).join("") || '<p class="muted">Nothing left in this view.</p>';
+}
+function renderAll() { renderStats(); renderFit(); renderList(); }
+
+// ------------------------------------------------------------------ saving
+let saveTimer = {};
+function status(t, bad) { $("save").textContent = t; $("save").style.color = bad ? "var(--bad)" : "var(--muted)"; }
+function persist(kind, key, body) {
+  if (!db) { status("Not saved: storage is not available in this view.", true); return; }
+  clearTimeout(saveTimer[kind + key]);
+  saveTimer[kind + key] = setTimeout(() => {
+    db.collection(kind).doc(String(key)).set(Object.assign(body, {updated: Date.now()}))
+      .then(() => status("Saved " + new Date().toLocaleTimeString()))
+      .catch(e => status("Could not save: " + (e && e.message || e), true));
+  }, 500);
+}
+document.addEventListener("input", e => {
+  const id = e.target.id || "";
+  let m;
+  if ((m = id.match(/^([hes])(\d+)$/))) {
+    const t = +m[2], cur = MEAS[t] = MEAS[t] || {};
+    const v = e.target.value;
+    if (m[1] === "h") cur.h = v === "" ? null : +v;
+    if (m[1] === "e") cur.err = v === "" ? null : +v;
+    if (m[1] === "s") cur.status = v;
+    if (m[1] === "h" && v !== "" && !cur.status) { cur.status = "measured"; const s = $("s" + t); if (s) s.value = "measured"; }
+    if (m[1] !== "s") cur.src = "";                          // typed by hand: no longer the imported value
+    persist("afm", "t" + t, {h: cur.h ?? null, err: cur.err ?? null, status: cur.status || "", src: cur.src || ""});
+    renderStats();
+  } else if ((m = id.match(/^p([xyz])(\d+)$/))) {
+    const f = +m[2], cur = POS[f] = POS[f] || {};
+    const v = e.target.value;
+    cur[m[1]] = v === "" ? null : +v;
+    if (cur.x == null && cur.y == null && cur.z == null) delete POS[f];
+    persist("afmpos", "f" + f, {x: cur.x ?? null, y: cur.y ?? null, z: cur.z ?? null});
+    renderStats(); renderFit();
+    clearTimeout(saveTimer.relist); saveTimer.relist = setTimeout(refreshPredictions, 900);
+  } else if ((m = id.match(/^n(\d+)$/))) {
+    const f = +m[1]; MEAS["f" + f] = {note: e.target.value};
+    persist("afm", "f" + f, {note: e.target.value});
+  }
+});
+document.addEventListener("change", e => { if (/^s\d+$/.test(e.target.id || "")) { const c = e.target.closest(".card"); if (c) refreshCard(+c.dataset.f); } });
+function refreshCard(f) {
+  const F = DATA.flakes.find(x => x.flake === f), el = $("c" + f);
+  if (!F || !el) return;
+  const active = document.activeElement && document.activeElement.id;
+  el.outerHTML = card(F);
+  if (active && $(active)) $(active).focus();
+}
+function refreshPredictions() {         // re-render cards except the one being edited
+  const active = document.activeElement && document.activeElement.closest && document.activeElement.closest(".card");
+  DATA.flakes.forEach(F => { if (!active || +active.dataset.f !== F.flake) { const el = $("c" + F.flake); if (el) el.outerHTML = card(F); } });
+}
+$("units").addEventListener("change", e => { CFG.units = e.target.value; persist("afmcfg", "cfg", Object.assign({}, CFG)); renderAll(); });
+$("affine").addEventListener("change", e => { CFG.affine = e.target.checked; persist("afmcfg", "cfg", Object.assign({}, CFG)); renderAll(); });
+$("ovl").addEventListener("change", renderList);
+[["fAll", "all"], ["fP1", "p1"], ["fTodo", "todo"]].forEach(([b, v]) => $(b).addEventListener("click", () => {
+  filter = v; ["fAll", "fP1", "fTodo"].forEach(x => $(x).setAttribute("aria-pressed", String(x === b))); renderList(); }));
+
+// ------------------------------------------------------------------ exports
+function csvOf(rows) { return rows.map(r => r.map(v => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(",")).join("\n") + "\n"; }
+async function offer(name, text) {
+  if (!dl) { $("exportMsg").textContent = "Downloads are not available in this view."; return; }
+  try { await dl.save({filename: name, data: text}); $("exportMsg").textContent = "Saved " + name; }
+  catch (e) { $("exportMsg").textContent = e && e.code === "declined" ? "Download cancelled." : "Could not download: " + (e && e.message || e && e.code); }
+}
+$("export").addEventListener("click", () => {
+  const rows = [["order", "label", "flake", "terrace", "kind", "afm_x", "afm_y", "afm_z", "units", "scan_size_um", "predicted_nm", "priority", "microscope_x_um", "microscope_y_um"]];
+  DATA.flakes.forEach(F => F.terraces.forEach(t => { if (!t.site) return; const a = afmOf(t.site.stage), z = zOf(a);
+    rows.push([F.n, `${String(F.n).padStart(2, "0")}_F${F.flake}_T${t.id}_${t.t.toFixed(0)}nm`, F.flake, t.id, t.site.kind, a[0].toFixed(unitDigits() + 1), a[1].toFixed(unitDigits() + 1), z == null ? "" : z.toFixed(unitDigits() + 1), CFG.units,
+      DATA.meta.scan_um, t.t, t.priority, t.site.stage[0], t.site.stage[1]]); }));
+  offer(`${DATA.meta.scan}_afm_sites.csv`, csvOf(rows));
+});
+// NanoScope programmed-move point list: "Version: 1.0", then \X / \Y / \Z point and \Coordinate System per point (CRLF)
+function pgmText() {
+  const n2 = v => String(Math.round(v * 100) / 100);
+  let out = "Version: 1.0\n";
+  DATA.flakes.forEach(F => F.terraces.forEach(t => { if (!t.site) return; const a = afmOf(t.site.stage), z = zOf(a);
+    out += `\\X point: ${n2(a[0])}\r\n\\Y point: ${n2(a[1])}\r\n\\Z point: ${n2(z)}\r\n\\Coordinate System: 0\r\n`; }));
+  return out;
+}
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(b) { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zipOne(name, text) {            // a .zip holding one uncompressed file
+  const enc = new TextEncoder(), nm = enc.encode(name), data = enc.encode(text), crc = crc32(data);
+  const d = new Date(), time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1), date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  const loc = new DataView(new ArrayBuffer(30)), cen = new DataView(new ArrayBuffer(46)), end = new DataView(new ArrayBuffer(22));
+  [[0, 0x04034b50, 4], [4, 20, 2], [6, 0, 2], [8, 0, 2], [10, time, 2], [12, date, 2], [14, crc, 4], [18, data.length, 4], [22, data.length, 4], [26, nm.length, 2], [28, 0, 2]]
+    .forEach(([o, v, n]) => n === 4 ? loc.setUint32(o, v, true) : loc.setUint16(o, v, true));
+  [[0, 0x02014b50, 4], [4, 20, 2], [6, 20, 2], [8, 0, 2], [10, 0, 2], [12, time, 2], [14, date, 2], [16, crc, 4], [20, data.length, 4], [24, data.length, 4], [28, nm.length, 2],
+   [30, 0, 2], [32, 0, 2], [34, 0, 2], [36, 0, 2], [38, 0, 4], [42, 0, 4]].forEach(([o, v, n]) => n === 4 ? cen.setUint32(o, v, true) : cen.setUint16(o, v, true));
+  const cdOff = 30 + nm.length + data.length, cdSize = 46 + nm.length;
+  [[0, 0x06054b50, 4], [4, 0, 2], [6, 0, 2], [8, 1, 2], [10, 1, 2], [12, cdSize, 4], [16, cdOff, 4], [20, 0, 2]]
+    .forEach(([o, v, n]) => n === 4 ? end.setUint32(o, v, true) : end.setUint16(o, v, true));
+  return new Blob([loc, nm, data, cen, nm, end], {type: "application/zip"});
+}
+$("zoff").addEventListener("change", e => { CFG.zoff = parseFloat(e.target.value) || 0; persist("afmcfg", "cfg", Object.assign({}, CFG)); renderFit(); });
+$("exportPgm").addEventListener("click", async () => {
+  if (!ZF) { $("exportMsg").textContent = "Enter the focus Z (the AFM's Z reading, focused on the sample) at a reference flake first."; const r = DATA.flakes.find(F => F.ref); if (r && $("pz" + r.flake)) { $("pz" + r.flake).scrollIntoView({block: "center"}); $("pz" + r.flake).focus(); } return; }
+  if (!dl) { $("exportMsg").textContent = "Downloads are not available in this view."; return; }
+  const name = `${DATA.meta.scan}_afm_sites.pgm`, text = pgmText();
+  try { await dl.save({filename: name.replace(/\.pgm$/, ".zip"), data: zipOne(name, text)}); $("exportMsg").textContent = `Saved ${name} (inside the .zip)`; }
+  catch (e) {
+    if (e && (e.code === "rejected_extension" || e.code === "extension_not_enabled")) {
+      try { await dl.save({filename: name + ".txt", data: text}); $("exportMsg").textContent = `Saved ${name}.txt: remove the .txt ending`; } catch (e2) { $("exportMsg").textContent = "Could not download: " + (e2 && (e2.message || e2.code)); }
+    } else $("exportMsg").textContent = e && e.code === "declined" ? "Download cancelled." : "Could not download: " + (e && (e.message || e.code));
+  }
+});
+// import the step heights measured by tools/afm_steps.py (steps.csv, run with --sites so rows carry the terrace)
+function parseCsv(text) {
+  const rows = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const out = []; let cur = "", q = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (q) { if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; }
+      else if (c === '"') q = true; else if (c === ",") { out.push(cur); cur = ""; } else cur += c;
+    }
+    out.push(cur); rows.push(out);
+  }
+  const head = rows.shift() || [];
+  return rows.map(r => Object.fromEntries(head.map((h, i) => [h.trim(), (r[i] ?? "").trim()])));
+}
+$("importBtn").addEventListener("click", () => $("importFile").click());
+$("importFile").addEventListener("change", async e => {
+  const f = e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  const rows = parseCsv(await f.text());
+  if (!rows.length || !("terrace" in rows[0]) || !("step_nm" in rows[0])) { $("exportMsg").textContent = `${f.name}: not a steps.csv from tools/afm_steps.py (needs terrace and step_nm columns).`; return; }
+  const known = new Set(DATA.flakes.flatMap(F => F.terraces.map(t => String(t.id))));
+  const best = {};                                           // per terrace: the main-block level with the largest area
+  rows.forEach(r => { if (!r.terrace || !known.has(r.terrace) || r.main_block === "False") return;
+    const a = parseFloat(r.area_frac) || 0;
+    if (!best[r.terrace] || a > best[r.terrace].a) best[r.terrace] = {a, r}; });
+  const ids = Object.keys(best);
+  if (!ids.length) { $("exportMsg").textContent = `${f.name}: no rows match terraces on this page (run afm_steps.py with --sites).`; return; }
+  ids.forEach(id => { const r = best[id].r, t = +id;
+    const cur = MEAS[t] = MEAS[t] || {};
+    cur.h = Math.round(parseFloat(r.step_nm) * 100) / 100;
+    cur.err = r.err_nm ? Math.round(parseFloat(r.err_nm) * 100) / 100 : null;
+    cur.status = "measured"; cur.src = r.file || f.name;
+    persist("afm", "t" + t, {h: cur.h, err: cur.err, status: cur.status, src: cur.src}); });
+  $("exportMsg").textContent = `Imported ${ids.length} step height${ids.length > 1 ? "s" : ""} from ${f.name}: ` +
+    ids.map(id => `T${id} ${MEAS[+id].h} nm`).join(", ");
+  renderStats(); refreshPredictions();
+});
+$("exportRes").addEventListener("click", () => {
+  const rows = [["flake", "terrace", "predicted_nm", "predicted_lo", "predicted_hi", "alt_nm", "contrast_r", "contrast_g", "contrast_b", "afm_nm", "afm_err_nm", "status", "afm_file", "note"]];
+  DATA.flakes.forEach(F => F.terraces.forEach(t => { const m = MEAS[t.id] || {};
+    rows.push([F.flake, t.id, t.t, t.tlo, t.thi, t.alt, t.c[0], t.c[1], t.c[2], m.h, m.err, m.status, m.src || "", (MEAS["f" + F.flake] || {}).note]); }));
+  offer(`${DATA.meta.scan}_afm_results.csv`, csvOf(rows));
+});
+
+// ------------------------------------------------------------------ chip map
+const CH = {img: null, zoom: 1, cx: 0, cy: 0, sel: null}; const cv = $("chipCv"), cx2 = cv.getContext("2d");
+function chipOpen(f) {
+  CH.sel = f;
+  if (!CH.img) { CH.img = new Image(); CH.img.onload = chipDraw; CH.img.src = DATA.meta.overview.file; }
+  const F = DATA.flakes.find(x => x.flake === f);
+  $("chipTitle").textContent = F ? `Flake ${F.n} (F${F.flake}) on ${DATA.meta.scan}` : `${DATA.meta.scan}: all ${DATA.flakes.length} flakes`;
+  $("chipDlg").showModal();
+  requestAnimationFrame(() => { chipResize(); F ? chipZoomFlake() : chipWhole(); });
+}
+function chipResize() { const r = cv.parentElement.getBoundingClientRect(), d = window.devicePixelRatio || 1; cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d); chipDraw(); }
+function chipZoomFlake() { const F = DATA.flakes.find(x => x.flake === CH.sel); if (!F) return chipWhole(); const s = DATA.meta.overview.s;
+  CH.cx = F.target_px[0] * s; CH.cy = F.target_px[1] * s; CH.zoom = 4; chipDraw(); }
+function chipWhole() { const s = DATA.meta.overview.s, r = cv.getBoundingClientRect(); const w = DATA.meta.mosaic_wh[0] * s, h = DATA.meta.mosaic_wh[1] * s;
+  CH.cx = w / 2; CH.cy = h / 2; CH.zoom = Math.min(r.width / w, r.height / h); chipDraw(); }
+function chipDraw() {
+  const d = window.devicePixelRatio || 1, W = cv.width / d, H = cv.height / d, s = DATA.meta.overview.s;
+  cx2.setTransform(d, 0, 0, d, 0, 0); cx2.fillStyle = "#0d1011"; cx2.fillRect(0, 0, W, H);
+  cx2.save(); cx2.translate(W / 2, H / 2); cx2.scale(CH.zoom, CH.zoom); cx2.translate(-CH.cx, -CH.cy);
+  if (CH.img && CH.img.complete) { cx2.imageSmoothingEnabled = CH.zoom < 2; cx2.drawImage(CH.img, 0, 0); }
+  const lw = 1 / CH.zoom;
+  cx2.beginPath(); DATA.flakes.forEach((F, i) => { const x = F.target_px[0] * s, y = F.target_px[1] * s; i ? cx2.lineTo(x, y) : cx2.moveTo(x, y); });
+  cx2.strokeStyle = "rgba(255,255,255,.55)"; cx2.lineWidth = 1.2 * lw; cx2.setLineDash([5 * lw, 4 * lw]); cx2.stroke(); cx2.setLineDash([]);
+  DATA.flakes.forEach(F => {
+    const x = F.target_px[0] * s, y = F.target_px[1] * s, sel = F.flake === CH.sel, r = (sel ? 9 : 6) * lw;
+    const done = F.terraces.filter(t => t.target).every(t => (MEAS[t.id] || {}).status);
+    cx2.beginPath(); cx2.arc(x, y, r, 0, 2 * Math.PI); cx2.fillStyle = sel ? "#e6a443" : done ? "#4fbf7f" : F.ref ? "#6fb3d4" : "#ffffff"; cx2.fill();
+    cx2.lineWidth = 1.5 * lw; cx2.strokeStyle = "#000"; cx2.stroke();
+    cx2.font = `${12 * lw}px JetBrains Mono, monospace`; cx2.fillStyle = "#fff"; cx2.strokeStyle = "#000"; cx2.lineWidth = 3 * lw;
+    cx2.strokeText(String(F.n), x + r + 2 * lw, y + 4 * lw); cx2.fillText(String(F.n), x + r + 2 * lw, y + 4 * lw);
+  });
+  cx2.restore();
+  const umPerPx = DATA.meta.pixel_um / s / CH.zoom, nice = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000], b = nice.find(v => v / umPerPx >= 70) || 5000;
+  $("chipBar").style.width = (b / umPerPx) + "px"; $("chipBarL").textContent = b >= 1000 ? (b / 1000) + " mm" : b + " µm";
+}
+let drag = null, pinch = null; const ptrs = new Map();
+cv.addEventListener("pointerdown", e => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+  if (ptrs.size === 1) drag = {x: e.clientX, y: e.clientY, cx: CH.cx, cy: CH.cy};
+  if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = {d: Math.hypot(a[0] - b[0], a[1] - b[1]), z: CH.zoom}; drag = null; } });
+cv.addEventListener("pointermove", e => { if (!ptrs.has(e.pointerId)) return; ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+  if (pinch && ptrs.size === 2) { const [a, b] = [...ptrs.values()]; CH.zoom = Math.min(40, Math.max(0.02, pinch.z * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.d)); chipDraw(); }
+  else if (drag) { CH.cx = drag.cx - (e.clientX - drag.x) / CH.zoom; CH.cy = drag.cy - (e.clientY - drag.y) / CH.zoom; chipDraw(); } });
+const up = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (!ptrs.size) drag = null; };
+cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+cv.addEventListener("wheel", e => { e.preventDefault(); const r = cv.getBoundingClientRect(), sx = e.clientX - r.left - r.width / 2, sy = e.clientY - r.top - r.height / 2;
+  const wx = CH.cx + sx / CH.zoom, wy = CH.cy + sy / CH.zoom; CH.zoom = Math.min(40, Math.max(0.02, CH.zoom * Math.exp(-e.deltaY * 0.0015))); CH.cx = wx - sx / CH.zoom; CH.cy = wy - sy / CH.zoom; chipDraw(); }, {passive: false});
+$("chipFlake").onclick = chipZoomFlake; $("chipWhole").onclick = chipWhole; $("chipClose").onclick = () => $("chipDlg").close();
+$("chipAllBtn").onclick = () => chipOpen(null);
+window.addEventListener("resize", () => { if ($("chipDlg").open) chipResize(); });
+document.addEventListener("click", e => { const t = e.target.closest("[data-chip]"); if (t) { e.preventDefault(); chipOpen(+t.dataset.chip); } });
+
+// ------------------------------------------------------------------ start
+(async function () {
+  DATA = await (await fetch("data.json")).json();
+  const m = DATA.meta;
+  $("eyebrow").textContent = `${m.scan} · hBN on ${m.nominal_oxide} nm SiO₂ (fit ${m.oxide_fit} nm) · RAW16 camera`;
+  $("lede").textContent = `${DATA.flakes.length} flakes chosen to calibrate the camera's contrast model across ${m.bins[0].lo}–${m.bins[m.bins.length - 1].hi} nm. ` +
+    `Flakes 1–3 are far apart and fix the stage transform; after them the list follows a short stage path (${m.travel_mm} mm in total). ` +
+    `"Priority" flakes cover every thickness bin; "extra" ones add a second point where time allows.`;
+  renderAll();
+  try { db = window.claude && window.claude.use ? await window.claude.use("db") : null; } catch (e) { db = null; }
+  try { dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null; } catch (e) { dl = null; }
+  if (!dl) { $("export").title = "Downloads are not available in this view"; }
+  if (!db) { status("Entries are not saved in this view.", true); return; }
+  status("Connected; entries are saved.");
+  db.collection("afm").onSnapshot(snap => { snap.docs.forEach(d => { if (!d.exists) return; const b = d.data(), k = d.id;
+      if (k[0] === "t") MEAS[+k.slice(1)] = {h: b.h, err: b.err, status: b.status, src: b.src || ""}; else if (k[0] === "f") MEAS[k] = {note: b.note}; });
+    renderStats(); refreshPredictions(); }, () => status("Live updates stopped; reload the page.", true));
+  db.collection("afmpos").onSnapshot(snap => { snap.docs.forEach(d => { if (!d.exists) return; const b = d.data(); const f = +d.id.slice(1);
+      if (b.x == null && b.y == null && b.z == null) delete POS[f]; else POS[f] = {x: b.x, y: b.y, z: b.z ?? null}; });
+    renderStats(); renderFit(); refreshPredictions(); }, () => {});
+  db.collection("afmcfg").doc("cfg").onSnapshot(d => { if (d.exists) { CFG = Object.assign(CFG, d.data()); $("units").value = CFG.units; $("affine").checked = !!CFG.affine; $("zoff").value = CFG.zoff || 0; renderFit(); refreshPredictions(); } }, () => {});
+})();
+</script>

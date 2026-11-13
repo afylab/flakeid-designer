@@ -1,0 +1,141 @@
+{
+  "camera": {
+    "lamp_temp_k": 3100.0,
+    "centers_nm": [
+      599.5471686625704,
+      520.780114947803,
+      454.2381987919554
+    ],
+    "fwhm_nm": [
+      79.1495612572441,
+      113.87038563494905,
+      77.29667477363107
+    ],
+    "ir_cut_nm": 659.5427480120253,
+    "gamma": 1.9533326360716754,
+    "ccm": [
+      [
+        1.09339,
+        -0.25074,
+        0.15736
+      ],
+      [
+        -0.17805,
+        1.29719,
+        -0.11913
+      ],
+      [
+        -0.14539,
+        0.08079,
+        1.0646
+      ]
+    ]
+  },
+  "na": 0.3,
+  "notes": "Young Lab BX51, Olympus XC10, MPLFLN10xBD + 0.63x adapter (6.3x), halogen lamp, 2 ms exposure. Unsupervised joint fit (python -m flakeid.calibrate --same-settings) to g31, g32 (graphite, nominal 90 nm SiO2 -> 84-85 nm) and bn24, bn26 (hBN, nominal 285 nm -> 288-289 nm): broad RGB responses + colour-correction matrix + tone curve, model clipped at camera saturation, constrained by the substrate colour ratio between the two oxides. Not yet validated against AFM/Raman.",
+  "materials": {
+    "graphite": {
+      "index_table": [
+        [
+          380.0,
+          2.5206,
+          1.185
+        ],
+        [
+          400.0,
+          2.5406,
+          1.175
+        ],
+        [
+          450.0,
+          2.5906,
+          1.15
+        ],
+        [
+          500.0,
+          2.6406,
+          1.125
+        ],
+        [
+          550.0,
+          2.6906,
+          1.1
+        ],
+        [
+          600.0,
+          2.7406,
+          1.075
+        ],
+        [
+          650.0,
+          2.7906,
+          1.05
+        ],
+        [
+          700.0,
+          2.8406,
+          1.025
+        ],
+        [
+          780.0,
+          2.9206,
+          0.985
+        ]
+      ]
+    }
+  },
+  "calibration": {
+    "images": [
+      [
+        "example images/g31.jpg",
+        "graphite",
+        "90"
+      ],
+      [
+        "example images/g32.jpg",
+        "graphite",
+        "90"
+      ],
+      [
+        "example images/bn24.jpg",
+        "hbn",
+        "285"
+      ],
+      [
+        "example images/bn26.jpg",
+        "hbn",
+        "285"
+      ]
+    ],
+    "same_settings": true,
+    "fitted_oxide_nm": {
+      "example images/g31.jpg": 85.0,
+      "example images/g32.jpg": 83.5,
+      "example images/bn24.jpg": 288.3,
+      "example images/bn26.jpg": 289.4
+    },
+    "params": {
+      "gamma": 1.9533,
+      "c_r": 599.5472,
+      "c_g": 520.7801,
+      "c_b": 454.2382,
+      "w_r": 79.1496,
+      "w_g": 113.8704,
+      "w_b": 77.2967,
+      "ir_cut": 659.5427,
+      "m_rg": -0.2293,
+      "m_rb": 0.1439,
+      "m_gr": -0.1373,
+      "m_gb": -0.0918,
+      "m_br": -0.1366,
+      "m_bg": 0.0759,
+      "gr_n550": 2.6906,
+      "gr_k550": 1.1,
+      "gr_kslope": -0.05,
+      "oxide_0": 0.9444,
+      "oxide_1": 0.9275,
+      "oxide_2": 1.0116,
+      "oxide_3": 1.0155
+    }
+  }
+}

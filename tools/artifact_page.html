@@ -1,0 +1,76 @@
+<title>__TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#eef1f2;--panel:#fff;--ink:#172024;--muted:#58676e;--rule:#d3dbdf;--soft:#e4eaed;--accent:#2a5bd7;--view:#101417;
+ --sans:"IBM Plex Sans",system-ui,-apple-system,sans-serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#0f1417;--panel:#171e22;--ink:#e2e9ec;--muted:#93a2a9;--rule:#2a353b;--soft:#1f282d;--accent:#7aa2ff;--view:#07090a}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#0f1417;--panel:#171e22;--ink:#e2e9ec;--muted:#93a2a9;--rule:#2a353b;--soft:#1f282d;--accent:#7aa2ff;--view:#07090a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans);padding-inline:16px;padding-block:22px 48px}
+main{max-width:1240px;margin:0 auto;display:grid;gap:22px}
+h1{margin:0;font-size:24px;font-weight:600;line-height:1.2;text-wrap:balance}h2{margin:0;font-size:17px;font-weight:600}
+p{margin:0;max-width:75ch}.muted{color:var(--muted)}
+.eyebrow{font:500 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+header,section{display:grid;gap:10px}
+.key{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:12px 14px;display:grid;gap:8px}
+.key ul{margin:0;padding-left:18px;display:grid;gap:4px;max-width:85ch;font-size:14px}
+.pat{display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:760px){.pat{grid-template-columns:1fr}}
+img{display:block;max-width:100%;height:auto}
+.pat img,.card img{background:var(--view);border-radius:6px;width:100%}
+.cards{display:grid;gap:16px}
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:12px;display:grid;gap:10px}
+.head{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;font:13px var(--mono);color:var(--muted)}
+.head b{font:600 14px var(--mono);color:var(--ink)}
+.tag{font:500 12px var(--sans);background:var(--soft);border-radius:4px;padding:1px 7px;color:var(--ink)}
+.row{display:flex;flex-wrap:wrap;gap:6px}
+.row button{font:13px var(--sans);color:var(--ink);background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:4px 10px;cursor:pointer}
+.row button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.row button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.body{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:10px;align-items:start}
+@media (max-width:860px){.body{grid-template-columns:1fr}}
+.diffs{display:grid;gap:8px}
+figure{margin:0;display:grid;gap:3px}figcaption{font:12px var(--mono);color:var(--muted)}
+kbd{font:500 11px var(--mono);border:1px solid var(--rule);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--panel)}
+</style>
+<main>
+<header>
+ <div class="eyebrow" id="eyebrow"></div>
+ <h1>Optics-Artifact Removal</h1>
+ <p class="muted">What the 100x artifact removal does to each frame, in the high-contrast view (colour ±8 % around the terrace) where artifacts show. Switch stages on the large image to compare them in place; the difference maps show exactly what each step changed.</p>
+</header>
+<div class="key"><b>Stages and maps</b><ul>
+ <li><b>Raw</b>: dark subtracted only.</li>
+ <li><b>Flat field</b>: divided by the 100x flat field measured on bare substrate (vignetting, dust in the light path on the day it was taken).</li>
+ <li><b>Pattern divided</b>: then divided by the run's static optics pattern, i.e. what stays at the same pixel in every frame (dust, camera specks, soft blobs).</li>
+ <li><b>+ 3-position median</b>: the median of the frame and its two shifted frames, aligned on the flake. Anything that moves with the optics drops out; anything misaligned can leave doubled edges.</li>
+ <li><b>Difference maps</b>: grey ±3 % of the terrace brightness, white = brighter after the step. Structure that follows the flake (its edges, terraces, debris) in a difference map means that step altered the sample, not just the optics.</li>
+ <li><b>Old median</b>: what the export produced until today, where the shifted frames were combined ~90–175 px out of alignment. This is the source of the ghost edges; it is fixed (frames are now aligned by template matching and used only when they match).</li>
+ <li>Frames: the ones the median changed most, the ones the pattern changed most, and a random set. <kbd>F</kbd> flicks every card between raw and the final stage.</li>
+</ul></div>
+<section><h2>The run's optics pattern</h2><div class="pat"><img id="patImg" src="img/pattern.jpg" alt="Static optics pattern of the run, ±3 %"><p class="muted" id="patTxt"></p></div></section>
+<section><h2>Frames</h2><div class="cards" id="cards"></div></section>
+</main>
+<script>
+const D=__DATA__;
+const $=id=>document.getElementById(id);
+$("eyebrow").textContent=`FlakeIdentifier · ${D.run} · ${D.n_frames} frames`;
+$("patTxt").textContent=`Averaged over the terraces of all ${D.n_frames} frames, ${D.pattern_rms} % rms, shown ±3 %. Every frame is divided by this.`+(D.has_median?"":" This run has no shifted frames, so there is no median stage.");
+const NAME={raw:"Raw",flat:"Flat field",pattern:"Pattern divided",median:"+ 3-position median",median_old:"Old median (misaligned, exported until today)"};
+let flick=false;
+function final(it){return it.stages.includes("median")?"median":"pattern"}
+function render(){const box=$("cards");box.innerHTML="";D.items.forEach((it,i)=>{const el=document.createElement("article");el.className="card";
+ const st=["raw","flat","pattern","median","median_old"].filter(s=>it.stages.includes(s));
+ el.innerHTML=`<div class="head"><b>${it.label}</b><span class="tag">${it.why}</span>${it.rms_flat!=null?`<span>flat changed ${it.rms_flat} % rms</span>`:""}<span>pattern changed ${it.rms_pattern} % rms</span>${it.rms_median!=null?`<span>median changed ${it.rms_median} % rms</span><span>shifted frames found at ${it.shift_alignment.map(q=>`(${Math.round(q[0])}, ${Math.round(q[1])}) px, match ${q[2]}`).join("; ")}</span>`:""}</div>
+  <div class="body"><figure><div class="row">${st.map(s=>`<button data-s="${s}" aria-pressed="${s===final(it)}">${NAME[s]}</button>`).join("")}</div>
+   <img class="main" src="img/${it.id}_${final(it)}.jpg" alt="${it.label}, ${NAME[final(it)]}, colour ±8 %" loading="lazy"></figure>
+   <div class="diffs">${it.stages.includes("d_flat")?`<figure><img src="img/${it.id}_d_flat.jpg" alt="What the flat field changed" loading="lazy"><figcaption>flat field − raw (±3 %, each to its terrace)</figcaption></figure>`:""}<figure><img src="img/${it.id}_d_pattern.jpg" alt="What the pattern division changed" loading="lazy"><figcaption>pattern divided − flat field (±3 %)</figcaption></figure>
+   ${it.stages.includes("d_median")?`<figure><img src="img/${it.id}_d_median.jpg" alt="What the median changed" loading="lazy"><figcaption>median − pattern divided (±3 %)</figcaption></figure>`:""}</div></div>`;
+ const img=el.querySelector("img.main");el.querySelectorAll(".row button").forEach(b=>b.onclick=()=>{img.src=`img/${it.id}_${b.dataset.s}.jpg`;img.alt=`${it.label}, ${NAME[b.dataset.s]}`;
+   el.querySelectorAll(".row button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)))});
+ el.dataset.idx=i;box.appendChild(el)})}
+document.addEventListener("keydown",e=>{if(e.key!=="f"&&e.key!=="F"||e.metaKey||e.ctrlKey)return;flick=!flick;
+ document.querySelectorAll(".card").forEach(el=>{const it=D.items[+el.dataset.idx];const s=flick?"raw":final(it);el.querySelector(`.row button[data-s="${s}"]`).click()})});
+render();
+</script>

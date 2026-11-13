@@ -1,0 +1,198 @@
+<title>Graphite Wrinkle Labels</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#eef1f2;--panel:#fff;--ink:#172024;--muted:#58676e;--rule:#d3dbdf;--soft:#e4eaed;--accent:#2a5bd7;--view:#101417;
+ --thin:#1d8a5a;--mid:#b07a12;--thick:#c2410c;--unsure:#6b7280;--wr:#d946ef;--bu:#06b6d4;
+ --sans:"IBM Plex Sans",system-ui,-apple-system,sans-serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#0f1417;--panel:#171e22;--ink:#e2e9ec;--muted:#93a2a9;--rule:#2a353b;--soft:#1f282d;--accent:#7aa2ff;--view:#07090a;
+ --thin:#4cc38a;--mid:#e0ac45;--thick:#fb8c4f;--unsure:#a3aab5}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#0f1417;--panel:#171e22;--ink:#e2e9ec;--muted:#93a2a9;--rule:#2a353b;--soft:#1f282d;--accent:#7aa2ff;--view:#07090a;
+ --thin:#4cc38a;--mid:#e0ac45;--thick:#fb8c4f;--unsure:#a3aab5}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans);padding-inline:16px;padding-block:18px 40px}
+main{max-width:1240px;margin:0 auto;display:grid;gap:16px}
+h1{margin:0;font-size:22px;font-weight:600;line-height:1.2;text-wrap:balance}
+p{margin:0;max-width:75ch}
+.muted{color:var(--muted)}
+kbd{font:500 11px var(--mono);border:1px solid var(--rule);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--panel);color:var(--ink)}
+header{display:grid;gap:6px}
+.eyebrow{font:500 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.bar{display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--soft)}
+.bar span{display:block;height:100%}
+.counts{font:13px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.work{display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,320px);gap:16px;align-items:start}
+@media (max-width:820px){.work{grid-template-columns:1fr}}
+.stage{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:12px;display:grid;gap:10px}
+.cell{position:relative;width:100%;aspect-ratio:var(--ar,4/3);overflow:hidden;background:var(--view);border-radius:6px;margin:0 auto;cursor:zoom-in}
+.cell.zoomed{cursor:zoom-out}
+.cell img{position:absolute;left:0;top:0;max-width:none;image-rendering:auto}
+.cell svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.scale{position:absolute;left:12px;bottom:10px;display:grid;gap:2px;font:500 11px var(--mono);color:#fff;text-shadow:0 0 3px #000}
+.scale i{display:block;height:3px;background:#fff;box-shadow:0 0 2px #000}
+.meta{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;font:13px var(--mono);color:var(--muted)}
+.meta b{color:var(--ink);font-weight:600}
+.side{display:grid;gap:12px}
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:12px;display:grid;gap:10px}
+.card h2{margin:0;font-size:14px;font-weight:600;color:var(--muted)}
+.choices{display:grid;gap:8px}
+.choice{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:center;text-align:left;font:inherit;color:var(--ink);background:var(--panel);
+ border:1.5px solid var(--rule);border-radius:8px;padding:8px 10px;cursor:pointer}
+.choice .k{grid-row:span 2;font:600 15px var(--mono);width:26px;height:26px;display:grid;place-items:center;border-radius:6px;background:var(--soft)}
+.choice b{font-weight:600}.choice small{color:var(--muted);font-size:12px}
+.choice[aria-pressed="true"]{border-color:var(--c);box-shadow:inset 0 0 0 1px var(--c)}
+.choice[aria-pressed="true"] .k{background:var(--c);color:#fff}
+.choice:focus-visible,.nav button:focus-visible,.dots button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.nav{display:flex;flex-wrap:wrap;gap:8px}
+.nav button{font:13px var(--sans);color:var(--ink);background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:5px 10px;cursor:pointer}
+.nav button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+textarea{width:100%;min-height:56px;resize:vertical;font:13px var(--sans);color:var(--ink);background:var(--bg);border:1px solid var(--rule);border-radius:6px;padding:6px 8px}
+.ctx{position:relative;width:100%;aspect-ratio:1;overflow:hidden;background:var(--view);border-radius:6px}
+.ctx img{position:absolute;left:0;top:0;max-width:none}
+.ctx svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.dots{display:grid;grid-template-columns:repeat(auto-fill,minmax(14px,1fr));gap:3px}
+.dots button{aspect-ratio:1;border:0;border-radius:3px;padding:0;background:var(--soft);cursor:pointer}
+.dots button.cur{outline:2px solid var(--ink);outline-offset:1px}
+.status{font-size:12px;color:var(--muted);min-height:1.2em}.status.err{color:var(--thick)}
+.help{font-size:13px;color:var(--muted);display:block}
+.legend{display:grid;gap:6px;font-size:13px}
+.legend span{display:flex;gap:8px;align-items:center}
+.legend i{display:inline-block;width:22px;height:0;border-top:2px solid var(--c)}
+.toggle{display:flex;gap:8px;align-items:center;font:inherit;color:var(--ink);background:var(--panel);border:1.5px solid var(--rule);border-radius:8px;padding:7px 10px;cursor:pointer;text-align:left}
+.toggle[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.toggle .k{font:600 13px var(--mono);width:22px;height:22px;display:grid;place-items:center;border-radius:5px;background:var(--soft)}
+.toggle[aria-pressed="true"] .k{background:var(--accent);color:#fff}
+</style>
+<main>
+ <header>
+  <div class="eyebrow" id="eyebrow"></div>
+  <h1>Graphite Wrinkle Labels</h1>
+  <p class="muted">100x frames of graphite targets (multitest chip_2 and biggraphite_1). How wrinkled is the flake at the centre of the frame? "Significant" means you would not use it, so it should be screened out. Mark folded or torn edges separately. The detector overlays are off to start with; turn them on after you've judged the frame to see what the current checks pick up. Labels save as you go.</p>
+  <div class="bar" aria-hidden="true"><span id="p1" style="background:var(--thin)"></span><span id="p2" style="background:var(--mid)"></span><span id="p3" style="background:var(--thick)"></span><span id="p4" style="background:var(--unsure)"></span></div>
+  <div class="counts" id="counts"></div>
+ </header>
+ <div class="work">
+  <section class="stage" aria-label="Current frame">
+   <div class="cell" id="cell"><div id="zoomBox" style="position:absolute;inset:0;transition:transform .15s"><img id="img" alt="" style="width:100%;height:200%"><svg id="svg" aria-hidden="true"></svg></div><div class="scale" id="scale"></div></div>
+   <div class="meta" id="meta"></div>
+   <div class="nav">
+    <button id="prev">← Previous</button><button id="next">Next →</button><button id="open">Next unlabelled <kbd>U</kbd></button>
+    <button id="hc" aria-pressed="false">High contrast <kbd>C</kbd></button><button id="zoom" aria-pressed="false">Zoom <kbd>Z</kbd></button>
+    <button id="ter" aria-pressed="false">Terrace <kbd>T</kbd></button><button id="wr" aria-pressed="false">Wrinkle lines <kbd>W</kbd></button><button id="bu" aria-pressed="false">Bubbles <kbd>B</kbd></button>
+   </div>
+   <div class="help">Click the image to zoom in at that point; click again to zoom out.</div>
+  </section>
+  <aside class="side">
+   <div class="card">
+    <h2>Wrinkling</h2>
+    <div class="choices" id="choices">
+     <button class="choice" data-v="none" style="--c:var(--thin)" aria-pressed="false"><span class="k">1</span><b>None</b><small>flat, no wrinkles</small></button>
+     <button class="choice" data-v="slight" style="--c:var(--mid)" aria-pressed="false"><span class="k">2</span><b>Slight</b><small>a few wrinkles; still usable</small></button>
+     <button class="choice" data-v="significant" style="--c:var(--thick)" aria-pressed="false"><span class="k">3</span><b>Significant</b><small>too wrinkled to use: screen out</small></button>
+     <button class="choice" data-v="unsure" style="--c:var(--unsure)" aria-pressed="false"><span class="k">4</span><b>Can't tell</b><small>blurred, no graphite in view…</small></button>
+    </div>
+    <button class="toggle" id="edges" aria-pressed="false"><span class="k">E</span><span><b>Folded or torn edges</b><br><small class="muted">independent of wrinkling</small></span></button>
+    <label class="help" for="note">Note (optional) <kbd>N</kbd></label>
+    <textarea id="note"></textarea>
+    <div class="status" id="status" role="status"></div>
+   </div>
+   <div class="card">
+    <h2>Overlays (current detectors)</h2>
+    <div class="legend"><span><i style="--c:var(--muted);border-top-style:dashed"></i>terrace found by the 100x analysis (white, dashed)</span><span><i style="--c:var(--wr)"></i>wrinkle / fold lines</span><span><i style="--c:var(--bu)"></i>bubbles</span></div>
+   </div>
+   <div class="card">
+    <h2>All frames</h2>
+    <div class="dots" id="dots"></div>
+    <div class="nav"><button id="copy">Copy labels as CSV</button></div>
+    <div class="help"><span><kbd>1</kbd>–<kbd>4</kbd> label and move on · <kbd>E</kbd> edges · <kbd>←</kbd> <kbd>→</kbd> step · <kbd>U</kbd> next unlabelled · <kbd>C</kbd> contrast · <kbd>Z</kbd> zoom · <kbd>T</kbd> <kbd>W</kbd> <kbd>B</kbd> overlays</span></div>
+   </div>
+  </aside>
+ </div>
+</main>
+<script>
+const DATA=__DATA__;
+const ITEMS=DATA.items;
+const $=id=>document.getElementById(id);
+const COL={none:"var(--thin)",slight:"var(--mid)",significant:"var(--thick)",unsure:"var(--unsure)"};
+const NAME={none:"no wrinkles",slight:"slight",significant:"significant",unsure:"can't tell"};
+const KEYS=["none","slight","significant","unsure"];
+let labels={}, cur=0, hc=false, zoom=false, zc=[50,50], show={ter:false,wr:false,bu:false}, db=null, local=false;
+$("eyebrow").textContent="FlakeIdentifier · graphite on 90 nm SiO₂ · 100x · BX51 + XC10";
+
+function pts(p){let s="";for(let i=0;i<p.length;i+=2)s+=(i?" ":"")+p[i]+","+p[i+1];return s}
+function render(){
+ const it=ITEMS[cur];if(!it)return;
+ $("cell").style.setProperty("--ar",`${it.w}/${it.h}`);
+ const img=$("img");if(!img.src.endsWith(it.img))img.src=it.img;
+ img.style.position="absolute";img.style.left="0";img.style.top=hc?"-100%":"0";
+ img.alt=`100x frame ${it.frame} (${it.run}), ${hc?"high contrast":"natural colour"}`;
+ const svg=$("svg");svg.setAttribute("viewBox",`0 0 ${it.w} ${it.h}`);
+ let s="";
+ if(show.ter)s+=it.terrace.map(p=>`<polygon points="${pts(p)}" fill="none" stroke="#fff" stroke-opacity=".85" stroke-width="1.5" stroke-dasharray="6 4"/>`).join("");
+ if(show.bu)s+=it.bubbles.map(p=>`<polygon points="${pts(p)}" fill="none" stroke="#06b6d4" stroke-width="1.3"/>`).join("");
+ if(show.wr)s+=it.wrinkles.map(p=>`<polygon points="${pts(p)}" fill="#d946ef" fill-opacity=".35" stroke="#d946ef" stroke-width="1"/>`).join("");
+ svg.innerHTML=s;
+ const zb=$("zoomBox");zb.style.transformOrigin=`${zc[0]}% ${zc[1]}%`;zb.style.transform=zoom?"scale(3)":"none";
+ $("cell").classList.toggle("zoomed",zoom);
+ const fieldUm=it.w*DATA.px_um/(zoom?3:1), L=[2,5,10,20,50].find(v=>v>=fieldUm*0.15)||50;
+ $("scale").innerHTML=`<i style="width:${L/fieldUm*100}%"></i><span>${L} µm</span>`;$("scale").style.width="100%";
+ const l=labels[it.id]||{};
+ $("meta").innerHTML=`<span><b>${cur+1}</b> / ${ITEMS.length}</span><span>${it.run} · <b>${it.frame}</b></span><span>~${it.t_nm} nm (10x estimate)</span>`+(l.label?`<span>labelled <b>${NAME[l.label]}</b>${l.edges?" · edges":""}</span>`:"");
+ document.querySelectorAll(".choice").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.v===l.label)));
+ $("edges").setAttribute("aria-pressed",String(!!l.edges));
+ if(document.activeElement!==$("note"))$("note").value=l.note||"";
+ document.querySelectorAll(".dots button").forEach((b,i)=>b.classList.toggle("cur",i===cur));
+ const nx=ITEMS[cur+1];if(nx)new Image().src=nx.img;
+}
+function renderDots(){const d=$("dots");d.innerHTML="";ITEMS.forEach((it,i)=>{const b=document.createElement("button");
+ const l=labels[it.id];b.style.background=l&&l.label?COL[l.label]:"";b.setAttribute("aria-label",`${it.frame}: ${l&&l.label?NAME[l.label]:"unlabelled"}`);
+ b.onclick=()=>{cur=i;zoom=false;render()};d.appendChild(b)});render()}
+function counts(){const n=ITEMS.length,c={none:0,slight:0,significant:0,unsure:0};let e=0;ITEMS.forEach(it=>{const l=labels[it.id];if(l&&l.label)c[l.label]++;if(l&&l.edges)e++});
+ const done=KEYS.reduce((a,k)=>a+c[k],0);
+ KEYS.forEach((k,i)=>$("p"+(i+1)).style.width=(c[k]/n*100)+"%");
+ $("counts").textContent=`${done}/${n} labelled · ${c.none} none · ${c.slight} slight · ${c.significant} significant · ${c.unsure} can't tell · ${e} with folded/torn edges`}
+
+const queue={};
+function status(t,err){$("status").textContent=t;$("status").className="status"+(err?" err":"")}
+function save(id){const it=ITEMS.find(x=>x.id===id),l=labels[id];
+ const body={label:l.label||null,edges:!!l.edges,note:l.note||"",run:it.run,frame:it.frame,updated:Date.now()};
+ if(!db){try{localStorage.setItem("wrinklelabel:"+id,JSON.stringify(body))}catch(e){}status(local?"Saved in this browser only.":"Saved.");return}
+ const run=()=>db.collection("wrinkle_labels").doc(id).set(body).then(()=>status("Saved.")).catch(e=>status(e&&e.code==="invalid_argument"?"You can view these labels but not change them.":"Could not save: "+(e&&e.message||e),true));
+ queue[id]=(queue[id]||Promise.resolve()).then(run,run)}
+function setLabel(v){const it=ITEMS[cur];const l=labels[it.id]=labels[it.id]||{};l.label=l.label===v?null:v;save(it.id);counts();
+ const b=$("dots").children[cur];if(b)b.style.background=l.label?COL[l.label]:"";
+ if(l.label&&cur<ITEMS.length-1){cur++;zoom=false}render()}
+function toggleEdges(){const it=ITEMS[cur];const l=labels[it.id]=labels[it.id]||{};l.edges=!l.edges;save(it.id);counts();render()}
+function nextOpen(){for(let k=1;k<=ITEMS.length;k++){const i=(cur+k)%ITEMS.length;const l=labels[ITEMS[i].id];if(!l||!l.label){cur=i;zoom=false;render();return}}status("Every frame is labelled. Thank you!")}
+let noteTimer=null;
+$("note").addEventListener("input",()=>{const it=ITEMS[cur];const l=labels[it.id]=labels[it.id]||{};l.note=$("note").value;clearTimeout(noteTimer);const id=it.id;noteTimer=setTimeout(()=>save(id),700)});
+$("note").addEventListener("keydown",e=>{if(e.key==="Escape")$("note").blur();e.stopPropagation()});
+document.querySelectorAll(".choice").forEach(b=>b.onclick=()=>setLabel(b.dataset.v));
+$("edges").onclick=toggleEdges;
+$("prev").onclick=()=>{cur=Math.max(cur-1,0);zoom=false;render()};$("next").onclick=()=>{cur=Math.min(cur+1,ITEMS.length-1);zoom=false;render()};
+$("open").onclick=nextOpen;
+function tog(id,get,set){$(id).onclick=()=>{set(!get());$(id).setAttribute("aria-pressed",String(get()));render()}}
+tog("hc",()=>hc,v=>hc=v);tog("zoom",()=>zoom,v=>{zoom=v;if(v)zc=[50,50]});
+["ter","wr","bu"].forEach(k=>tog(k,()=>show[k],v=>show[k]=v));
+$("cell").addEventListener("click",e=>{if(zoom){zoom=false}else{const r=$("cell").getBoundingClientRect();zc=[(e.clientX-r.left)/r.width*100,(e.clientY-r.top)/r.height*100];zoom=true}
+ $("zoom").setAttribute("aria-pressed",String(zoom));render()});
+document.addEventListener("keydown",e=>{if(e.metaKey||e.ctrlKey||e.altKey)return;const t=e.target;if(t&&/TEXTAREA|INPUT|SELECT/.test(t.tagName))return;
+ const k=e.key.toLowerCase();const m={"1":"none","2":"slight","3":"significant","4":"unsure"};
+ if(m[k])setLabel(m[k]);else if(k==="e")toggleEdges();else if(k==="arrowright"||k==="j")$("next").click();else if(k==="arrowleft"||k==="h")$("prev").click();
+ else if(k==="u")nextOpen();else if(k==="c")$("hc").click();else if(k==="z")$("zoom").click();else if(k==="t")$("ter").click();
+ else if(k==="w")$("wr").click();else if(k==="b")$("bu").click();else if(k==="n")$("note").focus();else return;e.preventDefault()});
+$("copy").onclick=()=>{const rows=ITEMS.filter(it=>labels[it.id]&&(labels[it.id].label||labels[it.id].edges)).map(it=>[it.id,labels[it.id].label||"",labels[it.id].edges?1:0,JSON.stringify(labels[it.id].note||"")].join(","));
+ const txt=["id,label,edges,note",...rows].join("\n");
+ navigator.clipboard.writeText(txt).then(()=>status(`Copied ${rows.length} labels.`)).catch(()=>{$("note").value=txt;$("note").select();status("Clipboard blocked: the CSV is in the note box, selected.")})};
+
+renderDots();counts();
+(async()=>{
+ try{db=window.claude&&window.claude.use?await window.claude.use("db"):null}catch(e){db=null}
+ if(!db){local=true;try{ITEMS.forEach(it=>{const s=localStorage.getItem("wrinklelabel:"+it.id);if(s)labels[it.id]=JSON.parse(s)})}catch(e){}
+  status("Shared storage is unavailable here; labels are kept in this browser. Use “Copy labels as CSV” to hand them over.");renderDots();counts();return}
+ db.collection("wrinkle_labels").onSnapshot(snap=>{snap.docs.forEach(d=>{if(!d.exists)return;const b=d.data();const mine=labels[d.id];
+   const typing=document.activeElement===$("note")&&ITEMS[cur]&&ITEMS[cur].id===d.id;
+   labels[d.id]={label:b.label||null,edges:!!b.edges,note:typing&&mine?mine.note:(b.note||"")}});
+  renderDots();counts()},e=>status("Live updates stopped: "+(e&&e.message||e.code),true));
+})();
+</script>

@@ -1,0 +1,148 @@
+{
+  "camera": {
+    "lamp_temp_k": 3100.0,
+    "centers_nm": [
+      613.1796496772571,
+      547.6007224651743,
+      470.22375533216376
+    ],
+    "fwhm_nm": [
+      99.86519219583832,
+      79.0944298640866,
+      81.15538215850385
+    ],
+    "ir_cut_nm": 645.4924014661743,
+    "gamma": 1.0,
+    "ccm": [
+      [
+        1.6177,
+        -0.90676,
+        0.28906
+      ],
+      [
+        -0.22217,
+        1.30617,
+        -0.084
+      ],
+      [
+        -0.16571,
+        0.08467,
+        1.08104
+      ]
+    ],
+    "flare": [
+      0.08868082211922848,
+      0.12030139106084349,
+      0.22998633045434297
+    ]
+  },
+  "na": 0.3,
+  "notes": "Alternative to bx51_xc10_6.3x.json: same datasets and fit, but the contrast compression is modelled as stray light (flare) with a linear camera (gamma = 1), which matches the raw-to-JPEG analysis of fullchipbn23. Fit loss 0.0161 vs 0.0158 for the gamma profile, so the images alone cannot decide between them; the AFM targets are chosen where they disagree.",
+  "materials": {
+    "graphite": {
+      "index_table": [
+        [
+          380.0,
+          2.8164,
+          1.2865
+        ],
+        [
+          400.0,
+          2.8364,
+          1.2765
+        ],
+        [
+          450.0,
+          2.8864,
+          1.2515
+        ],
+        [
+          500.0,
+          2.9364,
+          1.2265
+        ],
+        [
+          550.0,
+          2.9864,
+          1.2015
+        ],
+        [
+          600.0,
+          3.0364,
+          1.1765
+        ],
+        [
+          650.0,
+          3.0864,
+          1.1515
+        ],
+        [
+          700.0,
+          3.1364,
+          1.1265
+        ],
+        [
+          780.0,
+          3.2164,
+          1.0865
+        ]
+      ]
+    }
+  },
+  "calibration": {
+    "images": [
+      [
+        "example images/g31.jpg",
+        "graphite",
+        "90"
+      ],
+      [
+        "example images/g32.jpg",
+        "graphite",
+        "90"
+      ],
+      [
+        "example images/bn24.jpg",
+        "hbn",
+        "285"
+      ],
+      [
+        "example images/bn26.jpg",
+        "hbn",
+        "285"
+      ]
+    ],
+    "same_settings": true,
+    "fitted_oxide_nm": {
+      "example images/g31.jpg": 89.6,
+      "example images/g32.jpg": 88.0,
+      "example images/bn24.jpg": 301.9,
+      "example images/bn26.jpg": 302.7
+    },
+    "params": {
+      "f_r": 0.0887,
+      "f_g": 0.1203,
+      "f_b": 0.23,
+      "c_r": 613.1796,
+      "c_g": 547.6007,
+      "c_b": 470.2238,
+      "w_r": 99.8652,
+      "w_g": 79.0944,
+      "w_b": 81.1554,
+      "ir_cut": 645.4924,
+      "m_rg": -0.5605,
+      "m_rb": 0.1787,
+      "m_gr": -0.1701,
+      "m_gb": -0.0643,
+      "m_br": -0.1533,
+      "m_bg": 0.0783,
+      "gr_n550": 2.9864,
+      "gr_k550": 1.2015,
+      "gr_kslope": -0.05,
+      "oxide_0": 0.9953,
+      "oxide_1": 0.9782,
+      "oxide_2": 1.0594,
+      "oxide_3": 1.0623
+    }
+  }
+}

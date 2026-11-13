@@ -1,0 +1,13 @@
+# Analysis on a workstation (macOS / Linux / Windows, Python 3.9+): flakeid, the live analysis, the 100x export, tools
+numpy>=1.21
+scipy>=1.7
+opencv-python>=4.5
+scikit-image>=0.19
+scikit-learn>=1.0
+pillow>=9
+tifffile>=2021.1
+matplotlib>=3.5          # some tools (AFM, comparisons)
+gdstk>=0.9               # tools/marks_to_klayout.py (GDS files)
+# The microscope PC (Windows 7, Python 3.8) uses pinned versions: tools/win7/requirements-py38.txt and
+# tools/win7/requirements-mm-py38.txt (Micro-Manager via pymmcore-plus, the nosepiece via pyserial, the window theme).
+# The portable designer (flakeid_designer/) needs no packages.

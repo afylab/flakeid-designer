@@ -1,0 +1,11 @@
+{
+  "camera": {
+    "lamp_temp_k": 3100.0,
+    "centers_nm": [592.0, 530.2, 433.9],
+    "fwhm_nm": [49.4, 52.4, 43.2],
+    "ir_cut_nm": 680.0,
+    "gamma": 2.271
+  },
+  "na": 0.30,
+  "notes": "Young Lab BX51, Olympus XC10 camera, MPLFLN10xBD + 0.63x adapter (6.3x). Unsupervised joint fit to g31 (graphite, 90 nm SiO2 -> fitted 92 nm) and bn24 (hBN, 285 nm SiO2 -> fitted 284 nm) exported JPEGs. Not yet validated against AFM."
+}
