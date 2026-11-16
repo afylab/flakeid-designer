@@ -15,6 +15,8 @@ An update:
      in place: local files (settings, the flat fields, anything not in the repository) stay, and so do files removed
      from the repository.  A copy that fails puts the backup back.
   4. installed_version.json written; the designer restarts (the browser version) or asks to be restarted (the app).
+A designer in a folder this account cannot write (C:\\Program Files without admin rights: [Errno 13] Permission denied)
+is first copied to MOVE_DIR, updated there, its shortcut made again, and started from there (2026-11-16c).
 A folder that is a git checkout is not updated (git pull).  A changed requirements.txt is reported: new packages are
 not installed here.
 """
@@ -24,6 +26,7 @@ import ast
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -41,6 +44,8 @@ CODE_FILES = ("README.md", "LICENSE", "requirements.txt", "find_flakes.py", ".gi
 TOKEN_FILE = Path.home() / ".flakeid_designer_github_token"
 BACKUP_DIR = Path.home() / ".flakeid_designer_update_backups"
 KEEP_BACKUPS = 3
+# where a designer that cannot be updated in place goes (its own folder in the home folder: no admin rights needed)
+MOVE_DIR = Path(os.environ.get("FLAKEID_DESIGNER_MOVE_DIR") or Path.home() / "flakeid-designer-app")
 
 
 class UpdateError(Exception):
@@ -200,11 +205,68 @@ def _code_files(base):
     return out
 
 
+def writable(root):
+    """Whether this account can replace the designer's files in root: a new file made there, and its __main__.py opened
+    for writing (a designer unzipped into C:\\Program Files cannot be, without admin rights)."""
+    d = Path(root) / "flakeid_designer"
+    probe = d / f".update_write_test_{os.getpid()}"
+    try:
+        probe.write_bytes(b"")
+        probe.unlink()
+        with open(d / "__main__.py", "r+b"):
+            pass
+        return True
+    except OSError:
+        return False
+
+
+def move(root, new, log=print):
+    """Copy the designer in root (all of it: its local files too) to the folder new, where this account can write;
+    returns new.  The old folder is left as it is (it cannot be changed)."""
+    root, new = Path(root), Path(new)
+    if new.resolve() == root.resolve():
+        raise UpdateError(f"{root} cannot be written by this account")
+    if (new / ".git").exists():
+        raise UpdateError(f"{root} cannot be written by this account, and {new} is a git checkout")
+    log(f"{root} cannot be written without admin rights: the designer moves to {new} ...")
+    try:
+        shutil.copytree(root, new, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", ".git"))
+        for p in [new, *new.rglob("*")]:             # (copies keep the read-only modes / attribute)
+            m = p.stat().st_mode
+            if not m & stat.S_IWUSR:
+                os.chmod(p, m | stat.S_IWUSR | (stat.S_IXUSR if p.is_dir() else 0))
+    except OSError as e:
+        raise UpdateError(f"{root} cannot be written without admin rights, and the designer could not be copied to {new} ({e})") from None
+    if not writable(new):
+        raise UpdateError(f"{root} cannot be written without admin rights, nor can {new}")
+    return new
+
+
+def shortcut(root, log=print):
+    """The desktop / Start-menu shortcut (Mac: the app) made again for the designer in root, with this Python."""
+    if os.environ.get("FLAKEID_INSTALL_NO_SHORTCUT") == "1":
+        log("(shortcut not made again: FLAKEID_INSTALL_NO_SHORTCUT)")
+        return
+    try:
+        r = subprocess.run([sys.executable, str(Path(root) / "flakeid_designer"), "--install-shortcut"], capture_output=True,
+                           text=True, timeout=180, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        out = [ln for ln in (r.stdout + r.stderr).splitlines() if ln.strip()]
+        log("\n".join(out[-4:]) if out else f"shortcut: exit code {r.returncode}")
+    except (OSError, subprocess.SubprocessError) as e:
+        log(f"the shortcut could not be made again ({e}): start the designer from {root}")
+
+
 def install(sha, root=ROOT, log=print):
-    """Install commit `sha` over the designer in `root`.  Returns dict(installed, files, backup, requirements_changed)."""
+    """Install commit `sha` over the designer in `root` (moved to MOVE_DIR first when root cannot be written).  Returns
+    dict(installed, files, backup, requirements_changed, moved_from, moved_to)."""
     root = Path(root)
     if (root / ".git").exists():
         raise UpdateError(f"{root} is a git checkout: update it with git pull")
+    moved = None
+    if not writable(root):
+        if getattr(sys, "frozen", False):
+            raise UpdateError(f"{root} cannot be written by this account")
+        moved, root = root, move(root, MOVE_DIR, log)
     have = installed(root)
     with tempfile.TemporaryDirectory(prefix="designer_update_") as tmp:
         log("downloading ...")
@@ -250,7 +312,10 @@ def install(sha, root=ROOT, log=print):
     for p in olds[:-KEEP_BACKUPS]:
         shutil.rmtree(p, ignore_errors=True)
     log(f"installed {sha[:7]} ({ver['message']})")
-    return dict(installed=ver, files=len(new), backup=str(bk), requirements_changed=bool(req_changed))
+    if moved:
+        shortcut(root, log)
+    return dict(installed=ver, files=len(new), backup=str(bk), requirements_changed=bool(req_changed),
+                moved_from=str(moved) if moved else None, moved_to=str(root) if moved else None)
 
 
 def save_token(tok):
@@ -272,7 +337,16 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m flakeid_designer.update", description=__doc__.split("\n\n")[0])
     ap.add_argument("--check", action="store_true", help="only say what is new")
     ap.add_argument("--root", default=str(ROOT), help="the designer's folder")
+    ap.add_argument("--writable-root", action="store_true", help="print the designer's folder, after copying it to "
+                    "MOVE_DIR when this account cannot write it (Install shortcut (Windows).bat)")
     a = ap.parse_args(argv)
+    if a.writable_root:
+        try:
+            print(a.root if writable(a.root) else move(a.root, MOVE_DIR, log=lambda m: print(m, file=sys.stderr)))
+        except UpdateError as e:
+            print(e, file=sys.stderr)
+            return 1
+        return 0
     try:
         r = check(a.root)
     except UpdateError as e:
