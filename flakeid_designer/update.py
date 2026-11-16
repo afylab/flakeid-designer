@@ -92,6 +92,8 @@ def _get(url, tok, accept="application/vnd.github+json", timeout=30):
     try:
         return urllib.request.urlopen(rq, timeout=timeout, context=_ssl())
     except urllib.error.HTTPError as e:
+        if tok and e.code in (401, 403):             # (an expired token, or one for the old private repository: the
+            return _get(url, "", accept, timeout)    # public one needs none, 2026-11-16)
         if e.code in (401, 403, 404):
             raise UpdateError(f"GitHub refused ({e.code}): " + (f"the token has expired or cannot read {REPO}" if tok else
                               f"{REPO} is private or not found: it needs a token that can read it")) from None
@@ -135,6 +137,18 @@ def news(have, new):
     except UpdateError:
         return None
     return [(c["sha"], c["commit"]["committer"]["date"], c["commit"]["message"].split("\n")[0]) for c in reversed(d.get("commits") or [])]
+
+
+CHECK_EVERY_S = 30 * 60                              # the page asks at each load and then this often (2026-11-16)
+
+
+def available(root=ROOT):
+    """The page's "Update available" banner: the newest commit when it is not the installed one, else None (also for
+    a git checkout, which git updates).  Raises UpdateError."""
+    if (Path(root) / ".git").exists():
+        return None
+    new = latest()
+    return None if installed(root).get("sha") == new["sha"] else new
 
 
 def check(root=ROOT):
