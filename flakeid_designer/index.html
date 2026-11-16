@@ -4895,7 +4895,7 @@ async function updInstall(){const g=$("updGo");g.disabled=true;g.textContent="In
     if(st.state==="failed"){clearInterval(UPDS.poll);L.textContent+="\nNot installed: "+st.error;g.disabled=false;g.textContent="Install the update"}
     if(st.state==="done"){clearInterval(UPDS.poll);const R=st.result||{};
       $("updBanner").hidden=true;
-      L.textContent+=`\nInstalled ${sha7(R.installed&&R.installed.sha)} (${R.files} files; the previous code in ${R.backup}).`+(R.requirements_changed?"\nrequirements.txt changed: new Python packages may be needed (run \"Install shortcut\" in the flakeid_designer folder again).":"");
+      L.textContent+=`\nInstalled ${sha7(R.installed&&R.installed.sha)} (${R.files} files; the previous code in ${R.backup}).`+(R.moved_to?`\nMoved to ${R.moved_to}: start it from its shortcut (a taskbar pin: pin it again); ${R.moved_from} can be deleted.`:"")+(R.requirements_changed?"\nrequirements.txt changed: new Python packages may be needed (run \"Install shortcut\" in the flakeid_designer folder again).":"");
       const z=await fetch("/api/update/restart",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(x=>x.json()).catch(()=>({restart:true}));
       if(!z.restart){g.textContent="Installed";L.textContent+="\nClose the designer and open it again to use the new version.";return}
       g.textContent="Restarting…";L.textContent+="\nRestarting the designer…";const old=(window.FLAKEID_LOCAL||{}).version;const t0=Date.now();

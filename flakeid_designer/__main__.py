@@ -70,7 +70,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
             sys.path.append(str(_r))
         break
 APP = "flakeid-designer"
-VERSION = "2026-11-16b"
+VERSION = "2026-11-16c"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -4712,6 +4712,22 @@ def _restart(srv):
     except OSError:
         pass
     argv = [a for a in sys.argv if a != "--no-browser"] + ["--no-browser"]
+    to = (UPDATE.get("result") or {}).get("moved_to")
+    if to:                                           # (2026-11-16c: moved out of a folder it could not write: started
+        new = Path(to) / "flakeid_designer"          # from the new one)
+        for i, a in enumerate(argv):
+            try:
+                ap = Path(a).resolve()
+            except (OSError, ValueError):
+                continue
+            if ap == HERE:
+                argv[i] = str(new)
+            elif ap.parent == HERE:
+                argv[i] = str(new / ap.name)
+        try:
+            os.chdir(to)
+        except OSError:
+            pass
     sys.stderr.write(f"{time.strftime('%H:%M:%S')} restarting after the update: {sys.executable} {' '.join(argv)}\n")
     sys.stderr.flush()
     os.execv(sys.executable, [sys.executable] + argv)

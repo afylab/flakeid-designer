@@ -5,7 +5,9 @@
 #      installed for this user only (checked against its known SHA-256 before it runs).
 #   2. A Python environment of the designer's own (%USERPROFILE%\.flakeid_designer_venv): pip and the packages the
 #      designer's builds and tools need (requirements.txt beside the designer, and certifi for Update...).
-#   3. The shortcut: "FlakeIdentifier Designer" on the desktop and in the Start menu, started with that environment.
+#   3. A designer in a folder this user cannot write (C:\Program Files) is copied to %USERPROFILE%\flakeid-designer-app
+#      (update.py --writable-root), or Update... could not replace its files.
+#   4. The shortcut: "FlakeIdentifier Designer" on the desktop and in the Start menu, started with that environment.
 # Log: %USERPROFILE%\.flakeid_designer_install_log.txt.  For tests: FLAKEID_VENV (another environment folder),
 # FLAKEID_INSTALL_NO_SHORTCUT=1 (no shortcut).
 $ErrorActionPreference = 'Continue'                  # (not Stop: in PowerShell 5.1 a program's warnings on stderr, e.g. pip's,
@@ -118,11 +120,18 @@ if ($LASTEXITCODE -ne 0) { Fail 'the packages could not be installed (see above)
 & $vpy -c "import numpy, scipy, cv2, skimage, sklearn, PIL, tifffile, matplotlib, gdstk, certifi; print('   packages: all import (numpy ' + numpy.__version__ + ', OpenCV ' + cv2.__version__ + ')')"
 if ($LASTEXITCODE -ne 0) { Fail 'the packages were installed but do not all import (see above)' }
 
-# 3. the shortcut, started with that environment
+# 3. a folder Update... can write (2026-11-16c: a designer in C:\Program Files could not be updated)
+$out = & $vpy (Join-Path $Here 'update.py') --writable-root --root (Split-Path $Here -Parent)
+if ($LASTEXITCODE -ne 0 -or -not $out) { Fail "the designer's folder cannot be written and could not be copied to one that can (see above)" }
+$top = ($out | Select-Object -Last 1).Trim()
+if ($top -ne (Split-Path $Here -Parent)) { Say "3. the designer's folder: $top (the old one needs admin rights to change)" }
+$Here = Join-Path $top 'flakeid_designer'
+
+# 4. the shortcut, started with that environment
 if ($env:FLAKEID_INSTALL_NO_SHORTCUT -eq '1') {
-  Say '3. the shortcut: skipped (FLAKEID_INSTALL_NO_SHORTCUT)'
+  Say '4. the shortcut: skipped (FLAKEID_INSTALL_NO_SHORTCUT)'
 } else {
-  Say '3. the shortcut ...'
+  Say '4. the shortcut ...'
   & $vpy $Here --install-shortcut
   if ($LASTEXITCODE -ne 0) { Fail 'the shortcut could not be made (see above)' }
 }
