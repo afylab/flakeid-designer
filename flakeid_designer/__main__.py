@@ -70,7 +70,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
             sys.path.append(str(_r))
         break
 APP = "flakeid-designer"
-VERSION = "2026-11-16a"
+VERSION = "2026-11-16b"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -283,6 +283,7 @@ class Store:
         self.data = Path(data_dir) if data_dir else None
         self.library = library or (self.roots[0] if self.roots else None)     # (the library these folders belong to)
         self.related = []               # other designer-data folders with decisions about these runs (related_data)
+        self.person_data = []           # the other libraries in the runs' people's folders: their decisions (person_libraries)
         self.lock = threading.Lock()    # self.runs only (held briefly: never around share I/O)
         self.scan_lock = threading.Lock()                # one walk of the share at a time
         self.seen_lock, self.review_lock = threading.Lock(), threading.Lock()
@@ -337,6 +338,10 @@ class Store:
             self.runs, self.runs_sig, self.scanned = found, sig, time.time()
         try:
             self.related = self.related_data(found)
+        except OSError:
+            pass
+        try:
+            self.person_data = self.person_libraries(found)
         except OSError:
             pass
         self.first_scan.set()
@@ -474,6 +479,43 @@ class Store:
         for r in roots:
             for anc in list(r.parents)[:self.RELATED_UP]:
                 add(anc)
+        return out
+
+    PERSON_DEPTH = 4                    # library folders this deep in a person's folder (Paul/exfoliations/BN/BN6)
+    PERSON_MAX_DIRS = 800               # folders listed at most per walk (a slow share)
+
+    def person_libraries(self, runs):
+        """(2026-11-16) Every other library (a folder with _designer_data) inside the folders of the people whose runs
+        these are (the folder after "Microscope Images" in a run's path): their keep / discard decisions are read too
+        (review_state, seen_state; not their AFM lists or stacks).  A computer with a designer older than 2026-11-10b
+        wrote decisions only into its own library (Paul/exfoliations/BN/BN6/_designer_data, YoungLab-NPGS
+        2026-11-15), so runs it screened from other folders (graphite/GR4 - Auto/GR4_run_18, ...) looked unscreened
+        everywhere else.  Run folders are not walked into (their own data is related_data's)."""
+        people = set()
+        for v in runs.values():
+            parts = Path(v["dir"]).parts
+            i = next((k for k, x in enumerate(parts) if x.lower() == "microscope images"), None)
+            if i is not None and i + 1 < len(parts) - 1:
+                people.add(Path(*parts[:i + 2]))
+        skip = {str(Path(self.data))} if self.data is not None else set()
+        skip |= {str(q) for q in self.related}
+        out, n = [], 0
+        for person in sorted(people, key=str):
+            todo = [(person, 0)]
+            while todo and n < self.PERSON_MAX_DIRS:
+                d, depth = todo.pop()
+                n += 1
+                try:
+                    with os.scandir(d) as it:
+                        subs = [e for e in it if e.is_dir()]
+                except OSError:
+                    continue
+                names = {e.name for e in subs}
+                if "_designer_data" in names and str(Path(d) / "_designer_data") not in skip:
+                    out.append(Path(d) / "_designer_data")
+                if depth >= self.PERSON_DEPTH - 1 or "designer" in names:      # (a run's folder: not into it)
+                    continue
+                todo += [(Path(e.path), depth + 1) for e in subs if not e.name.startswith(("_", ".")) and not SKIP.search(e.name)]
         return out
 
     def _data_dirs(self, sub):
@@ -872,6 +914,8 @@ class Store:
         files = [(d, name, mt, sz) for name, mt, sz in ents]
         for q in self._data_dirs("review")[1:]:          # (the related libraries' decisions about these runs, 2026-11-03g)
             files += [(q, name, mt, sz) for name, mt, sz in (self._entries(q, ".jsonl") or [])]
+        for q in [p_ / "review" for p_ in list(self.person_data)]:     # (other libraries of these runs' people, 2026-11-16)
+            files += [(q, name, mt, sz) for name, mt, sz in (self._entries(q, ".jsonl") or [])]
         # (2026-11-16) every file is opened and read on from where the last read ended, whatever its listed size: a
         # network share's client caches directory listings (Windows ~10 s, macOS too), so a decision appended on
         # another computer seconds ago was not read until the listing changed.  The signature (the page's ETag) is
@@ -928,7 +972,7 @@ class Store:
             key, j = None, None
         j = dict(j) if isinstance(j, dict) else {}
         sig = f"seen{f}{key}"
-        for q in list(self.related) if d else []:                     # (runs screened in a related library, 2026-11-03g)
+        for q in (list(self.related) + list(self.person_data)) if d else []:     # (runs screened in a related library, 2026-11-03g; a person's other libraries, 2026-11-16)
             g = q / "screened_runs.json"
             try:
                 st = g.stat()

@@ -111,3 +111,29 @@ def test_failed_copy_to_the_run_tried_again_soon(tmp_path, monkeypatch):
     while not own.is_file() and time.time() - t0 < 5:
         time.sleep(0.05)
     assert own.is_file() and fails["n"] == 0
+
+
+def test_decisions_in_another_library_of_the_same_person(tmp_path, monkeypatch):
+    """(2026-11-16) A computer with a designer older than 2026-11-10b screened Paul's graphite run from his BN6 library:
+    the decisions are only in Paul/exfoliations/BN/BN6/_designer_data.  Another computer adding the run sees them."""
+    from test_server import make_run
+    mi = tmp_path / "share" / "Microscope Images"
+    gr = mi / "Paul" / "exfoliations" / "graphite" / "GR4 - Auto"
+    make_run(gr, RUN)
+    run_dir = gr / RUN
+    bn6 = mi / "Paul" / "exfoliations" / "BN" / "BN6"
+    (bn6 / "_designer_data" / "review").mkdir(parents=True)
+    fl = f"{RUN}:BN7_1-f0034"
+    (bn6 / "_designer_data" / "review" / "afyla@NPGS.jsonl").write_text(
+        __import__("json").dumps(dict(id=f"{fl}.a", updated=1000, by="afyla@NPGS", body=dict(decision="keep", terrace=f"{fl}.a"))) + "\n")
+    (bn6 / "_designer_data" / "screened_runs.json").write_text(__import__("json").dumps({RUN: dict(by="afyla@NPGS", at=1)}))
+    lib = mi / "Avram" / "Exfoliation" / "BN" / "BN_15_auto"
+    lib.mkdir(parents=True)
+    other = mi / "Naz" / "lib"                            # (another person's library: not read)
+    (other / "_designer_data" / "review").mkdir(parents=True)
+    (other / "_designer_data" / "review" / "n@pc.jsonl").write_text(
+        __import__("json").dumps(dict(id=f"{fl}.a", updated=5000, by="n@pc", body=dict(decision="discard", terrace=f"{fl}.a"))) + "\n")
+    a = store_for(lib, run_dir, "avram@mac", monkeypatch)
+    assert bn6 / "_designer_data" in a.person_data and other / "_designer_data" not in a.person_data
+    assert latest_of(a, f"{fl}.a").get("decision") == "keep"
+    assert RUN in [x["id"] for x in a.seen_state()[1]]
