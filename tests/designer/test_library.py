@@ -156,7 +156,7 @@ def test_parent_library_reads_its_runs_own_data(tmp_path, monkeypatch):
     u = f"http://127.0.0.1:{srv.server_address[1]}"
     try:
         store.scan()
-        assert store.related == [rd]
+        assert [q for q in store.related if q.is_dir()] == [rd]     # (2026-11-16: runs' own folders listed before they exist)
         rev = {r["id"]: r["data"] for r in store.list_review()}
         assert len(rev) == 30 and all(v["decision"] == "keep" for v in rev.values())
         assert [p["id"] for p in store.afm_plans()] == ["L1"]
@@ -175,7 +175,7 @@ def test_parent_library_reads_its_runs_own_data(tmp_path, monkeypatch):
         # the run's own library sees the parent's decisions (its folder's parent)
         sub = D.Store([str(run)], rd, str(run))
         sub.scan()
-        assert sub.related == [parent / "_designer_data"]
+        assert [q for q in sub.related if q.is_dir()] == [parent / "_designer_data"]
         assert not [r for r in sub.list_review() if (r["data"] or {}).get("decision")]
     finally:
         srv.shutdown()

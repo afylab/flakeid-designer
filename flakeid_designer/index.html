@@ -380,10 +380,13 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 .klok{font-weight:600}.klok.bad{color:var(--err)}
 @media (max-width:760px){.klform{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+#updBanner{display:flex;align-items:center;gap:12px;padding:6px 14px;border-radius:8px;background:#ffb02e;color:#1a1a1a;font-weight:600}#updBanner button{margin-left:auto}
+.runkind .runwho{display:table;margin:0 0 3px}.runwho{display:inline-block;margin-right:8px;padding:0 6px;border-radius:5px;background:var(--accent);color:var(--accent-ink);font-weight:600;font-size:12px}
 </style>
 
 <div class="app">
   <header>
+    <div id="updBanner" hidden><span id="updBannerText"></span><button id="updBannerGo">Update…</button></div>
     <div class="hrow" id="hrow1">
       <span class="hlogo" title="vdW Stack Designer"><svg viewBox="0 0 64 64" width="26" height="26" aria-hidden="true" style="flex:none;display:block"><defs><linearGradient id="dzOx" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6c5cb4"/><stop offset="1" stop-color="#4a3e8e"/></linearGradient></defs><rect width="64" height="64" rx="14" fill="url(#dzOx)"/><polygon points="21.6,38.8 36.5,37.2 46.1,43.2 45.4,51.6 29.8,54.4 15.7,47.6" fill="#2f8f87" /><polygon points="21.6,35.8 36.5,34.2 46.1,40.2 45.4,48.6 29.8,51.4 15.7,44.6" fill="#4fc3b8" stroke="#f5f3ff" stroke-width="1" stroke-opacity=".5"/><polygon points="24.4,28.9 35.8,28.5 43.0,33.7 40.0,39.8 28.0,41.1 18.4,35.3" fill="#7d76b5" /><polygon points="24.4,25.9 35.8,25.5 43.0,30.7 40.0,36.8 28.0,38.1 18.4,32.3" fill="#b9b3e6" stroke="#f5f3ff" stroke-width="1" stroke-opacity=".5"/><polygon points="28.3,17.1 39.7,18.2 45.8,24.4 39.7,29.8 27.6,29.8 20.2,22.9" fill="#2f8f87" /><polygon points="28.3,14.1 39.7,15.2 45.8,21.4 39.7,26.8 27.6,26.8 20.2,19.9" fill="#4fc3b8" stroke="#f5f3ff" stroke-width="1" stroke-opacity=".5"/></svg><h1 class="vh">vdW Stack Designer</h1></span>
       <div class="views" role="group" aria-label="Stage of the work">
@@ -4686,8 +4689,11 @@ function runKind(R){const P=(R.pieces||[]).length?R.pieces:(R.materials||[]).map
   const nm=m=>{m=String(m||"").toLowerCase();return m==="hbn"?"BN":m==="graphite"||m==="graphene"?"Graphite":m?m[0].toUpperCase()+m.slice(1):""};
   const kinds=[...new Set(P.map(p=>{const k=nm(p.material);return k==="Graphite"&&+p.oxide_nm>=200?"Rhombohedral graphite":k}).filter(Boolean))];
   const ox=[...new Set(P.map(p=>p.oxide_nm).filter(v=>v!=null).map(v=>+(+v).toFixed(1)))];
-  return `<span class="runkind">${escapeHtml(kinds.join(", "))}${ox.length?`<small>${escapeHtml(ox.join(", "))} nm SiO₂</small>`:""}</span>`}
-function runNameHtml(name,path){return `<b title="${escapeHtml(path||"")}">${escapeHtml(name)}</b><span class="runpar" title="${escapeHtml(path||"")}">${escapeHtml(runParents(path))}</span>`}
+  const who=runPerson(R.path);           // (2026-11-16: whose run, above what was scanned)
+  return `<span class="runkind">${who?`<span class="runwho">${escapeHtml(who)}</span>`:""}${escapeHtml(kinds.join(", "))}${ox.length?`<small>${escapeHtml(ox.join(", "))} nm SiO₂</small>`:""}</span>`}
+// (2026-11-16) whose run: the folder after "Microscope Images" in its path (always the person's name)
+function runPerson(p){const a=normP(p).split("/").filter(Boolean),i=a.findIndex(x=>x.toLowerCase()==="microscope images");return i>=0&&a[i+1]&&i+2<a.length?a[i+1]:""}
+function runNameHtml(name,path){const who=runPerson(path);return `${who?`<span class="runwho">${escapeHtml(who)}</span>`:""}<b title="${escapeHtml(path||"")}">${escapeHtml(name)}</b><span class="runpar" title="${escapeHtml(path||"")}">${escapeHtml(runParents(path))}</span>`}
 function recentHtml(){const a=recentGet();if(!a.length)return `<div class="empty" id="runRecent" title="A run counts as viewed when you show it, Screen it, open its AFM runs, Screen AFM, its Flake table, or one of its flakes">No runs viewed yet</div>`;
   return `<div id="runRecent">`+a.map((x,i)=>{const here=Object.keys(RUNS).find(k=>normP(RUNS[k].path)===normP(x.path));const lib=libName(x.lib);
     return `<div class="runrow"><div style="min-width:0">${runNameHtml(x.name,x.path)}<div class="sub">${x.started?"Started "+escapeHtml(fmtStarted(x.started))+" · ":""}viewed ${escapeHtml(fmtAgo(x.t))}${here?"":lib?` · in ${escapeHtml(lib)}`:""}</div></div>
@@ -4888,6 +4894,7 @@ async function updInstall(){const g=$("updGo");g.disabled=true;g.textContent="In
     L.textContent=(st.log||[]).join("\n");
     if(st.state==="failed"){clearInterval(UPDS.poll);L.textContent+="\nNot installed: "+st.error;g.disabled=false;g.textContent="Install the update"}
     if(st.state==="done"){clearInterval(UPDS.poll);const R=st.result||{};
+      $("updBanner").hidden=true;
       L.textContent+=`\nInstalled ${sha7(R.installed&&R.installed.sha)} (${R.files} files; the previous code in ${R.backup}).`+(R.requirements_changed?"\nrequirements.txt changed: new Python packages may be needed (run \"Install shortcut\" in the flakeid_designer folder again).":"");
       const z=await fetch("/api/update/restart",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(x=>x.json()).catch(()=>({restart:true}));
       if(!z.restart){g.textContent="Installed";L.textContent+="\nClose the designer and open it again to use the new version.";return}
@@ -4897,6 +4904,12 @@ async function updInstall(){const g=$("updGo");g.disabled=true;g.textContent="In
         if(p&&p.app){clearInterval(wait);location.reload()}else if(Date.now()-t0>60000){clearInterval(wait);L.textContent+="\nThe designer did not come back: start it again by hand."}},1000)}},800)}
 $("updClose").onclick=()=>$("updDlg").close();
 if(LOCAL){$("bUpd").hidden=false;$("bUpd").onclick=updOpen}
+// (2026-11-16) "Update available": asked at each load and every 30 min (GET /api/update/available); a failed check
+// (no network) changes nothing
+async function updAvail(){const r=await fetch("/api/update/available",{cache:"no-store"}).then(x=>x.json()).catch(()=>null);
+  if(!r||r.error)return;const a=r.available;$("updBanner").hidden=!a;
+  if(a)$("updBannerText").textContent=`Update available (${String(a.date||"").slice(0,10)}): please update`}
+if(LOCAL){$("updBannerGo").onclick=updOpen;updAvail();setInterval(updAvail,30*60*1000)}
 if(LOCAL){$("bRefresh").hidden=false;$("bRefresh").onclick=async()=>{const b=$("bRefresh");b.disabled=true;b.textContent="Refreshing…";
     try{await fetch("/api/rescan",{method:"POST"});["runs","stacks","manual","review","terraces","designs"].forEach(c=>localDb_&&localDb_.poll(c));checkLegacy();afmLoadAll();status2("Refreshed: runs, stacks and imported flakes reloaded from the share.")}
     catch(e){status2("Could not refresh: "+e)}finally{setTimeout(()=>{b.disabled=false;b.textContent="Refresh"},800)}};

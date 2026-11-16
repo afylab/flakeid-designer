@@ -70,7 +70,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
             sys.path.append(str(_r))
         break
 APP = "flakeid-designer"
-VERSION = "2026-11-12c"
+VERSION = "2026-11-16a"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -447,12 +447,12 @@ class Store:
         out, seen = [], {own}
         roots = [Path(r) for r in self.roots]
 
-        def add(folder):
+        def add(folder, always=False):
             q = Path(folder) / "_designer_data"
             if str(q) not in seen:
                 seen.add(str(q))
                 try:
-                    if q.is_dir():
+                    if always or q.is_dir():
                         out.append(q)
                 except OSError:
                     pass
@@ -462,7 +462,9 @@ class Store:
             # library BN_15_auto): its own and its folder's data (GR13'_auto/_designer_data: its decisions and AFM
             # lists) were not read, so it looked unscreened with no AFM lists
             rd = d.parent if d.name == "designer" else d          # (v["dir"]: the run's designer folder)
-            add(rd)
+            # (2026-11-16) even before it exists: the first decision made on another computer makes it, and it is
+            # read from the next request on (before: from the next walk of the runs, up to SCAN_S later)
+            add(rd, always=True)
             add(rd.parent)
             for anc in [d] + list(d.parents):
                 inside = [r for r in roots if anc == r or r in anc.parents]
@@ -870,34 +872,37 @@ class Store:
         files = [(d, name, mt, sz) for name, mt, sz in ents]
         for q in self._data_dirs("review")[1:]:          # (the related libraries' decisions about these runs, 2026-11-03g)
             files += [(q, name, mt, sz) for name, mt, sz in (self._entries(q, ".jsonl") or [])]
-        sig = _sig("review" + repr([(str(q), n, mt, sz) for q, n, mt, sz in files]))
+        # (2026-11-16) every file is opened and read on from where the last read ended, whatever its listed size: a
+        # network share's client caches directory listings (Windows ~10 s, macOS too), so a decision appended on
+        # another computer seconds ago was not read until the listing changed.  The signature (the page's ETag) is
+        # what was read: files, read positions.
         with self.review_lock:
+            for d, name, mt, sz in files:
+                c = self._review.get(str(d / name)) or dict(pos=0, latest={})
+                try:
+                    with open(d / name, "rb") as fh:
+                        fh.seek(0, 2)
+                        if fh.tell() < c["pos"]:                 # (shorter than what was read: written anew)
+                            c = dict(pos=0, latest={})
+                        fh.seek(c["pos"])
+                        chunk = fh.read()
+                except OSError:
+                    continue
+                end = chunk.rfind(b"\n") + 1                     # (complete lines only: the rest is read next time)
+                for line in chunk[:end].decode("utf-8", "replace").splitlines():
+                    try:
+                        e = json.loads(line)
+                    except ValueError:
+                        continue
+                    k = e.get("id") if isinstance(e, dict) else None
+                    if k and (k not in c["latest"] or e.get("updated", 0) >= c["latest"][k].get("updated", 0)):
+                        c["latest"][k] = e
+                c["pos"] += end
+                self._review[str(d / name)] = c
+            sig = _sig("review" + repr([(str(q), n, (self._review.get(str(q / n)) or {}).get("pos")) for q, n, _, _ in files]))
             hit = self._lists.get("review")
             if hit and hit[0] == sig:
                 return hit
-            for d, name, mt, sz in files:
-                c = self._review.get(str(d / name))
-                if c is None or sz < c["pos"] or (sz == c["size"] and mt != c["mt"]):     # new, or written anew
-                    c = dict(pos=0, size=0, mt=0, latest={})
-                if sz > c["pos"]:
-                    try:
-                        with open(d / name, "rb") as fh:
-                            fh.seek(c["pos"])
-                            chunk = fh.read()
-                    except OSError:
-                        continue
-                    end = chunk.rfind(b"\n") + 1             # (complete lines only: the rest is read next time)
-                    for line in chunk[:end].decode("utf-8", "replace").splitlines():
-                        try:
-                            e = json.loads(line)
-                        except ValueError:
-                            continue
-                        k = e.get("id") if isinstance(e, dict) else None
-                        if k and (k not in c["latest"] or e.get("updated", 0) >= c["latest"][k].get("updated", 0)):
-                            c["latest"][k] = e
-                    c["pos"] += end
-                c["size"], c["mt"] = sz, mt
-                self._review[str(d / name)] = c
             latest = {}
             for d, name, _, _ in files:
                 for k, e in self._review.get(str(d / name), {}).get("latest", {}).items():
@@ -1035,34 +1040,44 @@ class RunData:
     New AFM lists are made in <run folder>/_designer_data/afm (run_dir).  All share I/O in one background thread, in order;
     it never fails a decision (the library's copy is written first, as before)."""
 
+    RETRY_S = 5.0                       # a decision not written to its run's folder (the share did not answer): again
+    RETRIES = 24                        # ... this often, then left to the next walk's sync (2026-11-16)
+
     def __init__(self):
         import queue
-        self.q = queue.Queue()
-        self.thread = None
+        # (2026-11-16) two queues, two threads: a new decision is written at once, not after the copy of the old
+        # decisions of every run (sync, after each walk: minutes on a slow share), which shared one queue before
+        self.q, self.qs = queue.Queue(), queue.Queue()
+        self.thread = self.sthread = None
         self.lock = threading.Lock()
+        self.write_lock = threading.Lock()               # (the two threads append to the same files)
         self.pending_sync = False
+        self.retrying = 0
         self.done = 0                                    # entries written (tests)
 
     def _start(self):
         with self.lock:
             if self.thread is None or not self.thread.is_alive():
-                self.thread = threading.Thread(target=self._work, daemon=True, name="run-data")
+                self.thread = threading.Thread(target=self._work, args=(self.q,), daemon=True, name="run-data")
                 self.thread.start()
+            if self.sthread is None or not self.sthread.is_alive():
+                self.sthread = threading.Thread(target=self._work, args=(self.qs,), daemon=True, name="run-data sync")
+                self.sthread.start()
 
-    def _work(self):
+    def _work(self, q):
         while True:
-            job = self.q.get()
+            job = q.get()
             try:
                 job()
             except Exception as ex:                      # (a share that does not answer: tried again at the next walk)
                 sys.stderr.write(f"{time.strftime('%H:%M:%S')} decisions not copied to the run's folder: {ex}\n")
             finally:
-                self.q.task_done()
+                q.task_done()
 
     def wait(self, timeout=30.0):
         """(tests) until every queued write is done"""
         end = time.time() + timeout
-        while self.q.unfinished_tasks and time.time() < end:
+        while (self.q.unfinished_tasks or self.qs.unfinished_tasks or self.retrying) and time.time() < end:
             time.sleep(0.02)
 
     @staticmethod
@@ -1088,25 +1103,45 @@ class RunData:
             store.related = list(store.related) + [q]
         return q / sub
 
-    def mirror(self, store, entries):
+    def mirror(self, store, entries, tries=0):
         """Decision entries (as written to the library's file) appended to their runs' own folders, in the background."""
         ents = [e for e in entries if isinstance(e, dict) and ":" in str(e.get("id") or "")]
         if not ents:
             return
-        self.q.put(lambda: self._append(store, ents))
+        user = user_name()
+        self.q.put(lambda: self._append(store, ents, user, tries))
         self._start()
 
-    def _append(self, store, ents):
+    def _append(self, store, ents, user=None, tries=0):
         by_run = {}
         for e in ents:
             by_run.setdefault(str(e["id"]).split(":", 1)[0], []).append(e)
         for run, es in by_run.items():
-            d = self.run_dir(store, run, "review")
-            if d is None:
-                continue
-            with open(d / f"{user_name()}.jsonl", "a", encoding="utf-8") as fh:
-                fh.write("".join(json.dumps(e) + "\n" for e in es))
-            self.done += len(es)
+            try:
+                d = self.run_dir(store, run, "review")
+                if d is None:
+                    continue
+                with self.write_lock, open(d / f"{user or user_name()}.jsonl", "a", encoding="utf-8") as fh:
+                    fh.write("".join(json.dumps(e) + "\n" for e in es))
+                self.done += len(es)
+            except OSError as ex:
+                # (2026-11-16) the share did not answer: again in RETRY_S (before: only at the next walk's sync, up to
+                # minutes later, and another computer did not see the decision meanwhile)
+                if tries >= self.RETRIES:
+                    raise
+                sys.stderr.write(f"{time.strftime('%H:%M:%S')} decisions not copied to the run's folder yet ({ex}): "
+                                 f"again in {self.RETRY_S:g} s\n")
+                with self.lock:
+                    self.retrying += 1
+
+                def again(es=es, n=tries + 1):
+                    with self.lock:
+                        self.retrying -= 1
+                    self.q.put(lambda: self._append(store, es, user, n))
+                    self._start()
+                t = threading.Timer(self.RETRY_S, again)
+                t.daemon = True
+                t.start()
 
     def sync_soon(self, store):
         """After a walk of the runs: every run's latest decisions copied into its own folder where missing or older."""
@@ -1119,7 +1154,7 @@ class RunData:
             with self.lock:
                 self.pending_sync = False
             self.sync(store)
-        self.q.put(job)
+        self.qs.put(job)
         self._start()
 
     def sync(self, store):
@@ -1151,7 +1186,7 @@ class RunData:
                     continue
             new = [e for e in mine if int(e.get("updated") or 0) > have.get(e.get("id"), -1)]
             if new:
-                with open(d / f"{user_name()}.jsonl", "a", encoding="utf-8") as fh:
+                with self.write_lock, open(d / f"{user_name()}.jsonl", "a", encoding="utf-8") as fh:
                     fh.write("".join(json.dumps(e) + "\n" for e in new))
                 n += len(new)
                 self.done += len(new)
@@ -3384,6 +3419,22 @@ class Handler(BaseHTTPRequestHandler):
             if jpg is None:
                 return self._send(204, b"", "text/plain", {"_nocache": 1})
             return self._send(200, jpg, "image/jpeg", {"_nocache": 1, "X-Frame-Seq": str(seq)})
+        if path == "/api/update/available":
+            # (2026-11-16) the page's banner: asked at each load and every UPD.CHECK_EVERY_S; GitHub asked at most once a
+            # minute however many pages are open
+            if not self._local():
+                return self._json(dict(available=None))
+            with UPDATE["lock"]:
+                hit = UPDATE.get("avail")
+            if hit is None or time.time() - hit[0] > 60:
+                try:
+                    new = UPD.available()
+                except Exception as e:                   # (no network: no banner change)
+                    return self._json(dict(available=None, error=str(e), every_s=UPD.CHECK_EVERY_S))
+                hit = (time.time(), new)
+                with UPDATE["lock"]:
+                    UPDATE["avail"] = hit
+            return self._json(dict(available=hit[1], every_s=UPD.CHECK_EVERY_S))
         if path in ("/api/update/check", "/api/update/status"):
             # the header's Update…: what is new on GitHub; an install's progress (update.py)
             if not self._local():
@@ -4602,7 +4653,7 @@ def _run_update(sha):
             sha = UPD.latest()["sha"]
         r = UPD.install(sha, log=log)
         with UPDATE["lock"]:
-            UPDATE.update(state="done", result=r)
+            UPDATE.update(state="done", result=r, avail=None)
     except Exception as e:                           # (UpdateError: its message; anything else: shown as it is)
         with UPDATE["lock"]:
             UPDATE.update(state="failed", error=str(e) if isinstance(e, UPD.UpdateError) else f"{type(e).__name__}: {e}")
