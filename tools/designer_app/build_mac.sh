@@ -20,12 +20,15 @@ if [ ! -x "$PY" ]; then
 fi
 $VENV/bin/pip install --no-cache-dir -q $PKGS          # (every build: packages added since the environment was made)
 rm -rf build_app "dist_app/$NAME.app" "dist_app/$NAME"
+# the commit this build is made from: the app's "Update available" banner compares it with GitHub's (2026-11-18)
+"$PY" flakeid_designer/update.py --root "$PWD" --build-version build_app/installed_version.json
 "$PY" -m PyInstaller --noconfirm --windowed --name "$NAME" \
   --icon "$PWD/flakeid_designer/static/designer.icns" \
   --osx-bundle-identifier "edu.ucsb.younglab.vdwdesigner$( [ "$1" = stacker ] && echo .stacker)" \
   --add-data "$PWD/flakeid_designer/index.html:flakeid_designer" \
   --add-data "$PWD/flakeid_designer/static:flakeid_designer/static" \
   --add-data "$PWD/flakeid_designer/README.txt:flakeid_designer" \
+  --add-data "$PWD/build_app/installed_version.json:." \
   --hidden-import flakeid_designer.__main__ --hidden-import flakeid_designer.stacks --hidden-import flakeid_designer.manual --hidden-import flakeid_designer.afmplan --hidden-import flakeid_designer.stackdir --hidden-import flakeid_designer.kept $EXTRA $BUILDER --paths "$PWD" \
   --workpath build_app --distpath dist_app --specpath build_app \
   "$PWD/flakeid_designer/app.py"

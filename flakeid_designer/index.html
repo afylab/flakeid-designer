@@ -4882,7 +4882,7 @@ function updRender(r){const B=$("updBody");
   UPDS.sha=r.latest.sha;
   const nw=r.news==null?`<div class="sub">(the installed version is not known: the newest is installed as a whole)</div>`:r.news.length?`<div class="sub"><b>New since the installed version (${r.news.length}):</b></div><ul style="margin:0;padding-left:20px">${r.news.map(c=>`<li><span class="sub">${sha7(c[0])} · ${escapeHtml(String(c[1]).slice(0,10))}</span> ${escapeHtml(c[2])}</li>`).join("")}</ul>`:"";
   B.innerHTML=`<div>Installed: ${updVer(r.installed)}</div><div>Newest on GitHub: ${updVer(r.latest)}</div>
-    ${r.up_to_date?`<div class="status ok"><b>Up to date.</b></div>`:nw+`<div class="row"><button class="primary" id="updGo">Install the update</button><span class="sub">Your settings, libraries, designs and decisions stay; the code is backed up first. ${r.app?"Then close and open the app again.":"Then the designer restarts and this page reloads."}</span></div>`}
+    ${r.up_to_date?`<div class="status ok"><b>Up to date.</b></div>`:r.app_build?nw+`<div class="status">${escapeHtml(r.app_how||"")}</div>`:nw+`<div class="row"><button class="primary" id="updGo">Install the update</button><span class="sub">Your settings, libraries, designs and decisions stay; the code is backed up first. ${r.app?"Then close and open the app again.":"Then the designer restarts and this page reloads."}</span></div>`}
     <div class="sub">Token: ${escapeHtml(r.token_from||"none (public repository)")} · designer ${escapeHtml(r.version||"")}</div><pre id="updLog" class="sub" style="white-space:pre-wrap;margin:0" hidden></pre>`;
   if($("updGo"))$("updGo").onclick=updInstall}
 async function updOpen(){$("updDlg").open||$("updDlg").showModal();updRender(null);

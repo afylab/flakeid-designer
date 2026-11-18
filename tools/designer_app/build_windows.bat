@@ -54,11 +54,14 @@ rem the versions this build uses (for the log: send this window if something goe
 %VENV%\Scripts\python -c "import sys, importlib.metadata as m; print('Python', sys.version.split()[0]); print(', '.join(p + ' ' + m.version(p) for p in ('pywebview', 'pyinstaller', 'numpy', 'scipy', 'scikit-image', 'opencv-python-headless') if __import__('importlib.util').util.find_spec(p.replace('-', '_').replace('opencv_python_headless', 'cv2').replace('scikit_image', 'skimage').replace('pyinstaller', 'PyInstaller')) is not None))"
 if exist build_app rmdir /s /q build_app
 if exist "dist_app\%NAME%" rmdir /s /q "dist_app\%NAME%"
+rem the commit this build is made from: the app's "Update available" banner compares it with GitHub's (2026-11-18)
+%VENV%\Scripts\python flakeid_designer\update.py --root "%CD%" --build-version build_app\installed_version.json || goto :fail
 %VENV%\Scripts\python -m PyInstaller --noconfirm --windowed --name "%NAME%" ^
   --icon "%CD%\flakeid_designer\static\designer_win.ico" ^
   --add-data "%CD%\flakeid_designer\index.html;flakeid_designer" ^
   --add-data "%CD%\flakeid_designer\static;flakeid_designer\static" ^
   --add-data "%CD%\flakeid_designer\README.txt;flakeid_designer" ^
+  --add-data "%CD%\build_app\installed_version.json;." ^
   --hidden-import flakeid_designer.__main__ --hidden-import flakeid_designer.stacks --hidden-import flakeid_designer.manual --hidden-import flakeid_designer.afmplan --hidden-import flakeid_designer.stackdir --hidden-import flakeid_designer.kept %EXTRA% %BUILDER% --paths "%CD%" ^
   --workpath build_app --distpath dist_app --specpath build_app ^
   "%CD%\flakeid_designer\app.py" || goto :fail

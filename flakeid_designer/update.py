@@ -19,6 +19,11 @@ A designer in a folder this account cannot write (C:\\Program Files without admi
 is first copied to MOVE_DIR, updated there, its shortcut made again, and started from there (2026-11-16c).
 A folder that is a git checkout is not updated (git pull).  A changed requirements.txt is reported: new packages are
 not installed here.
+
+The desktop app (a PyInstaller build, tools/designer_app/) has no code files to replace: it is updated by installing its
+new build.  Its build records the commit it was built from (--build-version, in the app as installed_version.json), so
+the banner and Update... compare that commit with GitHub's and say what is new; Update... then says to install the new
+build instead of installing (2026-11-18).
 """
 from __future__ import annotations
 
@@ -38,6 +43,9 @@ REPO = os.environ.get("FLAKEID_DESIGNER_REPO", "afylab/flakeid-designer")
 BRANCH = "main"
 API = os.environ.get("FLAKEID_GITHUB_API", "https://api.github.com/")
 ROOT = Path(__file__).resolve().parent.parent      # the designer's folder (flakeid_designer/ and the code it uses)
+APP = bool(getattr(sys, "frozen", False))           # the desktop app: updated by installing its new build
+APP_HOW = ("This is the desktop app: it is updated by installing its new build (Mac: the .dmg, the app dragged to "
+           "Applications; Windows: the zip's Install.bat), made with tools/designer_app (README.md there).")
 VERSION_FILE = "installed_version.json"
 CODE_DIRS = ("flakeid_designer", "flakeid", "tools", "docs", "ml", "tests")
 CODE_FILES = ("README.md", "LICENSE", "requirements.txt", "find_flakes.py", ".gitignore", ".gitattributes")
@@ -162,7 +170,7 @@ def check(root=ROOT):
         raise UpdateError(f"{root} is a git checkout: update it with git pull")
     have, new = installed(root), latest()
     return dict(installed=have, latest=new, news=news(have.get("sha"), new["sha"]), up_to_date=have.get("sha") == new["sha"],
-                token_from=token()[1])
+                token_from=token()[1], app_build=APP, app_how=APP_HOW if APP else None)
 
 
 def download(sha, dest):
@@ -260,12 +268,12 @@ def install(sha, root=ROOT, log=print):
     """Install commit `sha` over the designer in `root` (moved to MOVE_DIR first when root cannot be written).  Returns
     dict(installed, files, backup, requirements_changed, moved_from, moved_to)."""
     root = Path(root)
+    if APP:                                          # (no code files to replace: 2026-11-18)
+        raise UpdateError(APP_HOW)
     if (root / ".git").exists():
         raise UpdateError(f"{root} is a git checkout: update it with git pull")
     moved = None
     if not writable(root):
-        if getattr(sys, "frozen", False):
-            raise UpdateError(f"{root} cannot be written by this account")
         moved, root = root, move(root, MOVE_DIR, log)
     have = installed(root)
     with tempfile.TemporaryDirectory(prefix="designer_update_") as tmp:
@@ -332,6 +340,29 @@ def save_token(tok):
     return str(TOKEN_FILE)
 
 
+def build_version(repo, out):
+    """(2026-11-18, the app builds) The commit the checkout `repo` is at, written to `out` as installed_version.json is
+    by an update, so that the app knows what it was built from.  Not a git checkout (or no git): {} (the app then
+    does not know, as before).  Returns what was written."""
+    ver = {}
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "log", "-1", "--format=%H%n%ct%n%s"], capture_output=True, text=True,
+                           timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if r.returncode == 0 and r.stdout.strip():
+            sha, ct, msg = (r.stdout.strip().split("\n") + ["", ""])[:3]
+            ver = dict(sha=sha, date=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(ct))), message=msg,
+                       installed=time.strftime("%Y-%m-%d %H:%M:%S"), build="app")
+            d = subprocess.run(["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"], capture_output=True,
+                               text=True, timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if d.stdout.strip():
+                ver["changed"] = True                # (built with changes not committed: the commit is only the base)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    Path(out).write_text(json.dumps(ver, indent=1), encoding="utf-8")
+    return ver
+
+
 def main(argv=None):
     import argparse
     ap = argparse.ArgumentParser(prog="python -m flakeid_designer.update", description=__doc__.split("\n\n")[0])
@@ -339,7 +370,14 @@ def main(argv=None):
     ap.add_argument("--root", default=str(ROOT), help="the designer's folder")
     ap.add_argument("--writable-root", action="store_true", help="print the designer's folder, after copying it to "
                     "MOVE_DIR when this account cannot write it (Install shortcut (Windows).bat)")
+    ap.add_argument("--build-version", metavar="OUT", help="write the commit the --root checkout is at to OUT (the app "
+                    "builds: tools/designer_app)")
     a = ap.parse_args(argv)
+    if a.build_version:
+        v = build_version(a.root, a.build_version)
+        print(f"built from {v['sha'][:7]} {v['message']}" + (" (with changes not committed)" if v.get("changed") else "")
+              if v else "built from an unknown commit (not a git checkout): the app will always offer an update")
+        return 0
     if a.writable_root:
         try:
             print(a.root if writable(a.root) else move(a.root, MOVE_DIR, log=lambda m: print(m, file=sys.stderr)))
