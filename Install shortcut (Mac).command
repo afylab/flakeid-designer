@@ -9,7 +9,7 @@
 #   3. The app icon, started with that environment.
 # Log: ~/.flakeid_designer_install_log.txt.  For tests: FLAKEID_VENV (another environment folder),
 # FLAKEID_INSTALL_NO_SHORTCUT=1 (no app icon).
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/flakeid_designer" || exit 1        # (2026-11-19: this file is in the main folder)
 HERE="$(pwd)"
 PYVER=3.12.10
 PYURL="https://www.python.org/ftp/python/$PYVER/python-$PYVER-macos11.pkg"
@@ -48,7 +48,7 @@ find_python() {
 
 echo "vdW Stack Designer: installing what it needs (a few minutes the first time)"
 echo "  the designer: $HERE"
-[ -f "$HERE/__main__.py" ] || fail "this file must stay in the designer's folder (flakeid_designer), next to __main__.py"
+[ -f "$HERE/__main__.py" ] || fail "this file must stay in the main folder, next to flakeid_designer/"
 
 # 1. Python
 PY="$(find_python)"

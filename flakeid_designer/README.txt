@@ -1,6 +1,7 @@
 vdW Stack Designer, portable version (FlakeIdentifier, Young Lab)
 
 Install once per computer
+  In the main folder (the one above this one):
   Windows: double-click "Install shortcut (Windows).bat"   (needs Python 3.8+ from python.org)
   Mac:     double-click "Install shortcut (Mac).command"   (uses python3; macOS may ask to allow it the first time)
   This puts a "FlakeIdentifier Designer" icon on the desktop (Mac: also in Applications; drag it to the Dock).

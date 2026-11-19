@@ -40,7 +40,9 @@ API = os.environ.get("FLAKEID_GITHUB_API", "https://api.github.com/")
 ROOT = Path(__file__).resolve().parent.parent      # the designer's folder (flakeid_designer/ and the code it uses)
 VERSION_FILE = "installed_version.json"
 CODE_DIRS = ("flakeid_designer", "flakeid", "tools", "docs", "ml", "tests")
-CODE_FILES = ("README.md", "LICENSE", "requirements.txt", "find_flakes.py", ".gitignore", ".gitattributes")
+CODE_FILES = ("README.md", "LICENSE", "requirements.txt", "find_flakes.py", ".gitignore", ".gitattributes",
+              # (2026-11-19) the installers' double-click files, in the main folder (before: in flakeid_designer/)
+              "Install shortcut (Windows).bat", "Install shortcut (Windows 7).bat", "Install shortcut (Mac).command")
 TOKEN_FILE = Path.home() / ".flakeid_designer_github_token"
 BACKUP_DIR = Path.home() / ".flakeid_designer_update_backups"
 KEEP_BACKUPS = 3

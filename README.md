@@ -1,5 +1,10 @@
 # vdW Stack Designer (FlakeIdentifier)
 
+## Installation
+
+In the main folder, double-click the install file for your computer: `Install shortcut (Windows).bat`,
+`Install shortcut (Windows 7).bat` or `Install shortcut (Mac).command`.
+
 The **vdW Stack Designer** places exfoliated 2D flakes found by optical scans into van der Waals heterostructure
 designs: it loads the scan results, lets you screen the flakes, plans stacks, checks overlaps and shorts, follows a
 device through its fabrication steps and exports to KLayout. It runs on your own computer in the browser (or as a
@@ -56,7 +61,7 @@ into `C:\FlakeID`, creates a desktop shortcut and pins it to the taskbar. Settin
 Later versions install from GitHub with **Update...** on the start screen (or `run_flakeid.bat update`); only new
 packages need a new kit. A private fork as `update_repo` needs a read-only token in `C:\FlakeID\github_token.txt`.
 
-**Designer**: double-click `flakeid_designer/Install shortcut (Windows).bat` or `Install shortcut (Mac).command`, then
+**Designer**: double-click `Install shortcut (Windows).bat` or `Install shortcut (Mac).command` in the main folder, then
 open the icon and add your own scan-results folder in *Scan results*. They work on a fresh computer: without Python
 3.10-3.13 they install Python 3.12 from python.org (Windows: for this user, no admin; Mac: it asks for an administrator's
 password), then pip and the packages (`requirements.txt`) in the designer's own environment `~/.flakeid_designer_venv`,

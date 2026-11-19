@@ -16,7 +16,7 @@ def test_command_files_executable_after_update(tmp_path, monkeypatch):
     zp = tmp_path / "new.zip"
     with zipfile.ZipFile(zp, "w") as z:
         z.writestr("repo-abc/flakeid_designer/__main__.py", "VERSION = 'x'\n")
-        z.writestr("repo-abc/flakeid_designer/Install shortcut (Mac).command", "#!/bin/bash\necho hi\n")
+        z.writestr("repo-abc/Install shortcut (Mac).command", "#!/bin/bash\necho hi\n")
         z.writestr("repo-abc/flakeid_designer/install_windows.ps1", "Write-Host hi\n")
         z.writestr("repo-abc/tools/example.sh", "#!/bin/sh\n")
 
@@ -32,6 +32,6 @@ def test_command_files_executable_after_update(tmp_path, monkeypatch):
     (root / "flakeid_designer" / "__main__.py").write_text("VERSION = 'old'\n")
     U.install("abc1234", root=root, log=lambda *a: None)
     mode = lambda p: (root / p).stat().st_mode & 0o777          # noqa: E731
-    assert mode("flakeid_designer/Install shortcut (Mac).command") == 0o755
+    assert mode("Install shortcut (Mac).command") == 0o755
     assert mode("tools/example.sh") == 0o755
     assert mode("flakeid_designer/install_windows.ps1") & 0o111 == 0
