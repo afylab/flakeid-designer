@@ -369,9 +369,14 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 /* (2026-11-18n) a bar on the card's left in the material's colour as the Natural 100x view shows it (hBN ~30 nm on 285 nm
    SiO2: 70,150,254; graphite ~3 nm on 90 nm SiO2: 92,56,89), with the person, the run and the material on three lines */
 .runcard.runrow,#libRuns .runcard.runrow{grid-template-columns:auto minmax(0,1fr) auto}
+.runcard.buildcard.runrow,#libRuns .runcard.buildcard.runrow{grid-template-columns:auto minmax(0,1fr);background:var(--cardon);margin-bottom:8px}
+.bchead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
 .runbar{width:106px;box-sizing:border-box;padding:10px 6px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;text-align:center;gap:3px;background:#6b7a7e;color:#fff;border-radius:8px 0 0 8px;font:600 13px var(--sans);line-height:1.25}
 .runbar .rbname{font-size:13.5px;font-weight:600;overflow-wrap:break-word}.runbar .rbwho{font-weight:800;font-size:14px}.runbar .rbmat{opacity:.92}
 .runcard.mat-bn .runbar{background:#4696fe}.runcard.mat-gr .runbar{background:#5c3859}
+/* (2026-11-19) rhombohedral graphite: the graphite colour with white staircase lines going up to the right, apart from each
+   other (6 px steps, 36 px apart; ABC stacking: each layer shifted the same way from the one below) */
+.runcard.mat-rh .runbar{background:#5c3859 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36'%3E%3Cpath d='M-1 36H6V30H12V24H18V18H24V12H30V6H36V-1' fill='none' stroke='%23fff' stroke-opacity='.38' stroke-width='2.6'/%3E%3C/svg%3E") 0 0/36px 36px repeat}
 .runcard .runtop{flex-wrap:wrap;gap:4px 6px}.runcard.runrow .runmain{padding:10px 6px 10px 10px}.runcard .runcnt .rc{font-size:13px}
 /* (2026-11-18q) "|" between the optical and the AFM counts while they share a line (hidden when the AFM ones wrap) */
 /* (2026-11-18r) the card's head: counts and folder on the left; on the right the start date, then kept / AFM kept as a
@@ -4781,10 +4786,11 @@ function hideBSet(dir,on){if(on)HIDEB.add(dir);else HIDEB.delete(dir);lsSet("hid
 function renderBuilds(){const el=$("buildList");if(!el)return;const now=Date.now()/1000;hideBLoad();
   const all=BUILDS.filter(b=>b.state!=="done"||now-b.t<900),isH=b=>HIDEB.has(b.dir)&&b.state!=="building",show=all.filter(b=>!isH(b)),hid=all.filter(isH);
   const here=`<label class="sub" style="display:block;margin:2px 0 6px" title="Off: new runs are not built here by themselves (a computer next to the data, or Build, does it). Off by default on the stacking PC."><input type="checkbox" id="buildHere"${BUILDHERE?" checked":""}> Build new runs' designer files on this computer</label>`;
-  const row=b=>{const L=BUILD_LABEL[b.state]||[b.state,""];
-    return `<div class="runrow"><div style="min-width:0">${runNameHtml(b.run,b.dir)} <span class="badge ${L[1]}">${L[0]}</span>${b.state==="building"?buildBar(b):`<div class="sub">${escapeHtml(b.msg||"")}</div>`}${b.started?`<div class="sub">Started ${escapeHtml(fmtStarted(b.started))}</div>`:""}${b.state==="failed"&&(b.detail||b.log)?`<details class="builderr"${BUILDERR_OPEN.has(b.dir)?" open":""} data-errdir="${escapeHtml(b.dir)}"><summary class="sub" style="cursor:pointer">Show full error</summary>${b.detail?`<pre style="max-height:320px;overflow:auto;white-space:pre-wrap;font:11.5px/1.35 var(--mono,ui-monospace,monospace);background:#16191d;color:#e8e8e8;border:1px solid #444;border-radius:6px;padding:8px;margin:6px 0">${escapeHtml(b.detail)}</pre><button data-copyerr="${escapeHtml(b.dir)}">Copy error</button> `:""}${b.log?`<span class="sub">whole build output: <code>${escapeHtml(b.log)}</code></span>`:""}</details>`:""}</div>`
+  // (2026-11-19) a build as a run card: the coloured bar (person, run, material) on the left, its progress on the right
+  const row=b=>{const L=BUILD_LABEL[b.state]||[b.state,""],R={path:b.dir,pieces:b.pieces||[]},who=runPerson(b.dir),mat=runKind(R,"mat");
+    return `<div class="runrow runcard buildcard ${runKind(R,"cls")}"><div class="runbar" title="${escapeHtml(b.run+"\n"+b.dir)}">${who?`<span class="rbwho">${escapeHtml(who)}</span>`:""}<span class="rbname">${escapeHtml(b.run).replace("_","_<wbr>")}</span>${mat?`<span class="rbmat">${escapeHtml(mat)}</span>`:"<span></span>"}</div><div class="runmain"><div style="min-width:0"><div class="bchead"><span class="badge ${L[1]}">${L[0]}</span>${b.started?`<span class="rundate" title="Started ${escapeHtml(fmtStarted(b.started))}">${escapeHtml(fmtDay(b.started))}</span>`:""}</div><div class="sub mid">${runKind(R,"ox")?runKind(R,"ox")+" · ":""}<span title="${escapeHtml(b.dir)}">${escapeHtml(runParents(b.dir))}</span></div>${b.state==="building"?buildBar(b):`<div class="sub">${escapeHtml(b.msg||"")}</div>`}${b.state==="failed"&&(b.detail||b.log)?`<details class="builderr"${BUILDERR_OPEN.has(b.dir)?" open":""} data-errdir="${escapeHtml(b.dir)}"><summary class="sub" style="cursor:pointer">Show full error</summary>${b.detail?`<pre style="max-height:320px;overflow:auto;white-space:pre-wrap;font:11.5px/1.35 var(--mono,ui-monospace,monospace);background:#16191d;color:#e8e8e8;border:1px solid #444;border-radius:6px;padding:8px;margin:6px 0">${escapeHtml(b.detail)}</pre><button data-copyerr="${escapeHtml(b.dir)}">Copy error</button> `:""}${b.log?`<span class="sub">whole build output: <code>${escapeHtml(b.log)}</code></span>`:""}</details>`:""}</div>`
       +`<span style="display:flex;gap:6px">`+(b.state==="unbuilt"||b.state==="failed"||b.state==="done"||b.state==="slow"||b.state==="off"?`<button data-build="${escapeHtml(b.dir)}" style="flex:1">${b.state==="unbuilt"||b.state==="off"?"Build":b.state==="slow"?"Build here anyway":"Build again"}</button>`:"")
-      +(b.state==="building"?"":isH(b)?`<button data-bunhide="${escapeHtml(b.dir)}">Show</button>`:`<button data-bhide="${escapeHtml(b.dir)}">Hide</button>`)+addedBtn(b.dir)+`</span></div>`};
+      +(b.state==="building"?"":isH(b)?`<button data-bunhide="${escapeHtml(b.dir)}">Show</button>`:`<button data-bhide="${escapeHtml(b.dir)}">Hide</button>`)+addedBtn(b.dir)+`</span></div></div>`};
   el.innerHTML=here+(show.length?`<div class="sub" style="margin:2px 0 6px">Designer files built on this computer from the runs' results on the share:</div>`:"")+show.map(row).join("")
     +(hid.length?`<details class="archrow" id="hidBuilds"${HIDEBOPEN?" open":""}><summary>Hidden (${hid.length})</summary>${hid.map(row).join("")}</details>`:"");
   const hd=$("hidBuilds");if(hd)hd.ontoggle=()=>{HIDEBOPEN=hd.open};
@@ -4855,7 +4861,7 @@ function runKind(R,part){const P=(R.pieces||[]).length?R.pieces:(R.materials||[]
   const hl=k=>`<span class="mat${/graphite/i.test(k)?" mgr":k==="BN"?" mbn":""}">${escapeHtml(k)}</span>`;
   const what=`${kinds.map(hl).join(" ")}${ox.length?`<small>${escapeHtml(ox.join(", "))} nm SiO₂</small>`:""}`;
   if(part==="mat")return kinds.join(" + ");if(part==="ox")return ox.length?`<span class="runkind"><small style="margin:0">${escapeHtml(ox.join(", "))} nm SiO₂</small></span>`:"";
-  if(part==="cls")return kinds.length===1?(kinds[0]==="BN"?"mat-bn":/graphite/i.test(kinds[0])?"mat-gr":""):"";
+  if(part==="cls")return kinds.length===1?(kinds[0]==="BN"?"mat-bn":kinds[0]==="Rhombohedral graphite"?"mat-rh":/graphite/i.test(kinds[0])?"mat-gr":""):"";
   if(part==="who")return who?`<span class="runwho">${escapeHtml(who)}</span>`:"";if(part==="what")return what?`<span class="runkind">${what}</span>`:"";
   return `<span class="runkind">${who?`<span class="runwho">${escapeHtml(who)}</span>`:""}${what}</span>`}
 // (2026-11-16) whose run: the folder after "Microscope Images" in its path (always the person's name)
