@@ -190,7 +190,7 @@ dialog::backdrop{background:rgba(10,14,16,.5)}
 #imgDlg .isplit{flex:1 1 auto!important;min-height:0;display:flex}#imgDlg .isplit>.ibody{flex:1 1 0!important;min-width:0}
 #afmSide{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:8px;padding:10px 12px;background:var(--canvas);border-left:2px solid #333d40;overflow:auto;color:#e4ebec;font-size:13px}
 #afmSide[hidden]{display:none}#afmSide .row{flex-wrap:wrap;gap:8px;align-items:center}#afmSide canvas{position:static;inset:auto;display:block;image-rendering:pixelated;cursor:crosshair;touch-action:none}
-#afmSide .afmcv{position:relative;flex:0 0 auto;display:flex;gap:8px;align-items:flex-start}#afmSide svg.cbar{flex:0 0 70px;width:70px;overflow:visible;cursor:default}#afmSide .afmlow{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;flex:0 0 auto}#afmSide .afmlow>div{min-width:0;display:flex;flex-direction:column;gap:4px}#afmSide svg.hist{width:100%;height:110px;flex:0 0 auto;background:#11181a;border-radius:6px;cursor:ew-resize;touch-action:none}#afmSide svg.prof{width:100%;height:120px;flex:0 0 auto;background:#11181a;border-radius:6px}#afmSide input[type=number]{width:72px}
+#afmSide .afmcv{position:relative;flex:0 0 auto;display:flex;gap:8px;align-items:flex-start}#afmSide svg.cbar{flex:0 0 70px;width:70px;overflow:visible;cursor:default}#afmSide .afmimg{display:flex;flex-direction:column;flex:0 0 auto}#afmSide svg.afmsb{display:block;overflow:visible}#afmSide .afmlow{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;flex:0 0 auto}#afmSide .afmlow>div{min-width:0;display:flex;flex-direction:column;gap:4px}#afmSide svg.hist{width:100%;height:110px;flex:0 0 auto;background:#11181a;border-radius:6px;cursor:ew-resize;touch-action:none}#afmSide svg.prof{width:100%;height:120px;flex:0 0 auto;background:#11181a;border-radius:6px}#afmSide input[type=number]{width:72px}
 #afmsBar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}#afmsBar code{font-size:12px}
 .revb .u{border:1px solid var(--line);padding:3px 9px;border-radius:6px;cursor:pointer}.revb .u[aria-pressed="true"]{background:#6c5ce7;border-color:#6c5ce7;color:#fff}#tfBar{grid-column:1/-1;border:2px solid #f5a524;background:rgba(245,165,36,.12);border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;gap:8px}
 #tfBar .tfhead{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}#tfBar .tfhead b{font-size:17px}#tfBar .tfrow{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
@@ -351,7 +351,7 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 .runrow{grid-template-columns:minmax(0,1fr) auto}.runrow>.row{flex-wrap:wrap;justify-content:flex-end}
 #libRuns .runrow{grid-template-columns:minmax(0,1fr)}#libRuns .runrow>.row{justify-content:flex-start}
 .runrow.hashide{position:relative}.runrow.hashide>div{padding-right:150px}.runhide{position:absolute;top:8px;right:10px;padding:2px 10px;font-size:12px}
-.runtop{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:start;gap:10px}.runtop .runhide{position:static;justify-self:end}.runkind{font-weight:700;font-size:13.5px}.runkind small{font-weight:400;color:var(--muted);font-size:11.5px;margin-left:6px;white-space:nowrap}.runtitle{text-align:center}.runcard .sub.mid{text-align:center;margin-top:2px}
+.runtop{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:start;gap:10px}.runtop .runhide{position:static;justify-self:end}.runkind{font-weight:700;font-size:13.5px}.runkind small{font-weight:400;color:var(--muted);font-size:11.5px;margin-left:6px;white-space:nowrap}.runtitle{text-align:center}.runcnt{display:block;font-size:12px;color:var(--muted);margin-top:2px}.runcnt .runafm{white-space:nowrap;margin-left:8px}.afmdonemark{color:#ff5fd2}.runcard .sub.mid{text-align:center;margin-top:2px}
 .archrow{margin-top:6px}.archrow>summary{cursor:pointer;color:var(--muted);font-size:13px;padding:6px 2px}.archrow>.runrow{margin-top:8px;opacity:.85}
 .status.err{color:var(--err)}
 /* export to KLayout (portable version only) */
@@ -561,6 +561,7 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
   <div class="dlg">
     <div id="imgHdr"><b id="imgHdrRun"></b><span id="imgHdrPar"></span><span id="imgHdrAfm" hidden><b></b><select id="imgHdrList" hidden aria-label="AFM list" title="AFM list"></select></span></div>
     <div class="dhead"><b id="imgTitle">100x image</b><div class="row seg">
+      <span class="row seg" id="imgAfmV" hidden><button id="imgVOpt" aria-pressed="false" title="The optical picture alone">Optical</button><button id="imgVAfm" aria-pressed="true" title="The optical picture with the flake's AFM picture next to it">Optical+AFM</button></span>
       <span class="row seg" id="imgNavB" hidden><button id="imgPrev" title="The previous flake (key ←), e.g. to change a keep / discard you made by mistake">◀</button><button id="imgNext" title="The next flake (key → or Space)">▶</button></span>
       <button id="imgNat" aria-pressed="true" title="Key 1">Natural</button><button id="imgSg" aria-pressed="false" title="Black and white: the green channel against the terrace, ±4 %, flattened (the scanner's _sg picture; key 2)">B/W green</button><button id="imgC8" aria-pressed="false" title="Colour, each channel against the terrace ±8 % (key 3)">High contrast</button><button id="imgTx10" aria-pressed="false" title="The flake in the chip's 10x scan, where the 10x analysis found it (key 4): scroll to zoom, drag to move, double-click to go back; O shows its 10x outline">10x</button><button id="imgDt" aria-pressed="false" title="Equivalent thickness change from the terrace (±1.5 nm): fine terraces (key 5)">Thickness change</button><button id="imgIr" aria-pressed="false" title="The IR camera's picture (stacking domains), laid over this 100x frame (key I)">IR domains</button><button id="imgMos" aria-pressed="false" hidden title="The whole terrace: the scan's mosaic of 100x pictures around this one, at the same scale (key M); zoom out with the mouse wheel or −, drag to move">Whole terrace</button>
       <button id="imgFit" aria-pressed="true">Fit</button><button id="imgOne" aria-pressed="false">1:1</button><span id="imgZbar" class="row seg" hidden><button id="imgZo" title="Zoom out (mouse wheel)">−</button><button id="imgZi" title="Zoom in (mouse wheel)">+</button><button id="imgZw" title="The whole mosaic in the box">Whole</button><button id="imgZ1" title="Back to the 100x picture's scale and place">100 %</button></span>
@@ -1697,7 +1698,7 @@ let AFMDEC={};
 function setAfmDec(f,v){if(!f||f.manual)return;if(v)AFMDEC[f.id]=v;else delete AFMDEC[f.id];
   const body={afmdec:v||null,flake:f.id,run:f.run||null,updated:Date.now()};
   if(db)db.collection("review").doc(f.id+".afmdec").set(body).catch(err=>status2("Could not save the AFM decision: "+(err&&err.message||err)));
-  status2(`Flake ${f.rank??f.id}: ${v==="keep"?"AFM screened kept":v==="discard"?"AFM screened discarded":"no AFM decision"}.`);listRefresh()}
+  status2(`Flake ${f.rank??f.id}: ${v==="keep"?"AFM screened kept":v==="discard"?"AFM screened discarded":"no AFM decision"}.`);listRefresh();updateScreenBadges()}
 // (2026-11-02k) "used" by hand (key U, the Used button): every terrace "used" {hand:true, was: its decision before}, as a
 // flake picked up in a stack is; U again puts the decisions back.  Library › Show › used
 const usedByHand=t=>REVIEW[t.id]==="used"&&!!(PICKINFO[t.id]&&PICKINFO[t.id].hand);
@@ -1806,6 +1807,13 @@ const frameInfo=f=>`whole 100x frame · ${(f.frame.w*f.px_um*f.frame.k).toFixed(
 // the 10x ≠ 100x panel, the screening bar, the AFM result stayed hidden there)
 function infoSync(){const e=$("imgInfo"),fi=$("imgFrameInfo");e.classList.toggle("empty",e.children.length===1&&fi&&e.firstElementChild===fi&&!fi.hasChildNodes())}
 new MutationObserver(infoSync).observe($("imgInfo"),{childList:true,subtree:true,characterData:true});infoSync();
+// (2026-11-18) Optical / Optical+AFM (top left of the 100x viewer): the AFM picture next to the optical one or not; shown
+// only for a flake with an AFM picture, outside the AFM screening (it has its own 100x / split); remembered on this computer
+IMG.afmView=(()=>{try{return localStorage.getItem("fd_afmview")==="opt"?"opt":"split"}catch(e){return "split"}})();
+function imgAfmVSync(){const f=IMG.f,show=!!(f&&AFMRES[f.id])&&!(SCREEN.list&&SCREEN.afm);$("imgAfmV").hidden=!show;
+  $("imgVOpt").setAttribute("aria-pressed",String(IMG.afmView==="opt"));$("imgVAfm").setAttribute("aria-pressed",String(IMG.afmView!=="opt"))}
+function imgAfmView(v){IMG.afmView=v;try{localStorage.setItem("fd_afmview",v)}catch(e){}const f=IMG.f,A=f&&AFMRES[f.id];
+  if(!A||SCREEN.list&&SCREEN.afm){imgAfmVSync();return}const sd=$("afmSide");sd.hidden=v==="opt";if(!sd.hidden)afmSideDraw(f,{P:A.plan,s:A.site,r:A.r});imgAfmVSync();showImg()}
 function openImg(f,t,mode,nav){const newF=f!==IMG.f;if(newF){MEAS.lines=[];MEAS.a=null;MEAS.hover=null;if(f&&f.run&&typeof noteRecent==="function"&&f.run!==openImg.lastRun){openImg.lastRun=f.run;noteRecent(f.run)}}IMG.f=f;IMG.t=t;IMG.nav=nav||null;IMG.mode=(mode==="sg"&&sgCan(f))?"sg":(mode==="c8"&&f.img_c8)?"c8":(mode==="dt"&&f.img_dt)?"dt":(mode==="ir"&&f.img_ir)?"ir":(mode==="mos"&&f.img_mos)?"mos":(mode==="tenx"&&tenxCan(f))?"tenx":"nat";
   if(newF){IMG.wantMos=true;TX.z=1;TX.pan=[0,0]}   // ("AFM was here" stays pressed from flake to flake, 2026-11-03i)   // (each flake opens on its whole terrace when it has one, 2026-10-29)
   if(IMG.wantMos&&f.img_mos&&(IMG.mode==="nat"||IMG.mode==="mos"))IMG.mode="mos";IMG.z=1;IMG.pan=[0,0];$("imgMos").hidden=!f.img_mos;$("imgC8").disabled=!f.img_c8;$("imgSg").disabled=!sgCan(f);$("imgDt").disabled=!f.img_dt;$("imgTx10").disabled=!tenxCan(f);$("imgIr").hidden=!f.img_ir;
@@ -1815,7 +1823,8 @@ function openImg(f,t,mode,nav){const newF=f!==IMG.f;if(newF){MEAS.lines=[];MEAS.
   const A=AFMRES[f.id],AS=!!(SCREEN.list&&SCREEN.afm);
   // (2026-11-03i) the flake's AFM image on the right of the picture (the AFM screening's panel: height image, colours,
   // histogram, line profile, Gwyddion), not above it; the AFM screening keeps its own (its list's point, 100x / split)
-  if(!AS){const sd=$("afmSide");sd.hidden=!A;if(A)afmSideDraw(f,{P:A.plan,s:A.site,r:A.r})}
+  if(!AS){const sd=$("afmSide"),on=!!A&&IMG.afmView!=="opt";sd.hidden=!on;if(on)afmSideDraw(f,{P:A.plan,s:A.site,r:A.r})}
+  imgAfmVSync();
   if(A&&AS){const L=A.r.levels[0];$("imgInfo").insertAdjacentHTML("beforeend",`<div id="imgAfm" style="grid-column:1/-1;display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);gap:10px;align-items:start">
     <a href="/afmfile/${encodeURIComponent(A.plan.id)}/${encodeURIComponent(A.r.png)}" target="_blank"><img src="/afmfile/${encodeURIComponent(A.plan.id)}/${encodeURIComponent(A.r.png)}" alt="AFM height image of this flake"></a>
     <div><b>AFM: ${L?`step ${L.step_nm} nm${L.err_nm!=null?" ± "+L.err_nm:""}`:"no flat level found"}</b>${A.r.levels.length>1?`<br><span class="sub">other levels: ${A.r.levels.slice(1).map(q=>q.step_nm+" nm").join(", ")}</span>`:""}
@@ -2490,18 +2499,32 @@ function afmLevel3(D,pts){pts=pts.map(([x,y])=>[Math.round(x),Math.round(y)]);co
   const a=((h[1]-h[0])*(y3-y1)-(h[2]-h[0])*(y2-y1))/det,bb=((x2-x1)*(h[2]-h[0])-(x3-x1)*(h[1]-h[0]))/det,c=h[0]-a*x1-bb*y1;
   for(let j=0;j<D.h;j++)for(let i=0;i<D.w;i++){const k=j*D.w+i;if(Number.isFinite(D.z[k]))D.z[k]-=a*i+bb*j+c}
   D.lev=pts.map(p=>p.slice());afmStats(D);D.lo=D.lo0;D.hi=D.hi0;return ""}
+// (2026-11-18) AFM picture: scale bar under it (1, 2 or 5 × 10^n µm, about a quarter of the scan), and a PNG of the
+// picture as shown, its colour bar and scale bar, put on the clipboard
+const AFMSB_H=28;
+function niceLen(x){if(!(x>0))return 0;const e=Math.pow(10,Math.floor(Math.log10(x))),m=x/e;return (m>=5?5:m>=2?2:1)*e}
+function fmtLen(um){return um>=1?`${+um.toPrecision(3)} µm`:`${Math.round(um*1000)} nm`}
+async function afmCopyPng(cv,bar,sb,side){const W=cv.clientWidth,H=cv.clientHeight,BW=+bar.getAttribute("width")||70,SH=AFMSB_H,P=10,G=8,k=Math.max(2,window.devicePixelRatio||1);
+  const svgImg=async(svg,w,h)=>{const c=svg.cloneNode(true);c.setAttribute("xmlns","http://www.w3.org/2000/svg");c.setAttribute("width",w);c.setAttribute("height",h);c.style.cssText="";
+    const u=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(c)],{type:"image/svg+xml"}));
+    try{const im=new Image();await new Promise((ok,no)=>{im.onload=ok;im.onerror=()=>no(new Error("picture"));im.src=u});return im}finally{setTimeout(()=>URL.revokeObjectURL(u),1000)}};
+  const out=document.createElement("canvas");out.width=Math.round((P+W+G+BW+P)*k);out.height=Math.round((P+H+SH+P)*k);const g=out.getContext("2d");g.scale(k,k);
+  const bg=getComputedStyle(side).backgroundColor;g.fillStyle=bg&&bg!=="rgba(0, 0, 0, 0)"?bg:"#1b2326";g.fillRect(0,0,P+W+G+BW+P,P+H+SH+P);
+  g.imageSmoothingEnabled=false;g.drawImage(cv,P,P,W,H);g.imageSmoothingEnabled=true;
+  g.drawImage(await svgImg(bar,BW,H),P+W+G,P,BW,H);g.drawImage(await svgImg(sb,W,SH),P,P+H,W,SH);
+  const png=await new Promise(res=>out.toBlob(res,"image/png"));await navigator.clipboard.write([new ClipboardItem({"image/png":png})]);return png}
 async function afmSideDraw(f,ctx){const side=$("afmSide"),P=ctx?ctx.P:AFMS.plan,s=ctx?ctx.s:afmsSite(f),r=ctx?ctx.r:afmsRes(f);   // (ctx: the flake's latest AFM result, outside the AFM screening)
   if(!s){side.innerHTML=`<div class="sub">Flake ${f.rank} is not in this AFM list.</div>`;return}
   if(!r){side.innerHTML=`<b>Point ${s.n} · flake ${f.rank}</b><div class="sub">No AFM image for this point yet: choose the folder with the .spm files above (the files, in name order, go to the points from "first file = point").</div>`;return}
   const FS=afmFilesOf(P,s.n),kk=Math.max(0,FS.indexOf(r));
   const L=r.levels&&r.levels[0];
-  side.innerHTML=`<div class="row"><b>Point ${s.n} · ${escapeHtml(r.file||"")}</b><span class="sub">${r.scan_um} µm scan · ${r.channel||""}</span>${FS.length>1?`<span class="row seg" id="afmKs">${FS.map((x,i)=>`<button data-afmk="${i}" aria-pressed="${i===kk}" title="${escapeHtml(x.file||"")}">${i+1}</button>`).join("")}</span>`:""}</div>
+  side.innerHTML=`<div class="row"><b>Point ${s.n} · ${escapeHtml(r.file||"")}</b>${FS.length>1?`<span class="row seg" id="afmKs">${FS.map((x,i)=>`<button data-afmk="${i}" aria-pressed="${i===kk}" title="${escapeHtml(x.file||"")}">${i+1}</button>`).join("")}</span>`:""}</div>
     <div class="row"><b style="font-size:16px" title="AFM step${L&&L.err_nm!=null?" ± "+L.err_nm+" nm":""}${r.levels&&r.levels.length>1?"; other levels: "+r.levels.slice(1).map(q=>q.step_nm+" nm").join(", "):""}; optical ${f.terraces[0].t} nm">${L?`${L.step_nm} nm`:"–"}</b>
       <button id="afmGwy" title="Open this .spm in Gwyddion on this computer (levelling, profiles, statistics, …)">Open in Gwyddion</button></div>
     <div class="row"><button id="afmL3" aria-pressed="false" title="3-point level: click three points of the same flat surface (e.g. the substrate) on the AFM picture; the plane through them is taken off">3-point level</button><button id="afmL3r" hidden title="Back to the heights as read (no 3-point level)">Undo level</button>
       <label class="sub"><select id="afmCm" aria-label="Colour scale" title="Colour scale">${Object.keys(CMAPS).map(k=>`<option${k===AFMS.cmap?" selected":""}>${k}</option>`).join("")}</select></label>
-      <button id="afmAuto" title="2–98 % of the heights">Auto range</button><span class="sub" id="afmL3msg"></span></div>
-    <div class="afmcv"><canvas id="afmCv"></canvas><svg id="afmBar" class="cbar" aria-label="Colour bar (nm)"></svg></div><div class="row"><span class="sub" id="afmHover">&nbsp;</span></div>
+      <button id="afmAuto" title="2–98 % of the heights">Auto range</button><button id="afmCopy" title="Copy the AFM picture as it looks here, with its colour bar and scale bar, as a PNG">Copy PNG</button><span class="sub" id="afmL3msg"></span></div>
+    <div class="afmcv"><div class="afmimg"><canvas id="afmCv"></canvas><svg id="afmSb" class="afmsb" height="${AFMSB_H}" aria-label="Scale bar"></svg></div><svg id="afmBar" class="cbar" aria-label="Colour bar (nm)"></svg></div><div class="row"><span class="sub" id="afmHover">&nbsp;</span></div>
     <div class="afmlow"><div><div class="row" style="gap:6px"><b class="sub" style="color:#e4ebec" title="Drag across a peak (e.g. the flake's or the substrate's heights): its left end is black, its right end white; or drag the black / white handle">Histogram</b><label class="sub">black <input type="number" id="afmLo" step="0.1"></label><label class="sub">white <input type="number" id="afmHi" step="0.1"> nm</label><label class="sub"><input type="checkbox" id="afmLog"${AFMS.hlog?" checked":""}> log</label></div>
       <svg class="hist" id="afmHist" aria-label="Histogram of the heights"></svg></div>
       <div><div class="row"><b class="sub" style="color:#e4ebec">Profile</b></div><svg class="prof" id="afmProf"></svg><div class="sub" id="afmProfTxt"></div></div></div>`;
@@ -2522,12 +2545,18 @@ async function afmSideDraw(f,ctx){const side=$("afmSide"),P=ctx?ctx.P:AFMS.plan,
     if(p&&p.k===K){g.strokeStyle="#00e5ff";g.lineWidth=lw;g.beginPath();g.moveTo(p.a[0],p.a[1]);g.lineTo(p.b[0],p.b[1]);g.stroke()}
     const mk=pick.on?pick.pts:(D.lev||[]);mk.forEach(([x,y],i)=>{g.strokeStyle=pick.on?"#00ff88":"rgba(0,255,136,.6)";g.lineWidth=lw*1.5;g.beginPath();g.arc(x,y,Math.max(3,D.w/60),0,7);g.stroke();
       g.fillStyle=g.strokeStyle;g.font=`bold ${Math.max(9,Math.round(D.w/22))}px sans-serif`;g.fillText(String(i+1),x+Math.max(4,D.w/45),y-Math.max(4,D.w/45))});
-    cbar();hist()};
+    cbar();sbar();hist()};
+  // (2026-11-18) the scale bar: under the picture, at its right end (not on the picture)
+  const sbar=()=>{const W=Math.round(D.w*sc),um=D.w*(D.pixel_nm||0)/1000,sb=$("afmSb");sb.setAttribute("width",W);sb.style.width=W+"px";
+    if(!(um>0)){sb.innerHTML="";return}const L=niceLen(um/4),px=W*L/um;
+    sb.innerHTML=`<rect x="${(W-px).toFixed(1)}" y="${AFMSB_H-9}" width="${px.toFixed(1)}" height="5" fill="#e4ebec"/><text x="${(W-px/2).toFixed(1)}" y="${AFMSB_H-13}" text-anchor="middle" fill="#e4ebec" font-size="12" font-family="sans-serif">${fmtLen(L)}</text>`};
+  $("afmCopy").onclick=async()=>{const b=$("afmCopy");try{await afmCopyPng(cv,bar,$("afmSb"),side);copyDone(b,true);status2("AFM picture copied.")}
+    catch(e){copyDone(b,false);status2("Could not copy the AFM picture: "+(e&&e.message||e))}};
   // the colour bar: the colours from black (bottom) to white (top) with their heights
   const cbar=()=>{const H=Math.round(D.h*sc),n=24;bar.setAttribute("width",BW);bar.setAttribute("height",H);bar.style.height=H+"px";
     const stops=[...Array(n+1)].map((_,i)=>{const c=cmapAt(AFMS.cmap,i/n).map(Math.round);return `<stop offset="${(100*i/n).toFixed(1)}%" stop-color="rgb(${c})"/>`}).join("");
     const T=5,tk=[...Array(T)].map((_,i)=>{const v=D.lo+(D.hi-D.lo)*i/(T-1),y=H-6-(H-24)*i/(T-1);return `<line x1="16" x2="20" y1="${y}" y2="${y}" stroke="#9fb0b4"/><text x="23" y="${y+4}" fill="#cfd8da" font-size="11">${v.toFixed(Math.abs(D.hi-D.lo)<10?2:1)}</text>`}).join("");
-    bar.innerHTML=`<defs><linearGradient id="afmGr" x1="0" y1="1" x2="0" y2="0">${stops}</linearGradient></defs><rect x="2" y="18" width="14" height="${H-24}" fill="url(#afmGr)" stroke="#55656a"/>${tk}<text x="2" y="10" fill="#9fb0b4" font-size="10.5">nm</text>`};
+    bar.setAttribute("font-family","sans-serif");bar.innerHTML=`<defs><linearGradient id="afmGr" x1="0" y1="1" x2="0" y2="0">${stops}</linearGradient></defs><rect x="2" y="18" width="14" height="${H-24}" fill="url(#afmGr)" stroke="#55656a"/>${tk}<text x="2" y="10" fill="#9fb0b4" font-size="10.5">nm</text>`};
   // the histogram of the heights (0.1-99.9 %): the black and white heights as two handles, the range between them shaded
   const HB=200,hx=v=>8+(($("afmHist").clientWidth||400)-16)*(v-D.hmin)/(D.hmax-D.hmin),hv=x=>D.hmin+(x-8)/((($("afmHist").clientWidth||400)-16))*(D.hmax-D.hmin);
   const hist=()=>{const svg=$("afmHist"),W=svg.clientWidth||400,H=110,cnt=new Float64Array(HB),bw=(D.hmax-D.hmin)/HB;
@@ -2577,6 +2606,7 @@ async function afmSideDraw(f,ctx){const side=$("afmSide"),P=ctx?ctx.P:AFMS.plan,
   if(D.lev)msg("3-point levelled (Undo level: the heights as read).");boxes();levUi();paint();prof()}
 function screenStep(k){if(!SCREEN.list)return;const j=SCREEN.i+k;if(j<0)return;if(j>=SCREEN.list.length){status2(`Screened all ${SCREEN.list.length} flakes of ${SCREEN.title}.`);$("imgDlg").close();return}SCREEN.i=j;showScreen()}
 function screenDecide(v){if(SCREEN.busy)return;const f=SCREEN.list[SCREEN.i];if(SCREEN.afm)setAfmDec(f,v);else f.terraces.filter(t=>REVIEW[t.id]!=="used").forEach(t=>setDecision(t,v));if(v){SCREEN.busy=true;setTimeout(()=>{SCREEN.busy=false;screenStep(1)},120)}else showScreen()}
+$("imgVOpt").onclick=()=>imgAfmView("opt");$("imgVAfm").onclick=()=>imgAfmView("split");
 $("imgDlg").addEventListener("close",()=>{$("afmSide").hidden=true;if(SCREEN.list){SCREEN.list=null;SCREEN.afm=false;try{SCREEN.only=localStorage.getItem("screenUnscreenedOnly")!=="0"}catch(e){}listRefresh()}if(LIBDIRTY)setTimeout(listRefresh,0)});
 document.addEventListener("keydown",e=>{if(!$("imgDlg").open||e.metaKey||e.ctrlKey||e.altKey)return;if(["SELECT","INPUT"].includes(e.target.tagName))return;const k=e.key;let hit=true;
   if(k==="?"){e.preventDefault();openKeys();return}
@@ -2619,7 +2649,21 @@ function screenBadgeInner(id){const x=runScreenState(id);
     :x.state==="part"?`<span class="badge rev" title="${x.d} of ${x.n} flakes have a keep / discard decision or stars">partly screened · ${x.d}/${x.n}</span>`
     :`<span class="badge" title="No keep / discard decisions or stars for this run yet">not screened</span>`}
 function screenBadge(id){return ` <span data-screen="${escapeHtml(id)}">${screenBadgeInner(id)}</span>`}
-function updateScreenBadges(){document.querySelectorAll("[data-screen]").forEach(el=>{const h=screenBadgeInner(el.dataset.screen);if(el.innerHTML!==h)el.innerHTML=h})}
+function updateScreenBadges(){document.querySelectorAll("[data-screen]").forEach(el=>{const h=screenBadgeInner(el.dataset.screen);if(el.innerHTML!==h)el.innerHTML=h});
+  document.querySelectorAll("[data-runcnt]").forEach(el=>{const h=runCountsInner(el.dataset.runcnt);if(el.innerHTML!==h)el.innerHTML=h})}
+// (2026-11-18) a run card's top row: its flakes, the kept ones; a pink check when one of its AFM lists is marked AFM scan
+// complete, and its flakes AFM screened / AFM screened kept (counted from everyone's decisions, loaded or not)
+let AFMDONE={},AFMDONE_AT=0;           // run -> [its AFM lists marked complete: {name, scanned}]
+async function afmDoneLoad(force){if(!force&&Date.now()-AFMDONE_AT<30000)return;AFMDONE_AT=Date.now();
+  const r=await fetch("/api/afm/plans?summary=1").then(x=>x.ok?x.json():null).catch(()=>null);if(!Array.isArray(r))return;
+  const m={};r.forEach(p=>{if(p&&p.scanned&&p.run)(m[p.run]=m[p.run]||[]).push(p)});AFMDONE=m;updateScreenBadges()}
+function runCounts(id){const R=RUNS[id]||{},pre=(R.run||id)+":",kept=new Set();
+  for(const k in REVIEW)if(REVIEW[k]==="keep"&&k.startsWith(pre)){const i=k.lastIndexOf(".");kept.add(i>pre.length?k.slice(0,i):k)}
+  let as=0,ak=0;for(const k in AFMDEC)if(k.startsWith(pre)){as++;if(AFMDEC[k]==="keep")ak++}
+  return {n:R.n_flakes||0,kept:kept.size,as,ak,done:AFMDONE[R.run||id]||[]}}
+function runCountsInner(id){const c=runCounts(id),D=c.done;
+  const dt=D.length?D.map(p=>`${p.name||"AFM list"}: AFM scan complete ${fmtT(p.scanned)}`).join("\n"):"";
+  return `<span title="Flakes">${c.n} flakes</span> · <span title="Kept (screening)">${c.kept} kept</span>${D.length||c.as?` <span class="runafm">${D.length?`<b class="afmdonemark" title="${escapeHtml(dt)}">✓ AFM</b> `:""}<span title="AFM screened">${c.as} screened</span> · <span title="AFM screened kept">${c.ak} kept</span></span>`:""}`}
 function offerScreening(){const el=$("newRuns");if(!el||!CAT)return;if(db&&!SEEN_READY){el.hidden=true;return}
   const runs=[...new Set(CAT.flakes.filter(f=>!f.archived).map(f=>f.run).filter(Boolean))].filter(r=>!SEEN.has(r)&&!SEEN.has(runId(r))&&!runScreened(r));
   if(!runs.length){el.hidden=true;return}
@@ -4002,7 +4046,7 @@ const AFMR={run:null,title:"",scans:[],plans:[],msg:"",busy:{},chip:null};
 const afmChipOf=p=>p.mount?`block ${p.mount.m} (${(p.mount.pieces||[]).join(", ")})`:String(p.scan||"").split(":").pop();
 async function afmRunsOpen(run,title,scans){if(AFMR.run!==run)AFMR.chip=null;Object.assign(AFMR,{run,title,scans:scans||[],msg:""});
   $("afmRunsTitle").textContent=`AFM runs: ${title}`;if(!$("afmRunsDlg").open)$("afmRunsDlg").showModal();afmRunsRender();await afmRunsLoad()}
-async function afmRunsLoad(){const r=await fetch("/api/afm/plans?drafts=1").then(x=>x.json()).catch(()=>[]);
+async function afmRunsLoad(){const r=await fetch("/api/afm/plans?drafts=1").then(x=>x.json()).catch(()=>[]);afmDoneLoad(true);
   AFMR.plans=(Array.isArray(r)?r:[]).filter(p=>p.run===AFMR.run).sort((a,b)=>(a.created||0)-(b.created||0));afmRunsRender()}
 function afmNextName(){const used=new Set(AFMR.plans.map((p,i)=>p.name||"List "+(i+1)));let k=AFMR.plans.length+1;while(used.has("List "+k))k++;return "List "+k}
 function afmRunsRender(){const B=$("afmRunsBody");if(!$("afmRunsDlg").open)return;const P=AFMR.plans,byId=Object.fromEntries(P.map(p=>[p.id,p])),chips=AFMR.scans;
@@ -4727,9 +4771,10 @@ function renderRunsLocal(){const L=$("runList");$("runPick").hidden=true;$("pgmM
   const sk=k=>RUNS[k].started||new Date(RUNS[k].added||0).toISOString().replace("T"," ");   // (newest started first)
   hideBLoad();const isHid=k=>false;   // (2026-11-05l: the run's Hide is now Remove run; runs hidden before are listed again)
   const all=Object.keys(RUNS).filter(k=>inLib(RUNS[k].path)).sort((a,b)=>sk(b)<sk(a)?-1:sk(b)>sk(a)?1:0),ids=all.filter(k=>!isArch(k)&&!isHid(k)),hidR=all.filter(k=>!isArch(k)&&isHid(k)),arch=all.filter(isArch);
+  afmDoneLoad();
   L.innerHTML=`<div id="buildList"></div>`+(ids.length?"":hidR.length?`<div class="empty">Every run is hidden: Hidden below.</div>`:arch.length?`<div class="empty">Every run is archived: Archived runs below.</div>`:addedMode()?"":`<div class="empty">No runs found yet. Add your own scan results folder (for example &lt;share&gt;/&lt;your name&gt;/scanresults); add a shared flakes folder as well if you use one.</div>`)+ids.map(id=>{const R=RUNS[id];const X=RUNDATA[id];
     const st=X&&X.error?` · <span style="color:var(--err)">could not be loaded</span>`:X&&X._loading?" · loading…":"";
-    return `<label class="runrow runcard" style="cursor:pointer" for="runcb-${escapeHtml(id)}"><div style="min-width:0"><div class="runtop">${runKind(R)}<span class="runtitle"><b title="${escapeHtml(R.path||"")}">${escapeHtml(R.title||id)}</b>${screenBadge(id)}</span>${addedBtn(R.path,true)||"<span></span>"}</div><div class="sub mid"><span title="${escapeHtml(R.path||"")}">${escapeHtml(runParents(R.path))}</span> · ${R.started?"Started "+escapeHtml(fmtStarted(R.started))+" · ":""}${R.n_flakes||0} flakes${st}</div></div>
+    return `<label class="runrow runcard" style="cursor:pointer" for="runcb-${escapeHtml(id)}"><div style="min-width:0"><div class="runtop">${runKind(R)}<span class="runtitle"><b title="${escapeHtml(R.path||"")}">${escapeHtml(R.title||id)}</b>${screenBadge(id)}<span class="runcnt" data-runcnt="${escapeHtml(id)}">${runCountsInner(id)}</span></span>${addedBtn(R.path,true)||"<span></span>"}</div><div class="sub mid"><span title="${escapeHtml(R.path||"")}">${escapeHtml(runParents(R.path))}</span> · ${R.started?"Started "+escapeHtml(fmtStarted(R.started)):""}${st}</div></div>
       <span class="row">${runOn(id)&&X&&!X._loading&&!X.error&&(R.scans||[]).length?`<button data-afmruns="${escapeHtml(R.run||id)}" title="This run's AFM scan lists: make a list (＋), open it to choose its flakes and make the AFM point list, mark its AFM scan complete (its folder of AFM images), redo a scan with other flakes; each list keeps the AFM positions and offsets it was scanned with">AFM runs…</button>`:""}${runOn(id)&&X&&!X._loading&&!X.error?`<button data-scrrun="${escapeHtml(R.run||id)}">Screen</button>`+(LOCAL?(R.scans||[]).map(sc=>`<button data-scrafm="${escapeHtml(R.run||id)}|${escapeHtml(sc)}" title="Screen this chip's flakes on their AFM images: choose the folder with the .spm files, see the 100x picture alone or next to the AFM image; K / D: AFM screened kept / discarded, U: used">Screen AFM scans${(R.scans||[]).length>1?" "+escapeHtml(sc):""}</button>`).join(""):""):""}${(R.scans||[]).map(sc=>`<button data-viewer="${escapeHtml(R.run||id)}|${escapeHtml(sc)}" title="Open the chip's own page (index.html, as the scan program made it) in a new tab: its 10x scan and the table of all its flakes">Flake table ${escapeHtml(sc)} ↗</button>`).join("")}${runOn(id)&&X&&!X._loading&&!X.error&&LOCAL?`<button data-revreset="${escapeHtml(R.run||id)}" title="Clear every keep / discard decision of this run (stars and picked-up flakes stay), for everyone in this library; the kept folder follows. Asks once more.">Reset screening</button>`:""}${runOn(id)&&X&&!X._loading&&!X.error&&LOCAL?`<button data-afmreset="${escapeHtml(R.run||id)}" title="Clear every AFM screened kept / discarded decision of this run, for everyone in this library (the 100x screening's decisions, stars, used flakes and AFM offsets stay). Asks once more.">Reset AFM screening</button>`:""}${runOn(id)&&X&&!X._loading&&!X.error&&LOCAL?`<button data-keptsync="${escapeHtml(R.run||id)}" title="Copy the kept flakes' 100x pictures into the run's kept folder and remove those of flakes no longer kept (it also happens by itself after each decision)">Update kept folder</button>`:""}${runOn(id)&&X&&!X._loading&&!X.error&&LOCAL?`<button data-coords="${escapeHtml(R.run||id)}" title="Put back coordinates saved before a remeasure (the run's old_coords folder). The coordinates replaced are saved too, so this can be undone.">Restore coordinates…</button>`:""}${LOCAL&&R.path?`<button data-rebuild="${escapeHtml(R.path)}" data-rebuildrun="${escapeHtml(R.title||R.run||id)}" title="Build this run's designer files again on this computer, all of them (the chip picture, every flake's pictures and outlines), from the run's results. Decisions, stars, AFM lists and designs stay. Takes a few minutes; asks once more.">Rebuild</button>`:""}<button data-arch="${escapeHtml(id)}" title="Archive: out of the run list, the flake list and screening, for everyone in this library (nothing on disk changes; Unarchive brings it back)">Archive</button><button type="button" class="showbtn" data-runshow="${escapeHtml(id)}" aria-pressed="${runOn(id)}" title="Show or hide this run's flakes in the flake list, the chip maps and screening (white: shown). Clicking the row does the same.">${runOn(id)?"Hide flakes":"Show flakes"}</button><input type="checkbox" class="vh" tabindex="-1" id="runcb-${escapeHtml(id)}" data-run="${escapeHtml(id)}" ${runOn(id)?"checked":""} aria-label="Load ${escapeHtml(R.title||id)}"></span></label>`}).join("")+hidRunsHtml(hidR)+archHtml(arch);
   L.querySelectorAll("[data-scrrun]").forEach(b=>b.onclick=e=>{e.preventDefault();e.stopPropagation();const r=b.dataset.scrrun;markSeen([r]);noteRecent(r);$("runDlg").close();startScreen(runFlakes(r),b.closest(".runrow").querySelector("b").textContent)});
   L.querySelectorAll("[data-viewer]").forEach(b=>b.onclick=e=>{e.preventDefault();e.stopPropagation();const [r,sc]=b.dataset.viewer.split("|");noteRecent(r);

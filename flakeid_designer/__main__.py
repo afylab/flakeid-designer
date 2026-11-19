@@ -70,7 +70,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
             sys.path.append(str(_r))
         break
 APP = "flakeid-designer"
-VERSION = "2026-11-16c"
+VERSION = "2026-11-18a"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -1268,6 +1268,9 @@ def afm_pgm_dir(store, run):
         if d.is_dir():
             return str(d)
     return None
+
+
+AFM_PLAN_SUMMARY = ("id", "run", "scan", "name", "created", "updated", "scanned", "draft")
 
 
 def afm_typed(store, key, data=None, write=False):
@@ -3593,7 +3596,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(load_config().get("afm_tip") or {})
         if path == "/api/afm/plans":
             q_ = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            return self._json(S.store.afm_plans((q_.get("scan") or [None])[0], drafts=(q_.get("drafts") or [""])[0] == "1"))
+            pl = S.store.afm_plans((q_.get("scan") or [None])[0], drafts=(q_.get("drafts") or [""])[0] == "1")
+            if (q_.get("summary") or [""])[0] == "1":     # (2026-11-18: the Library's run cards: which lists are complete)
+                pl = [{k: x.get(k) for k in AFM_PLAN_SUMMARY} for x in pl]
+            return self._json(pl)
         if path == "/api/afm/typed":
             q_ = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             return self._json(afm_typed(S.store, (q_.get("key") or [None])[0]))
