@@ -218,7 +218,7 @@ dialog::backdrop{background:rgba(10,14,16,.5)}
 .cand span{font:11.5px var(--mono);color:var(--muted)}
 .badge{font:500 10.5px var(--sans);padding:1px 6px;border-radius:999px;background:var(--panel);border:1px solid var(--rule);color:var(--muted)}
 .badge.rev{border-color:#c98a12;color:#c98a12}.badge.kept{border-color:#2f9e63;color:#2f9e63}.badge.disc{border-color:#c2410c;color:#c2410c}
-.revb{display:flex;gap:6px}.revb span{font:500 12px var(--sans);padding:2px 9px;border-radius:6px;border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer}
+.revb{display:flex;gap:6px}#imgRevBar{display:flex;justify-content:center;padding:8px 0 2px;background:var(--canvas)}#imgRevBar .revb span{font-size:14px;padding:4px 16px}.revb span{font:500 12px var(--sans);padding:2px 9px;border-radius:6px;border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer}
 .revb span[aria-pressed="true"].k{background:#2f9e63;border-color:#2f9e63;color:#fff}.revb span[aria-pressed="true"].d{background:#c2410c;border-color:#c2410c;color:#fff}
 .status{font-size:12px;color:var(--muted);min-height:1.2em}
 #newRuns{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:6px 10px;border:1px solid var(--accent);border-radius:8px;background:var(--panel);font-size:12.5px}
@@ -568,7 +568,6 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
       <button id="imgOut" aria-pressed="false">Outline</button><button id="imgWr" aria-pressed="false" title="Wrinkle / fold lines found by the 100x analysis (off by default; key W; remembered on this computer)">Wrinkles</button>
       <button id="imgDraw" aria-pressed="false" title="Draw a terrace by hand: click its corners, then click the first corner, double-click or press Enter (Backspace: undo a corner, Esc: cancel). Saved for everyone using this library, and as examples for the automatic terrace finding">Draw terrace</button>
       <span class="row seg" id="imgStars" title="Stars for this flake (keys 8, 9, 0: 1, 2, 3 stars; again to clear)"><button data-star="1" aria-pressed="false">★</button><button data-star="2" aria-pressed="false">★★</button><button data-star="3" aria-pressed="false">★★★</button></span>
-      <span class="revb" id="imgRev" hidden><span class="k" role="button" tabindex="0" id="imgKeep">Keep</span><span class="d" role="button" tabindex="0" id="imgDisc">Discard</span><span class="u" role="button" tabindex="0" id="imgUsed" title="Mark this flake used (key U; again: not used). A Library Show category">Used</span></span>
       <label class="sub vrsel" title="Turn the view of every flake and stack together (clockwise), e.g. to see them as at the microscope (Olympus Stream camera: 180°). View only: saved positions, angles and exported designs stay in the scan camera's frame.">View ↻ <select data-vrsel aria-label="View rotation"></select></label>
       <label class="sub grdchk" title="Horizontal and vertical lines over the whole picture, one scale-bar length apart (this computer)"><input type="checkbox" id="imgGridOn"> Show grid</label><label class="sub grdchk" title="Long horizontal and vertical lines through the mouse pointer, across the whole picture (this computer)"><input type="checkbox" id="imgCurOn"> Cursor grid</label>
       <button id="imgKeysB" class="keysb" title="All the keyboard shortcuts (key ?)">⌨ Shortcuts</button>
@@ -577,6 +576,7 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
       <span class="row"><button id="imgThk" aria-pressed="false" title="Thickness (key T): the thickness under the cursor, read live from the 100x colour as the scan program does it (against the bare substrate of the picture, with the run's own calibrated 100x oxide)">Thickness cursor</button><span id="imgThkInfo" class="sub" hidden></span><button id="imgThkSet" aria-pressed="false" title="Manually set the flake's thickness (key Y): a click on the picture sets it to the local thickness under the cursor; or type it in the box (Enter)">Manually set thickness</button><input id="imgThkVal" type="number" step="0.1" min="0" hidden aria-label="Thickness (nm)" placeholder="nm" title="The flake's thickness in nm (Enter sets it)"><button id="imgMeas" aria-pressed="false" title="Measure distances on the picture (key R): click two points; each line shows its length in µm. Right-click or Backspace removes the last line, Esc stops. The lines stay while you switch views and are cleared at the next flake"><svg width="18" height="12" viewBox="0 0 18 12" aria-hidden="true" style="vertical-align:-1px;margin-right:6px"><rect x="0.75" y="2.75" width="16.5" height="7.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4 3v3M7 3v2M10 3v3M13 3v2" stroke="currentColor" stroke-width="1.2"/></svg>Measure</button><button id="imgMeasClr" hidden title="Remove all the measuring lines on this picture">Clear rulers</button><button id="imgMap" title="This flake on the chip's 10x scan (the chip map, zoomed in on it; the Library's shown flakes numbered too)">Chip map</button><span id="imgCopyW"><button id="imgCopy" aria-haspopup="true" aria-expanded="false" title="The files of this flake's 100x picture in the run's folder: copy a picture's parent folder, its file path or the image itself">Copy file path or image ▾</button><div id="imgCopyMenu" class="copymenu" hidden></div></span></span></div>
     <div class="dfilters" id="imgInfo"></div>
     <div class="dfilters drawbar" id="drawBar" hidden></div>
+    <div id="imgRevBar"><span class="revb" id="imgRev" hidden><span class="k" role="button" tabindex="0" id="imgKeep">Keep</span><span class="d" role="button" tabindex="0" id="imgDisc">Discard</span><span class="u" role="button" tabindex="0" id="imgUsed" title="Mark this flake used (key U; again: not used). A Library Show category">Used</span></span></div>
     <div class="isplit"><div class="ibody"><div id="imgCap"><span id="imgCapL"></span><span id="imgCapC"></span><span></span></div><div class="iwrap" id="imgWrap"><div id="imgRot"><img id="imgEl" alt=""><canvas id="imgCv" hidden></canvas><canvas id="imgTx" hidden></canvas><svg id="imgSvg" aria-hidden="true"></svg></div><svg id="imgGrid" aria-hidden="true"><g id="imgGridG"></g><g id="imgCurG" hidden><line id="imgCurH"></line><line id="imgCurV"></line></g></svg><div id="imgScale" aria-hidden="true" hidden><span></span><i></i></div></div></div><div id="afmSide" hidden></div></div>
   </div>
 </dialog>
@@ -2516,6 +2516,37 @@ async function afmCopyPng(cv,bar,sb,side){const W=cv.clientWidth,H=cv.clientHeig
   g.imageSmoothingEnabled=false;g.drawImage(cv,P,P,W,H);g.imageSmoothingEnabled=true;
   g.drawImage(await svgImg(bar,BW,H),P+W+G,P,BW,H);g.drawImage(await svgImg(sb,W,SH),P,P+H,W,SH);
   const png=await new Promise(res=>out.toBlob(res,"image/png"));await navigator.clipboard.write([new ClipboardItem({"image/png":png})]);return png}
+// (2026-11-18c) Fix step: a jump of the scan between two lines (part of the picture all at another height, e.g. the
+// lower half 35 nm up): each line moved by the median of its differences with the line above (only a jump of the whole
+// line moves it: a flake edge is a few pixels of a line; a flake edge along a line for half the picture's width or
+// more would be taken for a jump, hence Undo), then scars (lines, or 2-3 lines, above or below both the
+// line above and below them, along an eighth of the width or more) put back between their neighbours, in 16 px pieces.
+// A flake edge is above one neighbour only, so it is not touched.  Returns {jump, at, scars}.
+function afmFixStep(D){const W=D.w,H=D.h,z=D.z,med=a=>{const b=a.filter(Number.isFinite).sort((x,y)=>x-y);return b.length?b[b.length>>1]:NaN};
+  // (a line where the jump starts part-way along is half at each height: its median is anywhere between, so the lines
+  // after it are measured against the last whole line before it)
+  const dif=(j,g)=>{const d=[];for(let i=0;i<W;i++){const v=z[j*W+i]-z[g*W+i];if(Number.isFinite(v))d.push(v)}const m=med(d);return [m,med(d.map(v=>Math.abs(v-m)))]};
+  const sp=[];for(let j=1;j<H;j++)sp.push(dif(j,j-1)[1]);const typ=med(sp);
+  let g=0,jump=0,at=0;const offs=new Float64Array(H);
+  for(let j=1;j<H;j++){const [m,s]=dif(j,g),o=Number.isFinite(m)?m:0;offs[j]=offs[g]+o;
+    if(Math.abs(offs[j]-offs[j-1])>Math.abs(jump)){jump=offs[j]-offs[j-1];at=j}
+    if(!(s>4*typ)||j-g>=3)g=j}
+  jump=offs[Math.min(H-1,at+3)]-offs[Math.max(0,at-2)];   // (the whole step, over the lines where it happened)
+  for(let j=1;j<H;j++)for(let i=0;i<W;i++)z[j*W+i]-=offs[j];
+  const S=16,n=Math.floor(W/S),K=4,need=Math.max(3,Math.floor(n/8));let scars=0;if(n<1||H<5)return {jump,at,scars};
+  const a0=s=>s*S,a1=s=>s===n-1?W:(s+1)*S;
+  for(let it=0;it<60;it++){const seg=[];for(let j=0;j<H;j++){const r=new Float64Array(n);for(let s=0;s<n;s++)r[s]=med(Array.from(z.subarray(j*W+a0(s),j*W+a1(s))));seg.push(r)}
+    const dv=[];for(let j=1;j<H-1;j++)for(let s=0;s<n;s++){const v=seg[j][s]-(seg[j-1][s]+seg[j+1][s])/2;if(Number.isFinite(v))dv.push(Math.abs(v))}
+    const mad=1.4826*med(dv);if(!(mad>0))break;let best=null;
+    for(let w=1;w<=3;w++){const thr=K*mad/Math.sqrt(w);
+      for(let j=1;j+w<H;j++){const sc=new Float64Array(n);let cnt=0,top=0;
+        for(let s=0;s<n;s++){let b=0;for(let r=j;r<j+w;r++)b+=seg[r][s];b/=w;const up=b-seg[j-1][s],dn=b-seg[j+w][s];
+          if(Math.sign(up)===Math.sign(dn)){const v=Math.min(Math.abs(up),Math.abs(dn));if(v>thr){sc[s]=v/thr;cnt++;top=Math.max(top,v/thr)}}}
+        if(cnt>=need&&(!best||top>best.top))best={top,w,j,sc}}}
+    if(!best)break;const {w,j,sc}=best;
+    for(let s=0;s<n;s++)if(sc[s]>0){const ref=(seg[j-1][s]+seg[j+w][s])/2;for(let r=j;r<j+w;r++){const dz=seg[r][s]-ref;for(let i=a0(s);i<a1(s);i++)z[r*W+i]-=dz}}
+    scars++}
+  return {jump,at,scars}}
 async function afmSideDraw(f,ctx){const side=$("afmSide"),P=ctx?ctx.P:AFMS.plan,s=ctx?ctx.s:afmsSite(f),r=ctx?ctx.r:afmsRes(f);   // (ctx: the flake's latest AFM result, outside the AFM screening)
   if(!s){side.innerHTML=`<div class="sub">Flake ${f.rank} is not in this AFM list.</div>`;return}
   if(!r){side.innerHTML=`<b>Point ${s.n} · flake ${f.rank}</b><div class="sub">No AFM image for this point yet: choose the folder with the .spm files above (the files, in name order, go to the points from "first file = point").</div>`;return}
@@ -2524,7 +2555,7 @@ async function afmSideDraw(f,ctx){const side=$("afmSide"),P=ctx?ctx.P:AFMS.plan,
   side.innerHTML=`<div class="row"><b>Point ${s.n} · ${escapeHtml(r.file||"")}</b>${FS.length>1?`<span class="row seg" id="afmKs">${FS.map((x,i)=>`<button data-afmk="${i}" aria-pressed="${i===kk}" title="${escapeHtml(x.file||"")}">${i+1}</button>`).join("")}</span>`:""}</div>
     <div class="row"><b style="font-size:16px" title="AFM step${L&&L.err_nm!=null?" ± "+L.err_nm+" nm":""}${r.levels&&r.levels.length>1?"; other levels: "+r.levels.slice(1).map(q=>q.step_nm+" nm").join(", "):""}; optical ${f.terraces[0].t} nm">${L?`${L.step_nm} nm`:"–"}</b>
       <button id="afmGwy" title="Open this .spm in Gwyddion on this computer (levelling, profiles, statistics, …)">Open in Gwyddion</button></div>
-    <div class="row"><button id="afmL3" aria-pressed="false" title="3-point level: click three points of the same flat surface (e.g. the substrate) on the AFM picture; the plane through them is taken off">3-point level</button><button id="afmL3r" hidden title="Back to the heights as read (no 3-point level)">Undo level</button>
+    <div class="row"><button id="afmL3" aria-pressed="false" title="3-point level: click three points of the same flat surface (e.g. the substrate) on the AFM picture; the plane through them is taken off">3-point level</button><button id="afmStep" title="Fix step: part of the picture at another height after a line (a jump of the scan, not the sample): the lines put back in line">Fix step</button><button id="afmL3r" hidden title="Back to the heights as read (no 3-point level, no step fix)">Undo level</button>
       <label class="sub"><select id="afmCm" aria-label="Colour scale" title="Colour scale">${Object.keys(CMAPS).map(k=>`<option${k===AFMS.cmap?" selected":""}>${k}</option>`).join("")}</select></label>
       <button id="afmAuto" title="2–98 % of the heights">Auto range</button><button id="afmCopy" title="Copy the AFM picture as it looks here, with its colour bar and scale bar, as a PNG">Copy PNG</button><span class="sub" id="afmL3msg"></span></div>
     <div class="afmcv"><div class="afmimg"><canvas id="afmCv"></canvas><svg id="afmSb" class="afmsb" height="${AFMSB_H}" aria-label="Scale bar"></svg></div><svg id="afmBar" class="cbar" aria-label="Colour bar (nm)"></svg></div><div class="row"><span class="sub" id="afmHover">&nbsp;</span></div>
@@ -2597,13 +2628,15 @@ async function afmSideDraw(f,ctx){const side=$("afmSide"),P=ctx?ctx.P:AFMS.plan,
     const med=a=>{const b=a.filter(Number.isFinite).sort((x,y)=>x-y);return b.length?b[b.length>>1]:NaN},q=Math.max(3,Math.round(N*0.15)),h0=med(pts.slice(0,q)),h1=med(pts.slice(-q));
     svg.setAttribute("viewBox",`0 0 ${W} ${H}`);svg.innerHTML=`<path d="${d}" fill="none" stroke="#00e5ff" stroke-width="1.6"/><text x="4" y="12" fill="#9fb0b4" font-size="11">${hi.toFixed(1)} nm</text><text x="4" y="${H-20}" fill="#9fb0b4" font-size="11">${lo.toFixed(1)} nm</text><text x="${W-4}" y="${H-4}" fill="#9fb0b4" font-size="11" text-anchor="end">${len.toFixed(2)} µm</text>`;
     $("afmProfTxt").innerHTML=`Step <b style="font-size:15px">${Number.isFinite(h1-h0)?(h1-h0).toFixed(2):"–"} nm</b> · ${len.toFixed(2)} µm`;$("afmProfTxt").title="Step: end − start along the line (median of the first and last 15 %); then the line's length"};
-  const levUi=()=>{$("afmL3").setAttribute("aria-pressed",String(pick.on));$("afmL3").textContent=pick.on?`Cancel (point ${pick.pts.length+1} of 3)`:"3-point level";$("afmL3r").hidden=!D.lev;cv.style.cursor=pick.on?"cell":"crosshair"};
+  const levUi=()=>{$("afmL3").setAttribute("aria-pressed",String(pick.on));$("afmL3").textContent=pick.on?`Cancel (point ${pick.pts.length+1} of 3)`:"3-point level";$("afmL3r").hidden=!(D.lev||D.zb);$("afmL3r").textContent=D.lev?"Undo level":"Undo";cv.style.cursor=pick.on?"cell":"crosshair"};
+  $("afmStep").onclick=()=>{const r=afmFixStep(D);D.zb=D.z.slice();afmStats(D);D.lo=D.lo0;D.hi=D.hi0;
+    msg(`Step fixed: ${Math.abs(r.jump).toFixed(1)} nm at line ${r.at+1}${r.scars?` · ${r.scars} scar${r.scars>1?"s":""}`:""}.`);boxes();levUi();paint();prof()};
   $("afmL3").onclick=()=>{pick.on=!pick.on;pick.pts=[];msg(pick.on?"Click three points of one flat surface (e.g. the substrate) on the AFM picture.":"");levUi();paint()};
-  $("afmL3r").onclick=()=>{D.z.set(D.z0);D.lev=null;afmStats(D);D.lo=D.lo0;D.hi=D.hi0;msg("Heights as read (no 3-point level).");boxes();levUi();paint();prof()};
+  $("afmL3r").onclick=()=>{D.z.set(D.z0);D.lev=null;D.zb=null;afmStats(D);D.lo=D.lo0;D.hi=D.hi0;msg("Heights as read (no 3-point level).");boxes();levUi();paint();prof()};
   let drag=null;
   cv.onpointerdown=e=>{e.preventDefault();const a=at(e);
     if(pick.on){pick.pts.push(a);if(pick.pts.length<3){levUi();paint();return}
-      if(D.lev)D.z.set(D.z0);const er=afmLevel3(D,pick.pts);pick.on=false;
+      if(D.lev)D.z.set(D.zb||D.z0);const er=afmLevel3(D,pick.pts);pick.on=false;
       if(er){afmStats(D);msg("Not levelled: "+er);pick.pts=[]}else msg("Levelled: the plane through the three points (each the mean within 2 px) is taken off; they are at 0 nm.");
       boxes();levUi();paint();prof();return}
     cv.setPointerCapture(e.pointerId);drag=true;AFMS.prof={k:K,a,b:a};paint()};
