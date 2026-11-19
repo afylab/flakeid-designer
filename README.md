@@ -61,6 +61,9 @@ open the icon and add your own scan-results folder in *Scan results*. They work 
 3.10-3.13 they install Python 3.12 from python.org (Windows: for this user, no admin; Mac: it asks for an administrator's
 password), then pip and the packages (`requirements.txt`) in the designer's own environment `~/.flakeid_designer_venv`,
 then the shortcut; run again after an update that changes `requirements.txt`. The log: `~/.flakeid_designer_install_log.txt`.
+On Windows 7 SP1 (e.g. an AFM PC) the same `.bat` installs Python 3.8.10 and the Windows 7 package versions
+(`tools/win7/requirements-py38.txt`); use Chrome 109 or Firefox 115 ESR, the last browsers for Windows 7. If the PC
+cannot download from python.org itself, download `python-3.8.10-amd64.exe` with a browser into Downloads and run it again.
 On a Mac that says the file cannot be opened: right-click it, Open (a downloaded file); or, if it "does not have
 access privileges", type `bash ` in Terminal, drag the file in and press Return. Each run's `designer/` folder (written by the scan
 program) is a run you can load. See `flakeid_designer/README.txt`.
