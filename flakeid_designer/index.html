@@ -355,6 +355,7 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 .runtop{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:start;gap:10px}.runtop .runhide{position:static;justify-self:end}.runkind{font-weight:700;font-size:13.5px}.runkind small{font-weight:400;color:var(--muted);font-size:11.5px;margin-left:6px;white-space:nowrap}.runtitle{text-align:center}.runcard .runtop{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}.runcard .runtop .runwho{margin:0}.runcard .runtop .runname{font-size:15px}.runcard .runtop .runhide{margin-left:auto}.runcard .sub.mid{text-align:left;margin-top:4px}
 .runmore{position:relative;display:inline-block}.runmore>summary{list-style:none;cursor:pointer;padding:5px 12px;border:1px solid var(--rule);border-radius:8px;background:var(--panel);color:var(--ink);font:500 13px var(--sans)}.runmore>summary::-webkit-details-marker{display:none}.runmore[open]>summary{border-color:var(--accent)}
 .runmenu{position:absolute;z-index:30;top:calc(100% + 4px);left:0;display:flex;flex-direction:column;gap:4px;min-width:220px;padding:6px;background:var(--panel);border:1px solid var(--rule);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18)}.runmenu button{text-align:left;width:100%}
+.mat{font-family:var(--sans);font-weight:700;padding:0 6px;border-radius:5px}.mat.mgr{background:#ead7ff;color:#172023}.mat.mbn{background:#cfe8ff;color:#172023}
 .runcnt{display:contents;font:700 13.5px var(--sans);color:var(--ink)}.runcnt .rc{white-space:nowrap;font-weight:700}.runcnt .ok{color:var(--ok)}.runcnt .part{color:var(--part)}.runcnt .none{color:var(--muted)}.runcnt .afm{color:var(--afm)}.runcnt .afm .ok{color:var(--ok)}.afmdonemark{color:var(--afm);font-size:15px}.runcard .sub.mid{text-align:center;margin-top:2px}
 .archrow{margin-top:6px}.archrow>summary{cursor:pointer;color:var(--muted);font-size:13px;padding:6px 2px}.archrow>.runrow{margin-top:8px;opacity:.85}
 .status.err{color:var(--err)}
@@ -4784,7 +4785,9 @@ function runKind(R,part){const P=(R.pieces||[]).length?R.pieces:(R.materials||[]
   const kinds=[...new Set(P.map(p=>{const k=nm(p.material);return k==="Graphite"&&+p.oxide_nm>=200?"Rhombohedral graphite":k}).filter(Boolean))];
   const ox=[...new Set(P.map(p=>p.oxide_nm).filter(v=>v!=null).map(v=>+(+v).toFixed(1)))];
   const who=runPerson(R.path);           // (2026-11-16: whose run, above what was scanned)
-  const what=`${escapeHtml(kinds.join(", "))}${ox.length?`<small>${escapeHtml(ox.join(", "))} nm SiO₂</small>`:""}`;
+  // (2026-11-18e) the material in black on its own highlight: graphite light purple, BN light blue
+  const hl=k=>`<span class="mat${/graphite/i.test(k)?" mgr":k==="BN"?" mbn":""}">${escapeHtml(k)}</span>`;
+  const what=`${kinds.map(hl).join(" ")}${ox.length?`<small>${escapeHtml(ox.join(", "))} nm SiO₂</small>`:""}`;
   if(part==="who")return who?`<span class="runwho">${escapeHtml(who)}</span>`:"";if(part==="what")return what?`<span class="runkind">${what}</span>`:"";
   return `<span class="runkind">${who?`<span class="runwho">${escapeHtml(who)}</span>`:""}${what}</span>`}
 // (2026-11-16) whose run: the folder after "Microscope Images" in its path (always the person's name)
