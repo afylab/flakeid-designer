@@ -26,4 +26,4 @@ def test_builds_carry_their_pieces(tmp_path):
 def test_page_draws_builds_as_cards():
     assert 'class="runrow runcard buildcard ${runKind(R,"cls")}"' in HTML
     assert '.runcard.mat-rh .runbar{background:#5c3859 url("data:image/svg+xml' in HTML
-    assert 'kinds[0]==="Rhombohedral graphite"?"mat-rh"' in HTML
+    assert 'kinds[0]==="Rhombohedral"?"mat-rh"' in HTML

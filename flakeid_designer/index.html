@@ -4859,14 +4859,14 @@ function noteRecent(run){if(!LOCAL)return;const id=Object.keys(RUNS).find(k=>k==
 // rhombohedral graphite, as flakeid.rhombo.applies) and, small, the SiO2 thickness
 function runKind(R,part){const P=(R.pieces||[]).length?R.pieces:(R.materials||[]).map(m=>({material:m}));
   const nm=m=>{m=String(m||"").toLowerCase();return m==="hbn"?"BN":m==="graphite"||m==="graphene"?"Graphite":m?m[0].toUpperCase()+m.slice(1):""};
-  const kinds=[...new Set(P.map(p=>{const k=nm(p.material);return k==="Graphite"&&+p.oxide_nm>=200?"Rhombohedral graphite":k}).filter(Boolean))];
+  const kinds=[...new Set(P.map(p=>{const k=nm(p.material);return k==="Graphite"&&+p.oxide_nm>=200?"Rhombohedral":k}).filter(Boolean))];
   const ox=[...new Set(P.map(p=>p.oxide_nm).filter(v=>v!=null).map(v=>+(+v).toFixed(1)))];
   const who=runPerson(R.path);           // (2026-11-16: whose run, above what was scanned)
   // (2026-11-18e) the material in black on its own highlight: graphite light purple, BN light blue
-  const hl=k=>`<span class="mat${/graphite/i.test(k)?" mgr":k==="BN"?" mbn":""}">${escapeHtml(k)}</span>`;
+  const hl=k=>`<span class="mat${/graphite|rhombohedral/i.test(k)?" mgr":k==="BN"?" mbn":""}">${escapeHtml(k)}</span>`;
   const what=`${kinds.map(hl).join(" ")}${ox.length?`<small>${escapeHtml(ox.join(", "))} nm SiO₂</small>`:""}`;
   if(part==="mat")return kinds.join(" + ");if(part==="ox")return ox.length?`<span class="runkind"><small style="margin:0">${escapeHtml(ox.join(", "))} nm SiO₂</small></span>`:"";
-  if(part==="cls")return kinds.length===1?(kinds[0]==="BN"?"mat-bn":kinds[0]==="Rhombohedral graphite"?"mat-rh":/graphite/i.test(kinds[0])?"mat-gr":""):"";
+  if(part==="cls")return kinds.length===1?(kinds[0]==="BN"?"mat-bn":kinds[0]==="Rhombohedral"?"mat-rh":/graphite/i.test(kinds[0])?"mat-gr":""):"";
   if(part==="who")return who?`<span class="runwho">${escapeHtml(who)}</span>`:"";if(part==="what")return what?`<span class="runkind">${what}</span>`:"";
   return `<span class="runkind">${who?`<span class="runwho">${escapeHtml(who)}</span>`:""}${what}</span>`}
 // (2026-11-16) whose run: the folder after "Microscope Images" in its path (always the person's name)
