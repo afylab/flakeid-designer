@@ -190,7 +190,7 @@ dialog::backdrop{background:rgba(10,14,16,.5)}
 #imgDlg .isplit{flex:1 1 auto!important;min-height:0;display:flex}#imgDlg .isplit>.ibody{flex:1 1 0!important;min-width:0}
 #afmSide{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:8px;padding:10px 12px;background:var(--canvas);border-left:2px solid #333d40;overflow:auto;color:#e4ebec;font-size:13px}
 #afmSide[hidden]{display:none}#afmSide .row{flex-wrap:wrap;gap:8px;align-items:center}#afmSide canvas{position:static;inset:auto;display:block;image-rendering:pixelated;cursor:crosshair;touch-action:none}
-#afmSide .afmcv{position:relative;flex:0 0 auto;display:flex;gap:8px;align-items:flex-start}#afmSide svg.cbar{flex:0 0 70px;width:70px;overflow:visible;cursor:default}#afmSide .afmimg{display:flex;flex-direction:column;flex:0 0 auto}#afmSide svg.afmsb{display:block;overflow:visible}#afmSide .afmlow{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;flex:0 0 auto}#afmSide .afmlow>div{min-width:0;display:flex;flex-direction:column;gap:4px}#afmSide svg.hist{width:100%;height:110px;flex:0 0 auto;background:#11181a;border-radius:6px;cursor:ew-resize;touch-action:none}#afmSide svg.prof{width:100%;height:120px;flex:0 0 auto;background:#11181a;border-radius:6px}#afmSide input[type=number]{width:72px}
+#afmSide .afmcv{position:relative;flex:0 0 auto;display:flex;gap:8px;align-items:flex-start}#afmSide svg.cbar{flex:0 0 70px;width:70px;overflow:visible;cursor:default}#afmSide .afmimg{display:flex;flex-direction:column;flex:0 0 auto}#afmSide svg.afmsb{display:block;overflow:visible}#afmSide .afmlow{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;flex:0 0 auto}#afmSide .afmlow>div{min-width:0;display:flex;flex-direction:column;gap:4px}#afmSide svg.hist{width:100%;height:110px;flex:0 0 auto;background:#11181a;border-radius:6px;cursor:ew-resize;touch-action:none}#afmSide svg.prof{width:100%;height:120px;flex:0 0 auto;background:#11181a;border-radius:6px}#afmSide input[type=number]{width:86px}
 #afmsBar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}#afmsBar code{font-size:12px}
 .revb .u{border:1px solid var(--line);padding:3px 9px;border-radius:6px;cursor:pointer}.revb .u[aria-pressed="true"]{background:#6c5ce7;border-color:#6c5ce7;color:#fff}#tfBar{grid-column:1/-1;border:2px solid #f5a524;background:rgba(245,165,36,.12);border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;gap:8px}
 #tfBar .tfhead{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}#tfBar .tfhead b{font-size:17px}#tfBar .tfrow{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
@@ -2484,7 +2484,10 @@ const CMAPS={inferno:[[0,0,4],[40,11,84],[101,21,110],[159,42,99],[212,72,66],[2
 function cmapAt(m,u){const C=CMAPS[m]||CMAPS.inferno,x=Math.max(0,Math.min(1,u))*(C.length-1),i=Math.min(C.length-2,Math.floor(x)),t=x-i;return [0,1,2].map(k=>C[i][k]+(C[i+1][k]-C[i][k])*t)}
 // (2026-11-03b) the heights' statistics again after a 3-point level: sorted values, the 2-98 % range (Auto range)
 function afmStats(D){const v=Float32Array.from(D.z.filter(Number.isFinite)).sort(),q=p=>v.length?v[Math.min(v.length-1,Math.floor(p*v.length))]:0;
-  D.sorted=v;D.lo0=q(0.02);D.hi0=q(0.98);D.hmin=q(0.001);D.hmax=q(0.999);if(!(D.hmax>D.hmin)){D.hmin=D.lo0-1;D.hmax=D.hi0+1}return D}
+  D.sorted=v;D.lo0=q(0.02);D.hi0=q(0.98);D.hmin=q(0.001);D.hmax=q(0.999);if(!(D.hmax>D.hmin)){D.hmin=D.lo0-1;D.hmax=D.hi0+1}D.vmin=D.vmax=null;return D}
+// (2026-11-18b) the histogram's own range (from / to, mouse wheel: zoom at the pointer; Full: 0.1-99.9 % again)
+const afmHv=D=>{const a=D.vmin??D.hmin,b=D.vmax??D.hmax;return b>a?[a,b]:[D.hmin,D.hmax]};
+const afmHfmt=(v,span)=>v.toFixed(span<1?3:span<10?2:1);
 async function afmZ(P,n,kk){kk=kk||0;const k=P.id+":"+n+(kk?":"+kk:"");if(AFMS.Z[k])return AFMS.Z[k];
   const r=await afmPost("/api/afm/height",{id:P.id,site:n,k:kk});if(r.error)return {error:r.error};
   const b=atob(r.z),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);const z=new Float32Array(u.buffer);
@@ -2526,6 +2529,7 @@ async function afmSideDraw(f,ctx){const side=$("afmSide"),P=ctx?ctx.P:AFMS.plan,
       <button id="afmAuto" title="2–98 % of the heights">Auto range</button><button id="afmCopy" title="Copy the AFM picture as it looks here, with its colour bar and scale bar, as a PNG">Copy PNG</button><span class="sub" id="afmL3msg"></span></div>
     <div class="afmcv"><div class="afmimg"><canvas id="afmCv"></canvas><svg id="afmSb" class="afmsb" height="${AFMSB_H}" aria-label="Scale bar"></svg></div><svg id="afmBar" class="cbar" aria-label="Colour bar (nm)"></svg></div><div class="row"><span class="sub" id="afmHover">&nbsp;</span></div>
     <div class="afmlow"><div><div class="row" style="gap:6px"><b class="sub" style="color:#e4ebec" title="Drag across a peak (e.g. the flake's or the substrate's heights): its left end is black, its right end white; or drag the black / white handle">Histogram</b><label class="sub">black <input type="number" id="afmLo" step="0.1"></label><label class="sub">white <input type="number" id="afmHi" step="0.1"> nm</label><label class="sub"><input type="checkbox" id="afmLog"${AFMS.hlog?" checked":""}> log</label></div>
+      <div class="row" style="gap:6px" title="The histogram's range (mouse wheel on the histogram: zoom in / out at the pointer)"><label class="sub">from <input type="number" id="afmHmin" step="0.1"></label><label class="sub">to <input type="number" id="afmHmax" step="0.1"> nm</label><button id="afmHfull" title="The histogram's whole range again (0.1–99.9 % of the heights)">Full</button></div>
       <svg class="hist" id="afmHist" aria-label="Histogram of the heights"></svg></div>
       <div><div class="row"><b class="sub" style="color:#e4ebec">Profile</b></div><svg class="prof" id="afmProf"></svg><div class="sub" id="afmProfTxt"></div></div></div>`;
   $("afmGwy").onclick=async()=>{const q=await afmPost("/api/afm/gwyddion",{id:P.id,site:s.n,k:kk});status2(q.error?"Gwyddion: "+q.error:`Opened in Gwyddion: ${r.file}`)};
@@ -2558,9 +2562,10 @@ async function afmSideDraw(f,ctx){const side=$("afmSide"),P=ctx?ctx.P:AFMS.plan,
     const T=5,tk=[...Array(T)].map((_,i)=>{const v=D.lo+(D.hi-D.lo)*i/(T-1),y=H-6-(H-24)*i/(T-1);return `<line x1="16" x2="20" y1="${y}" y2="${y}" stroke="#9fb0b4"/><text x="23" y="${y+4}" fill="#cfd8da" font-size="11">${v.toFixed(Math.abs(D.hi-D.lo)<10?2:1)}</text>`}).join("");
     bar.setAttribute("font-family","sans-serif");bar.innerHTML=`<defs><linearGradient id="afmGr" x1="0" y1="1" x2="0" y2="0">${stops}</linearGradient></defs><rect x="2" y="18" width="14" height="${H-24}" fill="url(#afmGr)" stroke="#55656a"/>${tk}<text x="2" y="10" fill="#9fb0b4" font-size="10.5">nm</text>`};
   // the histogram of the heights (0.1-99.9 %): the black and white heights as two handles, the range between them shaded
-  const HB=200,hx=v=>8+(($("afmHist").clientWidth||400)-16)*(v-D.hmin)/(D.hmax-D.hmin),hv=x=>D.hmin+(x-8)/((($("afmHist").clientWidth||400)-16))*(D.hmax-D.hmin);
-  const hist=()=>{const svg=$("afmHist"),W=svg.clientWidth||400,H=110,cnt=new Float64Array(HB),bw=(D.hmax-D.hmin)/HB;
-    for(const v of D.sorted){const i=Math.floor((v-D.hmin)/bw);if(i>=0&&i<HB)cnt[i]++}
+  const HB=200,hx=v=>{const [a,b]=afmHv(D);return 8+(($("afmHist").clientWidth||400)-16)*(v-a)/(b-a)},hv=x=>{const [a,b]=afmHv(D);return a+(x-8)/((($("afmHist").clientWidth||400)-16))*(b-a)};
+  const hist=()=>{const svg=$("afmHist"),W=svg.clientWidth||400,H=110,cnt=new Float64Array(HB),[va,vb]=afmHv(D),bw=(vb-va)/HB,sp=vb-va;
+    if(document.activeElement!==$("afmHmin"))$("afmHmin").value=afmHfmt(va,sp);if(document.activeElement!==$("afmHmax"))$("afmHmax").value=afmHfmt(vb,sp);
+    for(const v of D.sorted){const i=Math.floor((v-va)/bw);if(i>=0&&i<HB)cnt[i]++}
     const t=AFMS.hlog?cnt.map(c=>Math.log1p(c)):cnt,mx=Math.max(...t)||1;
     let d=`M8 ${H-18}`;t.forEach((c,i)=>{const x0=8+(W-16)*i/HB,x1=8+(W-16)*(i+1)/HB,y=H-18-(H-26)*c/mx;d+=`L${x0.toFixed(1)} ${y.toFixed(1)}L${x1.toFixed(1)} ${y.toFixed(1)}`});d+=`L${W-8} ${H-18}Z`;
     const xl=Math.max(8,Math.min(W-8,hx(D.lo))),xh=Math.max(8,Math.min(W-8,hx(D.hi)));svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
@@ -2568,7 +2573,14 @@ async function afmSideDraw(f,ctx){const side=$("afmSide"),P=ctx?ctx.P:AFMS.plan,
       <line x1="${xl}" x2="${xl}" y1="2" y2="${H-16}" stroke="#000" stroke-width="3"/><line x1="${xl}" x2="${xl}" y1="2" y2="${H-16}" stroke="#00e5ff" stroke-width="1"/>
       <line x1="${xh}" x2="${xh}" y1="2" y2="${H-16}" stroke="#fff" stroke-width="3"/><line x1="${xh}" x2="${xh}" y1="2" y2="${H-16}" stroke="#00e5ff" stroke-width="1"/>
       <rect x="${xl-5}" y="${H-18}" width="10" height="10" fill="#000" stroke="#00e5ff"/><rect x="${xh-5}" y="${H-18}" width="10" height="10" fill="#fff" stroke="#00e5ff"/>
-      <text x="8" y="${H-1}" fill="#9fb0b4" font-size="10.5">${D.hmin.toFixed(1)} nm</text><text x="${W-8}" y="${H-1}" fill="#9fb0b4" font-size="10.5" text-anchor="end">${D.hmax.toFixed(1)} nm</text>`};
+      <text x="8" y="${H-1}" fill="#9fb0b4" font-size="10.5">${afmHfmt(va,sp)} nm</text><text x="${W-8}" y="${H-1}" fill="#9fb0b4" font-size="10.5" text-anchor="end">${afmHfmt(vb,sp)} nm</text>`};
+  const hset=(a,b)=>{const lo=D.sorted.length?D.sorted[0]:D.hmin,hi=D.sorted.length?D.sorted[D.sorted.length-1]:D.hmax,m=Math.max(1e-3,(hi-lo)*1e-4);
+    a=Math.max(Math.min(lo,D.hmin),a);b=Math.min(Math.max(hi,D.hmax),b);if(!(b-a>=m))return;D.vmin=a;D.vmax=b;hist()};
+  $("afmHist").addEventListener("wheel",e=>{e.preventDefault();const b=$("afmHist").getBoundingClientRect(),v=hv(e.clientX-b.left),[a,c]=afmHv(D),k=e.deltaY>0?1.25:0.8;
+    hset(v-(v-a)*k,v+(c-v)*k)},{passive:false});
+  $("afmHmin").onchange=e=>{const v=parseFloat(e.target.value);if(Number.isFinite(v))hset(v,afmHv(D)[1]);hist()};
+  $("afmHmax").onchange=e=>{const v=parseFloat(e.target.value);if(Number.isFinite(v))hset(afmHv(D)[0],v);hist()};
+  $("afmHfull").onclick=()=>{D.vmin=D.vmax=null;hist()};
   let hd=null;const hsv=$("afmHist");
   hsv.onpointerdown=e=>{e.preventDefault();hsv.setPointerCapture(e.pointerId);const b=hsv.getBoundingClientRect(),x=e.clientX-b.left;
     const nl=Math.abs(x-hx(D.lo)),nh=Math.abs(x-hx(D.hi));hd=nl<=6&&nl<=nh?{m:"lo"}:nh<=6?{m:"hi"}:{m:"new",x0:x};if(hd.m==="new"){D.lo=D.hi=hv(x)}};
@@ -2602,7 +2614,7 @@ async function afmSideDraw(f,ctx){const side=$("afmSide"),P=ctx?ctx.P:AFMS.plan,
   $("afmLog").onchange=e=>{AFMS.hlog=e.target.checked;hist()};
   $("afmLo").onchange=e=>{const v=parseFloat(e.target.value);if(Number.isFinite(v)){D.lo=v;paint()}};$("afmHi").onchange=e=>{const v=parseFloat(e.target.value);if(Number.isFinite(v)){D.hi=v;paint()}};
   $("afmAuto").onclick=()=>{D.lo=D.lo0;D.hi=D.hi0;boxes();paint()};
-  for(const id of ["afmLo","afmHi"])$(id).addEventListener("keydown",e=>e.stopPropagation());
+  for(const id of ["afmLo","afmHi","afmHmin","afmHmax"])$(id).addEventListener("keydown",e=>e.stopPropagation());
   if(D.lev)msg("3-point levelled (Undo level: the heights as read).");boxes();levUi();paint();prof()}
 function screenStep(k){if(!SCREEN.list)return;const j=SCREEN.i+k;if(j<0)return;if(j>=SCREEN.list.length){status2(`Screened all ${SCREEN.list.length} flakes of ${SCREEN.title}.`);$("imgDlg").close();return}SCREEN.i=j;showScreen()}
 function screenDecide(v){if(SCREEN.busy)return;const f=SCREEN.list[SCREEN.i];if(SCREEN.afm)setAfmDec(f,v);else f.terraces.filter(t=>REVIEW[t.id]!=="used").forEach(t=>setDecision(t,v));if(v){SCREEN.busy=true;setTimeout(()=>{SCREEN.busy=false;screenStep(1)},120)}else showScreen()}
