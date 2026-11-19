@@ -70,7 +70,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
             sys.path.append(str(_r))
         break
 APP = "flakeid-designer"
-VERSION = "2026-11-18k"
+VERSION = "2026-11-18l"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
