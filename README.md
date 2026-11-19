@@ -2,8 +2,14 @@
 
 ## Installation
 
-In the main folder, double-click the install file for your computer: `Install shortcut (Windows).bat`,
-`Install shortcut (Windows 7).bat` or `Install shortcut (Mac).command`.
+1. First download the code: on this page click **Code**, then **Download ZIP**, and unzip the downloaded file.
+
+   <img src="docs/install/download_zip.png" alt="Code, then Download ZIP" width="540">
+
+2. In the unzipped folder, double-click the install file for your computer: `Install shortcut (Windows).bat`
+   (Windows 10/11), `Install shortcut (Windows 7).bat` or `Install shortcut (Mac).command`.
+
+   <img src="docs/install/install_files.png" alt="The install files in the unzipped folder" width="380">
 
 ---
 
