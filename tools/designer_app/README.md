@@ -37,4 +37,4 @@ The version is `VERSION` in `flakeid_designer/__main__.py`.
 ## Notes
 
 - Exports (catalog CSV, design JSON) open a native Save dialog; folder pickers are native dialogs.
-- The browser version (`Install shortcut` files in `flakeid_designer/`) keeps working alongside.
+- The browser version (`Install shortcut` files in the main folder) keeps working alongside.
