@@ -8,16 +8,16 @@
   --bg:#eef0f0;--panel:#ffffff;--panel2:#f6f7f7;--ink:#172023;--muted:#5b676b;--rule:#d5dbdc;
   --accent:#0d6b6b;--accent-ink:#ffffff;--sel:#e09a00;--overlap:#14b8a0;--canvas:#1c2326;--grid:rgba(255,255,255,.06);
   --hbn:#9fd8d3;--graphite:#3b4146;--graphite-ink:#e6eaeb;--warn:#a15c00;--err:#b42318;--short:#ff2d6f;--samp:#8f6bff;
-  --ok:#1f8a52;--afm:#c4278f;--part:#a15c00;--orange:#d9480f;--bntint:rgba(62,136,225,.2);--grtint:rgba(96,72,86,.22);
+  --ok:#1f8a52;--afm:#c4278f;--part:#a15c00;--orange:#d9480f;--cardon:#ffffff;--cardoff:#e8ebec;--bntint:rgba(62,136,225,.2);--grtint:rgba(96,72,86,.22);
   --sans:"Instrument Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
   --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   color-scheme:dark;--bg:#0f1416;--panel:#161d20;--panel2:#1b2327;--ink:#e4ebec;--muted:#93a1a5;--rule:#2a3438;
-  --accent:#3fb6ad;--accent-ink:#06201e;--sel:#ffbe3b;--canvas:#0b0f11;--warn:#e0a33a;--err:#ff8a7a;--ok:#4cc98a;--afm:#ff6fd0;--part:#e0a33a;--orange:#ff9442;--bntint:rgba(62,136,225,.3);--grtint:rgba(170,120,155,.3)}}
+  --accent:#3fb6ad;--accent-ink:#06201e;--sel:#ffbe3b;--canvas:#0b0f11;--warn:#e0a33a;--err:#ff8a7a;--ok:#4cc98a;--afm:#ff6fd0;--part:#e0a33a;--orange:#ff9442;--cardon:#232d32;--cardoff:#141a1d;--bntint:rgba(62,136,225,.3);--grtint:rgba(170,120,155,.3)}}
 :root[data-theme="dark"]{
   color-scheme:dark;--bg:#0f1416;--panel:#161d20;--panel2:#1b2327;--ink:#e4ebec;--muted:#93a1a5;--rule:#2a3438;
-  --accent:#3fb6ad;--accent-ink:#06201e;--sel:#ffbe3b;--canvas:#0b0f11;--warn:#e0a33a;--err:#ff8a7a;--ok:#4cc98a;--afm:#ff6fd0;--part:#e0a33a;--orange:#ff9442;--bntint:rgba(62,136,225,.3);--grtint:rgba(170,120,155,.3)}
+  --accent:#3fb6ad;--accent-ink:#06201e;--sel:#ffbe3b;--canvas:#0b0f11;--warn:#e0a33a;--err:#ff8a7a;--ok:#4cc98a;--afm:#ff6fd0;--part:#e0a33a;--orange:#ff9442;--cardon:#232d32;--cardoff:#141a1d;--bntint:rgba(62,136,225,.3);--grtint:rgba(170,120,155,.3)}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{height:100%}
@@ -368,11 +368,20 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 /* (2026-11-18n) a bar on the card's left in the material's colour as the Natural 100x view shows it (hBN ~30 nm on 285 nm
    SiO2: 70,150,254; graphite ~3 nm on 90 nm SiO2: 92,56,89), with the person, the run and the material on three lines */
 .runcard.runrow,#libRuns .runcard.runrow{grid-template-columns:auto minmax(0,1fr) auto}
-.runbar{width:106px;box-sizing:border-box;padding:10px 6px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:3px;background:#6b7a7e;color:#fff;border-radius:8px 0 0 8px;font:600 13px var(--sans);line-height:1.25}
+.runbar{width:106px;box-sizing:border-box;padding:10px 6px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;text-align:center;gap:3px;background:#6b7a7e;color:#fff;border-radius:8px 0 0 8px;font:600 13px var(--sans);line-height:1.25}
 .runbar .rbname{font-size:13.5px;font-weight:600;overflow-wrap:break-word}.runbar .rbwho{font-weight:800;font-size:14px}.runbar .rbmat{opacity:.92}
 .runcard.mat-bn .runbar{background:#4696fe}.runcard.mat-gr .runbar{background:#5c3859}
-.runcard .runtop{flex-wrap:wrap;gap:4px 6px}.runcard.runrow .runmain{padding:10px 6px 10px 10px}.runcard .runcnt .rc{font-size:12px}
+.runcard .runtop{flex-wrap:wrap;gap:4px 6px}.runcard.runrow .runmain{padding:10px 6px 10px 10px}.runcard .runcnt .rc{font-size:13px}
 /* (2026-11-18q) "|" between the optical and the AFM counts while they share a line (hidden when the AFM ones wrap) */
+/* (2026-11-18r) the card's head: counts and folder on the left; on the right the start date, then kept / AFM kept as a
+   number with its word under it */
+/* (2026-11-18r) a ticked run's card a little lighter than the others (whiter in light mode; the others greyer) */
+#libRuns .runcard.runrow{background:var(--cardoff)}#libRuns .runcard.runrow.on{background:var(--cardon)}
+.runhead{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:start}
+.runright{display:flex;flex-direction:column;align-items:flex-end;gap:4px}.rundate{font:700 14px var(--sans);color:var(--ink);white-space:nowrap}
+.runkept{display:flex;gap:12px;align-items:flex-start}.kst{display:flex;flex-direction:column;align-items:center;line-height:1.05}
+.kst b{font:800 20px var(--sans)}.kst small{font:700 11px var(--sans);white-space:nowrap}.kst.ok{color:var(--ok)}.kst.afm{color:var(--afm)}
+.runcnt .rc.afm{color:var(--ink)}.runcnt .rc.afm .afmdonemark{color:var(--afm)}
 .runcnt .rcsep{color:var(--muted);font-weight:400;margin-right:6px}.runcnt .rc.afm.wrapped .rcsep{display:none}
 .runcnt{display:contents;font:700 13.5px var(--sans);color:var(--ink)}.runcnt .rc{white-space:nowrap;font-weight:700}.runcnt .ok{color:var(--ok)}.runcnt .part{color:var(--part)}.runcnt .scr{color:var(--muted)}.runcnt .afm{color:var(--afm)}.runcnt .afm .afmn{color:var(--ink)}.afmdonemark{color:var(--afm);font-size:15px}.runcard .sub.mid{text-align:center;margin-top:2px}
 .archrow{margin-top:6px}.archrow>summary{cursor:pointer;color:var(--muted);font-size:13px;padding:6px 2px}.archrow>.runrow{margin-top:8px;opacity:.85}
@@ -2738,7 +2747,8 @@ function screenBadge(id){return ` <span data-screen="${escapeHtml(id)}">${screen
 function runSepSync(){document.querySelectorAll(".runcnt").forEach(c=>{const f=c.querySelector(".rc"),a=c.querySelector(".rc.afm");if(f&&a)a.classList.toggle("wrapped",a.getBoundingClientRect().top>f.getBoundingClientRect().top+2)})}
 window.addEventListener("resize",runSepSync);if(window.ResizeObserver)new ResizeObserver(()=>runSepSync()).observe($("runList"));
 function updateScreenBadges(){document.querySelectorAll("[data-screen]").forEach(el=>{const h=screenBadgeInner(el.dataset.screen);if(el.innerHTML!==h)el.innerHTML=h});
-  document.querySelectorAll("[data-runcnt]").forEach(el=>{const h=runCountsInner(el.dataset.runcnt);if(el.innerHTML!==h)el.innerHTML=h});runSepSync()}
+  document.querySelectorAll("[data-runcnt]").forEach(el=>{const h=runCountsInner(el.dataset.runcnt);if(el.innerHTML!==h)el.innerHTML=h});
+  document.querySelectorAll("[data-runkept]").forEach(el=>{const h=runKeptInner(el.dataset.runkept);if(el.innerHTML!==h)el.innerHTML=h});runSepSync()}
 // (2026-11-18) a run card's top row: its flakes, the kept ones; a pink check when one of its AFM lists is marked AFM scan
 // complete, and its flakes AFM screened / AFM screened kept (counted from everyone's decisions, loaded or not)
 let AFMDONE={},AFMDONE_AT=0;           // run -> [its AFM lists scanned: marked complete, or with AFM images imported (2026-11-18d)]
@@ -2752,7 +2762,11 @@ function runCounts(id){const R=RUNS[id]||{},pre=(R.run||id)+":",kept=new Set();
 function runCountsInner(id){const c=runCounts(id),D=c.done;
   const dt=D.length?D.map(p=>`${p.name||"AFM list"}: ${p.scanned?`AFM scan complete ${fmtT(p.scanned)}`:"AFM scanned"}${p.n_sites?` · ${p.n_img||0} of ${p.n_sites} points with an AFM image`:""}`).join("\n"):"";
   const x=runScreenState(id);
-  return `<span class="rc" title="Flakes">${c.n} flakes</span><span class="rc ${x.state==="part"?"part":"scr"}" title="${x.state==="done"?"Every flake screened":x.state==="part"?`${x.d} of ${x.n} flakes screened`:"Not screened yet"}">${x.d} screened</span><span class="rc ok" title="Kept (screening)">${c.kept} kept</span>${D.length||c.as?`<span class="rc afm"><span class="rcsep" aria-hidden="true">|</span>${D.length?`<span class="afmdonemark" title="${escapeHtml(dt)}">✓</span> `:""}<span title="AFM screened">AFM: <span class="afmn">${c.as} screened</span></span> <span title="AFM screened and kept" style="margin-left:6px">${c.ak} kept</span></span>`:""}`}
+  // (2026-11-18r) flakes, screened and AFM screened here, in the text colour; kept and AFM kept: runKeptInner, on the right
+  return `<span class="rc" title="Flakes">${c.n} flakes</span><span class="rc" title="${x.state==="done"?"Every flake screened":x.state==="part"?`${x.d} of ${x.n} flakes screened`:"Not screened yet"}">${x.d} screened</span>${D.length||c.as?`<span class="rc afm"><span class="rcsep" aria-hidden="true">|</span>${D.length?`<span class="afmdonemark" title="${escapeHtml(dt)}">✓</span> `:""}<span title="AFM screened">AFM: ${c.as} screened</span></span>`:""}`}
+document.addEventListener("change",e=>{const c=e.target&&e.target.closest&&e.target.closest(".runchkbox"),k=c&&c.closest(".runcard");if(k)k.classList.toggle("on",c.checked)});
+function runKeptInner(id){const c=runCounts(id);
+  return `${c.done.length||c.as?`<span class="kst afm" title="AFM screened and kept"><b>${c.ak}</b><small>AFM kept</small></span>`:""}<span class="kst ok" title="Kept (screening)"><b>${c.kept}</b><small>kept</small></span>`}
 function offerScreening(){const el=$("newRuns");if(!el||!CAT)return;if(db&&!SEEN_READY){el.hidden=true;return}
   const runs=[...new Set(CAT.flakes.filter(f=>!f.archived).map(f=>f.run).filter(Boolean))].filter(r=>!SEEN.has(r)&&!SEEN.has(runId(r))&&!runScreened(r));
   if(!runs.length){el.hidden=true;return}
@@ -4816,6 +4830,9 @@ $("runRecentMenu").addEventListener("click",e=>e.stopPropagation());
 document.addEventListener("click",()=>recentClose());
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("runRecentMenu").hidden){e.preventDefault();recentClose()}},true);
 function runParents(p){const a=normP(p).split("/").filter(Boolean);return a.slice(Math.max(0,a.length-4),-1).join(" › ")}
+// (2026-11-18r) a run card's start: mm/dd/yy hh:mm AM/PM
+function fmtDay(s){if(!s)return "";const d=new Date(String(s).replace(" ","T"));if(isNaN(d))return String(s);const z=v=>String(v).padStart(2,"0"),h=d.getHours();
+  return `${z(d.getMonth()+1)}/${z(d.getDate())}/${z(d.getFullYear()%100)} ${z(h%12||12)}:${z(d.getMinutes())} ${h<12?"AM":"PM"}`}
 function fmtStarted(s){if(!s)return "";const d=new Date(String(s).replace(" ","T"));return isNaN(d)?String(s):d.toLocaleString([],{dateStyle:"medium",timeStyle:"short"})}
 function fmtAgo(t){const m=Math.round((Date.now()-t)/60000);return m<1?"just now":m<60?m+" min ago":m<1440?Math.round(m/60)+" h ago":Math.round(m/1440)+" day"+(m<2880?"":"s")+" ago"}
 function recentGet(){try{const a=JSON.parse(lsAll("recentRuns")||"[]");return Array.isArray(a)?a:[]}catch(e){return []}}
@@ -4876,13 +4893,13 @@ function renderRunsLocal(){const L=$("runList");$("runPick").hidden=true;$("pgmM
   hideBLoad();const isHid=k=>false;   // (2026-11-05l: the run's Hide is now Remove run; runs hidden before are listed again)
   const all=Object.keys(RUNS).filter(k=>inLib(RUNS[k].path)).sort((a,b)=>sk(b)<sk(a)?-1:sk(b)>sk(a)?1:0),ids=all.filter(k=>!isArch(k)&&!isHid(k)),hidR=all.filter(k=>!isArch(k)&&isHid(k)),arch=all.filter(isArch);
   afmDoneLoad();
-  L.innerHTML=`<div id="buildList"></div>`+(ids.length?`<div class="runlisthead"><button id="runNone" class="runnone" title="Untick every run: no flakes shown">Uncheck all</button></div>`:"")+(ids.length?"":hidR.length?`<div class="empty">Every run is hidden: Hidden below.</div>`:arch.length?`<div class="empty">Every run is archived: Archived runs below.</div>`:addedMode()?"":`<div class="empty">No runs found yet. Add your own scan results folder (for example &lt;share&gt;/&lt;your name&gt;/scanresults); add a shared flakes folder as well if you use one.</div>`)+ids.map(id=>{const R=RUNS[id];const X=RUNDATA[id];
+  L.innerHTML=`<div id="buildList"></div>`+(ids.length?`<div class="runlisthead"><button id="runNone" class="runnone" title="Untick every run: no flakes shown">Hide all</button></div>`:"")+(ids.length?"":hidR.length?`<div class="empty">Every run is hidden: Hidden below.</div>`:arch.length?`<div class="empty">Every run is archived: Archived runs below.</div>`:addedMode()?"":`<div class="empty">No runs found yet. Add your own scan results folder (for example &lt;share&gt;/&lt;your name&gt;/scanresults); add a shared flakes folder as well if you use one.</div>`)+ids.map(id=>{const R=RUNS[id];const X=RUNDATA[id];
     const st=X&&X.error?` · <span style="color:var(--err)">could not be loaded</span>`:X&&X._loading?" · loading…":"";
-    return `<label class="runrow runcard ${runKind(R,"cls")}" style="cursor:pointer" for="runcb-${escapeHtml(id)}"><div class="runbar" title="${escapeHtml((R.title||id)+(R.path?"\n"+R.path:""))}">${runPerson(R.path)?`<span class="rbwho">${escapeHtml(runPerson(R.path))}</span>`:""}<span class="rbname">${escapeHtml(R.title||id).replace("_","_<wbr>")}</span>${runKind(R,"mat")?`<span class="rbmat">${escapeHtml(runKind(R,"mat"))}</span>`:""}</div><div class="runmain"><div style="min-width:0"><div class="runtop"><span class="runcnt" data-runcnt="${escapeHtml(id)}">${runCountsInner(id)}</span></div><div class="sub mid">${runKind(R,"ox")?runKind(R,"ox")+" · ":""}<span title="${escapeHtml(R.path||"")}">${escapeHtml(runParents(R.path))}</span>${R.started?" · Started "+escapeHtml(fmtStarted(R.started)):""}${st}</div></div>
+    return `<label class="runrow runcard ${runKind(R,"cls")}${runOn(id)?" on":""}" style="cursor:pointer" for="runcb-${escapeHtml(id)}"><div class="runbar" title="${escapeHtml((R.title||id)+(R.path?"\n"+R.path:""))}">${runPerson(R.path)?`<span class="rbwho">${escapeHtml(runPerson(R.path))}</span>`:""}<span class="rbname">${escapeHtml(R.title||id).replace("_","_<wbr>")}</span>${runKind(R,"mat")?`<span class="rbmat">${escapeHtml(runKind(R,"mat"))}</span>`:""}</div><div class="runmain"><div class="runhead"><div style="min-width:0"><div class="runtop"><span class="runcnt" data-runcnt="${escapeHtml(id)}">${runCountsInner(id)}</span></div><div class="sub mid">${runKind(R,"ox")?runKind(R,"ox")+" · ":""}<span title="${escapeHtml(R.path||"")}">${escapeHtml(runParents(R.path))}</span>${st}</div></div><div class="runright">${R.started?`<span class="rundate" title="Started ${escapeHtml(fmtStarted(R.started))}">${escapeHtml(fmtDay(R.started))}</span>`:""}<span class="runkept" data-runkept="${escapeHtml(id)}">${runKeptInner(id)}</span></div></div>
       <span class="row">${runOn(id)&&X&&!X._loading&&!X.error&&(R.scans||[]).length?`<button data-afmruns="${escapeHtml(R.run||id)}" title="This run's AFM scan lists: make a list (＋), open it to choose its flakes and make the AFM point list, mark its AFM scan complete (its folder of AFM images), redo a scan with other flakes; each list keeps the AFM positions and offsets it was scanned with">AFM runs…</button>`:""}${runOn(id)&&X&&!X._loading&&!X.error?`<button data-scrrun="${escapeHtml(R.run||id)}">Screen</button>`+(LOCAL?(R.scans||[]).map(sc=>`<button data-scrafm="${escapeHtml(R.run||id)}|${escapeHtml(sc)}" title="Screen this chip's flakes on their AFM images: choose the folder with the .spm files, see the 100x picture alone or next to the AFM image; K / D: AFM screened kept / discarded, U: used">Screen AFM scans${(R.scans||[]).length>1?" "+escapeHtml(sc):""}</button>`).join(""):""):""}${(R.scans||[]).map(sc=>`<button data-viewer="${escapeHtml(R.run||id)}|${escapeHtml(sc)}" title="Open the chip's own page (index.html, as the scan program made it) in a new tab: its 10x scan and the table of all its flakes">Flake table ${escapeHtml(sc)} ↗</button>`).join("")}${LOCAL?`<details class="runmore"><summary title="Less used: reset screenings, kept folder, coordinates, rebuild">More…</summary><div class="runmenu">${runOn(id)&&X&&!X._loading&&!X.error&&LOCAL?`<button data-revreset="${escapeHtml(R.run||id)}" title="Clear every keep / discard decision of this run (stars and picked-up flakes stay), for everyone in this library; the kept folder follows. Asks once more.">Reset screening</button>`:""}${runOn(id)&&X&&!X._loading&&!X.error&&LOCAL?`<button data-afmreset="${escapeHtml(R.run||id)}" title="Clear every AFM screened kept / discarded decision of this run, for everyone in this library (the 100x screening's decisions, stars, used flakes and AFM offsets stay). Asks once more.">Reset AFM screening</button>`:""}${runOn(id)&&X&&!X._loading&&!X.error&&LOCAL?`<button data-keptsync="${escapeHtml(R.run||id)}" title="Copy the kept flakes' 100x pictures into the run's kept folder and remove those of flakes no longer kept (it also happens by itself after each decision)">Update kept folder</button>`:""}${runOn(id)&&X&&!X._loading&&!X.error&&LOCAL?`<button data-coords="${escapeHtml(R.run||id)}" title="Put back coordinates saved before a remeasure (the run's old_coords folder). The coordinates replaced are saved too, so this can be undone.">Restore coordinates…</button>`:""}${LOCAL&&R.path?`<button data-rebuild="${escapeHtml(R.path)}" data-rebuildrun="${escapeHtml(R.title||R.run||id)}" title="Build this run's designer files again on this computer, all of them (the chip picture, every flake's pictures and outlines), from the run's results. Decisions, stars, AFM lists and designs stay. Takes a few minutes; asks once more.">Rebuild</button>`:""}${addedBtn(R.path)}</div></details>`:""}<button data-arch="${escapeHtml(id)}" title="Archive: out of the run list, the flake list and screening, for everyone in this library (nothing on disk changes; Unarchive brings it back)">Archive</button></span></div><span class="runchk"><input type="checkbox" class="runchkbox" id="runcb-${escapeHtml(id)}" data-run="${escapeHtml(id)}" ${runOn(id)?"checked":""} title="Show this run's flakes (in the flake list, chip maps and screening)" aria-label="Show ${escapeHtml(R.title||id)}"></span></label>`}).join("")+hidRunsHtml(hidR)+archHtml(arch);
   // (2026-11-18d) More…: the card is a label (a click ticks the run), so the menu opens by script
   L.querySelectorAll(".runmore>summary").forEach(sm=>sm.onclick=e=>{e.preventDefault();e.stopPropagation();const d=sm.parentElement,o=!d.open;L.querySelectorAll(".runmore[open]").forEach(x=>x.open=false);d.open=o});
-  L.querySelectorAll(".runmenu button").forEach(b=>b.addEventListener("click",()=>{const d=b.closest(".runmore");if(d)d.open=false}));
+  L.querySelectorAll(".runmenu button").forEach(b=>b.addEventListener("click",()=>{const d=b.closest(".runmore");if(d)d.open=false}));requestAnimationFrame(runSepSync);
   L.querySelectorAll("[data-scrrun]").forEach(b=>b.onclick=e=>{e.preventDefault();e.stopPropagation();const r=b.dataset.scrrun;markSeen([r]);noteRecent(r);$("runDlg").close();startScreen(runFlakes(r),b.closest(".runrow").querySelector("b").textContent)});
   L.querySelectorAll("[data-viewer]").forEach(b=>b.onclick=e=>{e.preventDefault();e.stopPropagation();const [r,sc]=b.dataset.viewer.split("|");noteRecent(r);
     window.open(`/viewer/${encodeURIComponent(r)}/${encodeURIComponent(sc)}/`,"_blank","noopener")});
@@ -4943,7 +4960,7 @@ function renderRunsLocal(){const L=$("runList");$("runPick").hidden=true;$("pgmM
   L.querySelectorAll("[data-run]").forEach(c=>c.onchange=()=>{const id=c.dataset.run;if(c.checked){RUNSEL.on.add(id);noteRecent(id)}else RUNSEL.on.delete(id);
     saveRunSel();loadRunBundles();maybeBuild();runNoneSync()});
   // (2026-11-18f) the checkbox at the right of each card shows the run's flakes (it replaces Show / Hide flakes);
-  // Uncheck all, above the list: every run of the library hidden at once
+  // Hide all, above the list: every run of the library hidden at once
   const none=$("runNone");if(none)none.onclick=e=>{e.preventDefault();L.querySelectorAll("[data-run]").forEach(c=>{if(c.checked){c.checked=false;RUNSEL.on.delete(c.dataset.run)}});
     saveRunSel();loadRunBundles();maybeBuild();renderRuns()};runNoneSync();
   wireArch(L);wireAdded(L);wireHide(L);
