@@ -70,7 +70,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
             sys.path.append(str(_r))
         break
 APP = "flakeid-designer"
-VERSION = "2026-11-18c"
+VERSION = "2026-11-18d"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -3598,7 +3598,8 @@ class Handler(BaseHTTPRequestHandler):
             q_ = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             pl = S.store.afm_plans((q_.get("scan") or [None])[0], drafts=(q_.get("drafts") or [""])[0] == "1")
             if (q_.get("summary") or [""])[0] == "1":     # (2026-11-18: the Library's run cards: which lists are complete)
-                pl = [{k: x.get(k) for k in AFM_PLAN_SUMMARY} for x in pl]
+                pl = [dict({k: x.get(k) for k in AFM_PLAN_SUMMARY}, n_sites=len(x.get("sites") or []),
+                           n_img=len(x.get("results") or {})) for x in pl]   # (n_img: points with an AFM image, 2026-11-18d)
             return self._json(pl)
         if path == "/api/afm/typed":
             q_ = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
