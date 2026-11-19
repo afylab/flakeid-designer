@@ -206,3 +206,25 @@ def test_added_run_outside_library_reads_its_folders_data(tmp_path, monkeypatch)
     assert len(rev) == 7 and all(v["decision"] == "keep" for v in rev.values())
     assert [p["id"] for p in store.afm_plans()] == ["L9"]
     assert "20261102_run_1" in [s["id"] for s in store.list_seen()]
+
+
+def test_add_run_window_starts_beside_the_last_run_added(libs, monkeypatch, tmp_path):
+    """(2026-11-18i) ＋ Add run: the folder window starts in the parent folder of the run added last (its runs are
+    usually side by side), the library's parent folder before any; and again there after a restart."""
+    u = libs["url"]
+    other = tmp_path / "people" / "Paul" / "GR4 - Auto"
+    run = other / "GR4_run_18"
+    make_run(other, "GR4_run_18")
+    starts, give = [], [str(run)]
+    monkeypatch.setattr(D, "pick_folder", lambda _p, start=None: starts.append(start) or give[0])
+    st, r = post(u + "/api/runs/add")
+    assert st == 200 and r["picked"] == str(run)
+    assert starts[0] == str(Path(libs["store"].library).parent)          # (nothing added before: the library's parent)
+    give[0] = None
+    post(u + "/api/runs/add")
+    assert starts[1] == str(other)                                       # (beside the run added last)
+    assert D.load_config()["last_added_run"] == str(run)
+    import shutil
+    shutil.rmtree(other.parent)                                          # (its drive gone: back to the library's parent)
+    post(u + "/api/runs/add")
+    assert starts[2] == str(Path(libs["store"].library).parent)
