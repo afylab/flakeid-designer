@@ -5,6 +5,8 @@
 In the main folder, double-click the install file for your computer: `Install shortcut (Windows).bat`,
 `Install shortcut (Windows 7).bat` or `Install shortcut (Mac).command`.
 
+---
+
 The **vdW Stack Designer** places exfoliated 2D flakes found by optical scans into van der Waals heterostructure
 designs: it loads the scan results, lets you screen the flakes, plans stacks, checks overlaps and shorts, follows a
 device through its fabrication steps and exports to KLayout. It runs on your own computer in the browser (or as a
