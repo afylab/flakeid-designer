@@ -195,6 +195,18 @@ def verify(src):
     return bad
 
 
+def _copy_retry(a, b, tries=8):
+    """(2026-11-18o) copy2, again for a few seconds when Windows refuses the file (Errno 13 / WinError 32): antivirus reads
+    each new file just after it is unpacked and holds it meanwhile."""
+    for k in range(tries):
+        try:
+            return shutil.copy2(a, b)
+        except PermissionError:
+            if k == tries - 1:
+                raise
+            time.sleep(0.25 * (k + 1))
+
+
 def _code_files(base):
     base = Path(base)
     out = []
@@ -268,7 +280,10 @@ def install(sha, root=ROOT, log=print):
             raise UpdateError(f"{root} cannot be written by this account")
         moved, root = root, move(root, MOVE_DIR, log)
     have = installed(root)
-    with tempfile.TemporaryDirectory(prefix="designer_update_") as tmp:
+    # (2026-11-18o) the temporary folder removed with errors ignored: antivirus can hold a file in it, and the error of the
+    # removal (WinError 32) then replaced the real one
+    tmp = tempfile.mkdtemp(prefix="designer_update_")
+    try:
         log("downloading ...")
         src = download(sha, tmp)
         log("checking the new code ...")
@@ -290,7 +305,7 @@ def install(sha, root=ROOT, log=print):
         try:
             for rel in new:
                 (root / rel).parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src / rel, root / rel)
+                _copy_retry(src / rel, root / rel)
                 if os.name != "nt" and str(rel).endswith((".command", ".sh")):
                     try:                                     # (2026-11-10a: the zip keeps no modes: without this the
                         os.chmod(root / rel, 0o755)          # Mac's "Install shortcut (Mac).command" could not be opened)
@@ -304,6 +319,8 @@ def install(sha, root=ROOT, log=print):
                 except OSError:
                     pass
             raise UpdateError(f"the new files could not be copied ({e}); the previous code is back") from None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     c = _json(f"repos/{REPO}/commits/{sha}", _need_token())
     ver = dict(sha=sha, date=c["commit"]["committer"]["date"], message=c["commit"]["message"].split("\n")[0],
                installed=time.strftime("%Y-%m-%d %H:%M:%S"))
