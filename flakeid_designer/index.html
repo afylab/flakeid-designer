@@ -389,7 +389,7 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 .kst b{font:800 20px var(--sans)}.kst small{font:700 11px var(--sans);white-space:nowrap}.kst.ok{color:var(--ok)}.kst.afm{color:var(--afm)}
 .runcnt .rc.afm{color:var(--ink)}.runcnt .rc.afm .afmdonemark{color:var(--afm)}
 .runcnt .rcsep{color:var(--muted);font-weight:400;margin-right:6px}.runcnt .rc.afm.wrapped .rcsep{display:none}
-.runcnt{display:contents;font:700 13.5px var(--sans);color:var(--ink)}.runcnt .rc{white-space:nowrap;font-weight:700}.runcnt .ok{color:var(--ok)}.runcnt .part{color:var(--part)}.runcnt .scr{color:var(--muted)}.runcnt .afm{color:var(--afm)}.runcnt .afm .afmn{color:var(--ink)}.afmdonemark{color:var(--afm);font-size:15px}.runcard .sub.mid{text-align:center;margin-top:2px}
+.runcnt{display:contents;font:700 13.5px var(--sans);color:var(--ink)}.runcnt .rc{white-space:nowrap;font-weight:700}.runcnt .ok{color:var(--ok)}.runcnt .part{color:var(--part)}.runcnt .none{color:var(--err)}.runcnt .scr{color:var(--muted)}.runcnt .afm{color:var(--afm)}.runcnt .afm .afmn{color:var(--ink)}.afmdonemark{color:var(--afm);font-size:15px}.runcard .sub.mid{text-align:center;margin-top:2px}
 .archrow{margin-top:6px}.archrow>summary{cursor:pointer;color:var(--muted);font-size:13px;padding:6px 2px}.archrow>.runrow{margin-top:8px;opacity:.85}
 .status.err{color:var(--err)}
 /* export to KLayout (portable version only) */
@@ -2771,8 +2771,9 @@ function runCounts(id){const R=RUNS[id]||{},pre=(R.run||id)+":",kept=new Set();
 function runCountsInner(id){const c=runCounts(id),D=c.done;
   const dt=D.length?D.map(p=>`${p.name||"AFM list"}: ${p.scanned?`AFM scan complete ${fmtT(p.scanned)}`:"AFM scanned"}${p.n_sites?` · ${p.n_img||0} of ${p.n_sites} points with an AFM image`:""}`).join("\n"):"";
   const x=runScreenState(id);
+  // (2026-11-19) screening as words: Not screened (red) / Partially screened (amber) / All screened (green), the count on hover
   // (2026-11-18r) flakes, screened and AFM screened here, in the text colour; kept and AFM kept: runKeptInner, on the right
-  return `<span class="rc" title="Flakes">${c.n} flakes</span><span class="rc" title="${x.state==="done"?"Every flake screened":x.state==="part"?`${x.d} of ${x.n} flakes screened`:"Not screened yet"}">${x.d} screened</span>${D.length||c.as?`<span class="rc afm"><span class="rcsep" aria-hidden="true">|</span>${D.length?`<span class="afmdonemark" title="${escapeHtml(dt)}">✓</span> `:""}<span title="AFM screened">AFM: ${c.as} screened</span></span>`:""}`}
+  return `<span class="rc" title="Flakes">${c.n} flakes</span><span class="rc ${x.state==="done"?"ok":x.state==="part"?"part":"none"}" title="${x.d} of ${x.n} flakes screened">${x.state==="done"?"All screened":x.state==="part"?"Partially screened":"Not screened"}</span>${D.length||c.as?`<span class="rc afm"><span class="rcsep" aria-hidden="true">|</span>${D.length?`<span class="afmdonemark" title="${escapeHtml(dt)}">✓</span> `:""}<span title="AFM screened">AFM: ${c.as} screened</span></span>`:""}`}
 document.addEventListener("change",e=>{const c=e.target&&e.target.closest&&e.target.closest(".runchkbox"),k=c&&c.closest(".runcard");if(k)k.classList.toggle("on",c.checked)});
 function runKeptInner(id){const c=runCounts(id);
   return `${c.done.length||c.as?`<span class="kst afm" title="AFM screened and kept"><b>${c.ak}</b><small>AFM kept</small></span>`:""}<span class="kst ok" title="Kept (screening)"><b>${c.kept}</b><small>kept</small></span>`}
