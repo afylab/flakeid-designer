@@ -70,7 +70,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
             sys.path.append(str(_r))
         break
 APP = "flakeid-designer"
-VERSION = "2026-11-19a"
+VERSION = "2026-11-19c"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -2116,6 +2116,13 @@ class Builder:
             if b.get("dir") not in self.started:
                 self.started[b["dir"]] = run_started(b["dir"])
             b["started"] = self.started[b["dir"]]
+            # (2026-11-19) its chips' material and oxide: the build is shown as a run card (coloured bar)
+            pc = getattr(self, "pieces_cache", None)
+            if pc is None:
+                pc = self.pieces_cache = {}
+            if b.get("dir") not in pc:
+                pc[b["dir"]] = run_pieces(b["dir"])
+            b["pieces"] = pc[b["dir"]]
         return out
 
     def _set(self, d, **kw):
