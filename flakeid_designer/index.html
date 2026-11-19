@@ -371,7 +371,9 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 .runbar{width:106px;box-sizing:border-box;padding:10px 6px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:3px;background:#6b7a7e;color:#fff;border-radius:8px 0 0 8px;font:600 13px var(--sans);line-height:1.25}
 .runbar .rbname{font-size:13.5px;font-weight:600;overflow-wrap:break-word}.runbar .rbwho{font-weight:800;font-size:14px}.runbar .rbmat{opacity:.92}
 .runcard.mat-bn .runbar{background:#4696fe}.runcard.mat-gr .runbar{background:#5c3859}
-.runcard .runtop{flex-wrap:wrap;gap:4px 10px}
+.runcard .runtop{flex-wrap:wrap;gap:4px 6px}.runcard.runrow .runmain{padding:10px 6px 10px 10px}.runcard .runcnt .rc{font-size:12px}
+/* (2026-11-18q) "|" between the optical and the AFM counts while they share a line (hidden when the AFM ones wrap) */
+.runcnt .rcsep{color:var(--muted);font-weight:400;margin-right:6px}.runcnt .rc.afm.wrapped .rcsep{display:none}
 .runcnt{display:contents;font:700 13.5px var(--sans);color:var(--ink)}.runcnt .rc{white-space:nowrap;font-weight:700}.runcnt .ok{color:var(--ok)}.runcnt .part{color:var(--part)}.runcnt .scr{color:var(--muted)}.runcnt .afm{color:var(--afm)}.runcnt .afm .afmn{color:var(--ink)}.afmdonemark{color:var(--afm);font-size:15px}.runcard .sub.mid{text-align:center;margin-top:2px}
 .archrow{margin-top:6px}.archrow>summary{cursor:pointer;color:var(--muted);font-size:13px;padding:6px 2px}.archrow>.runrow{margin-top:8px;opacity:.85}
 .status.err{color:var(--err)}
@@ -2733,8 +2735,10 @@ function screenBadgeInner(id){const x=runScreenState(id);
     :x.state==="part"?`<span class="badge rev" title="${x.d} of ${x.n} flakes have a keep / discard decision or stars">partly screened</span>`
     :`<span class="badge" title="No keep / discard decisions or stars for this run yet">not screened</span>`}
 function screenBadge(id){return ` <span data-screen="${escapeHtml(id)}">${screenBadgeInner(id)}</span>`}
+function runSepSync(){document.querySelectorAll(".runcnt").forEach(c=>{const f=c.querySelector(".rc"),a=c.querySelector(".rc.afm");if(f&&a)a.classList.toggle("wrapped",a.getBoundingClientRect().top>f.getBoundingClientRect().top+2)})}
+window.addEventListener("resize",runSepSync);if(window.ResizeObserver)new ResizeObserver(()=>runSepSync()).observe($("runList"));
 function updateScreenBadges(){document.querySelectorAll("[data-screen]").forEach(el=>{const h=screenBadgeInner(el.dataset.screen);if(el.innerHTML!==h)el.innerHTML=h});
-  document.querySelectorAll("[data-runcnt]").forEach(el=>{const h=runCountsInner(el.dataset.runcnt);if(el.innerHTML!==h)el.innerHTML=h})}
+  document.querySelectorAll("[data-runcnt]").forEach(el=>{const h=runCountsInner(el.dataset.runcnt);if(el.innerHTML!==h)el.innerHTML=h});runSepSync()}
 // (2026-11-18) a run card's top row: its flakes, the kept ones; a pink check when one of its AFM lists is marked AFM scan
 // complete, and its flakes AFM screened / AFM screened kept (counted from everyone's decisions, loaded or not)
 let AFMDONE={},AFMDONE_AT=0;           // run -> [its AFM lists scanned: marked complete, or with AFM images imported (2026-11-18d)]
@@ -2748,7 +2752,7 @@ function runCounts(id){const R=RUNS[id]||{},pre=(R.run||id)+":",kept=new Set();
 function runCountsInner(id){const c=runCounts(id),D=c.done;
   const dt=D.length?D.map(p=>`${p.name||"AFM list"}: ${p.scanned?`AFM scan complete ${fmtT(p.scanned)}`:"AFM scanned"}${p.n_sites?` · ${p.n_img||0} of ${p.n_sites} points with an AFM image`:""}`).join("\n"):"";
   const x=runScreenState(id);
-  return `<span class="rc" title="Flakes">${c.n} flakes</span><span class="rc ${x.state==="part"?"part":"scr"}" title="${x.state==="done"?"Every flake screened":x.state==="part"?`${x.d} of ${x.n} flakes screened`:"Not screened yet"}">${x.d} screened</span><span class="rc ok" title="Kept (screening)">${c.kept} kept</span>${D.length||c.as?`<span class="rc afm">${D.length?`<span class="afmdonemark" title="${escapeHtml(dt)}">✓</span> `:""}<span title="AFM screened">AFM <span class="afmn">${c.as} screened</span></span> <span title="AFM screened and kept" style="margin-left:6px">${c.ak} kept</span></span>`:""}`}
+  return `<span class="rc" title="Flakes">${c.n} flakes</span><span class="rc ${x.state==="part"?"part":"scr"}" title="${x.state==="done"?"Every flake screened":x.state==="part"?`${x.d} of ${x.n} flakes screened`:"Not screened yet"}">${x.d} screened</span><span class="rc ok" title="Kept (screening)">${c.kept} kept</span>${D.length||c.as?`<span class="rc afm"><span class="rcsep" aria-hidden="true">|</span>${D.length?`<span class="afmdonemark" title="${escapeHtml(dt)}">✓</span> `:""}<span title="AFM screened">AFM: <span class="afmn">${c.as} screened</span></span> <span title="AFM screened and kept" style="margin-left:6px">${c.ak} kept</span></span>`:""}`}
 function offerScreening(){const el=$("newRuns");if(!el||!CAT)return;if(db&&!SEEN_READY){el.hidden=true;return}
   const runs=[...new Set(CAT.flakes.filter(f=>!f.archived).map(f=>f.run).filter(Boolean))].filter(r=>!SEEN.has(r)&&!SEEN.has(runId(r))&&!runScreened(r));
   if(!runs.length){el.hidden=true;return}

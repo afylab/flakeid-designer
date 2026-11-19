@@ -70,7 +70,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
             sys.path.append(str(_r))
         break
 APP = "flakeid-designer"
-VERSION = "2026-11-18p"
+VERSION = "2026-11-18q"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -3617,6 +3617,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(load_config().get("afm_tip") or {})
         if path == "/api/afm/plans":
             q_ = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            # (2026-11-18q) not before the first scan of the runs has found their own data folders (S.store.related): a
+            # page that asked in the meantime got no AFM list kept in a run's folder (GR14'_auto/20261103_run_1/
+            # _designer_data/afm): its card had no ✓ AFM, its flakes no Optical+AFM, until it asked again
+            if not S.store.first_scan.is_set():
+                S.store.first_scan.wait(120)
             pl = S.store.afm_plans((q_.get("scan") or [None])[0], drafts=(q_.get("drafts") or [""])[0] == "1")
             if (q_.get("summary") or [""])[0] == "1":     # (2026-11-18: the Library's run cards: which lists are complete)
                 pl = [dict({k: x.get(k) for k in AFM_PLAN_SUMMARY}, n_sites=len(x.get("sites") or []),
