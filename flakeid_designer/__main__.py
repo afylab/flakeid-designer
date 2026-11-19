@@ -70,7 +70,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
             sys.path.append(str(_r))
         break
 APP = "flakeid-designer"
-VERSION = "2026-11-19i"
+VERSION = "2026-11-19j"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -3537,6 +3537,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(BUILDER.status())
         if path == "/api/buildhere":
             return self._json(dict(on=build_here()))
+        if path == "/api/runpieces":
+            # (2026-11-19) a run folder's chips (material, oxide) from its <run>.json, read only: the Recent runs cards'
+            # coloured bar for runs not in the list
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            d = (q.get("dir") or [""])[0]
+            return self._json(dict(pieces=run_pieces(d) if d and Path(d).is_dir() else []))
         if path == "/api/coords":
             # a run's saved coordinate sets (Library › Restore coordinates)
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)

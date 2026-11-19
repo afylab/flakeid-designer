@@ -369,7 +369,8 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 /* (2026-11-18n) a bar on the card's left in the material's colour as the Natural 100x view shows it (hBN ~30 nm on 285 nm
    SiO2: 70,150,254; graphite ~3 nm on 90 nm SiO2: 92,56,89), with the person, the run and the material on three lines */
 .runcard.runrow,#libRuns .runcard.runrow{grid-template-columns:auto minmax(0,1fr) auto}
-.runcard.buildcard.runrow,#libRuns .runcard.buildcard.runrow{grid-template-columns:auto minmax(0,1fr);background:var(--cardon);margin-bottom:8px}
+.runcard.buildcard.runrow,#libRuns .runcard.buildcard.runrow,.runcard.reccard.runrow,#libRuns .runcard.reccard.runrow{grid-template-columns:auto minmax(0,1fr);background:var(--cardon);margin-bottom:8px}
+#runRecent .runcard.reccard.runrow{margin-bottom:6px}
 .bchead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
 .runbar{width:106px;box-sizing:border-box;padding:10px 6px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;text-align:center;gap:3px;background:#6b7a7e;color:#fff;border-radius:8px 0 0 8px;font:600 13px var(--sans);line-height:1.25}
 .runbar .rbname{font-size:13.5px;font-weight:600;overflow-wrap:break-word}.runbar .rbwho{font-weight:800;font-size:14px}.runbar .rbmat{opacity:1}
@@ -377,10 +378,10 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 /* (2026-11-19) rhombohedral graphite: the graphite colour with white staircase lines going up to the right, apart from each
    other (white, 6 px thick, 20 px steps, 60 px apart, drawn whole across the tile edges; ABC stacking: each layer shifted the same way from the one below) */
 .runcard.mat-rh .runbar{background:#5c3859 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cpath d='M-70 70H-50V50H-30V30H-10V10H10V-10H30V-30H50M-10 70H10V50H30V30H50V10H70V-10H90V-30H110M50 70H70V50H90V30H110V10H130V-10H150V-30H170' fill='none' stroke='%23fff' stroke-width='6' stroke-linejoin='miter'/%3E%3C/svg%3E") 0 0/60px 60px repeat}
-/* the bar's text on a highlight in the card's own colour (opaque), the text in the ink colour (every material: readable
-   over the rhombohedral lines too) */
-.runbar>span{background:var(--cardon);color:var(--ink);padding:1px 6px;border-radius:5px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
-#libRuns .runcard:not(.on):not(.buildcard) .runbar>span{background:var(--cardoff)}
+/* rhombohedral only: the bar's text on a highlight in the card's own colour (opaque), the text in the ink colour (readable
+   over the lines); BN and graphite: white text on the bar */
+.runcard.mat-rh .runbar>span{background:var(--cardon);color:var(--ink);padding:1px 6px;border-radius:5px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+#libRuns .runcard.mat-rh:not(.on):not(.buildcard):not(.reccard) .runbar>span{background:var(--cardoff)}
 .runcard .runtop{flex-wrap:wrap;gap:4px 6px}.runcard.runrow .runmain{padding:10px 6px 10px 10px}.runcard .runcnt .rc{font-size:13px}
 /* (2026-11-18q) "|" between the optical and the AFM counts while they share a line (hidden when the AFM ones wrap) */
 /* (2026-11-18r) the card's head: counts and folder on the left; on the right the start date, then kept / AFM kept as a
@@ -4839,7 +4840,7 @@ function addedRun(r){if(Array.isArray(r.added)&&LOCAL)LOCAL.added_runs=r.added;i
   if(r.roots)LOCAL.roots=r.roots;runMsg("");lsAllSet("runFocusPath",r.picked);localDb_.poll("runs");pollBuilds();renderRuns()}
 // (2026-11-05i, Avram) Recent runs: a dropdown right of ＋ Add run (was a tab of the list)
 function recentClose(){const m=$("runRecentMenu");if(m){m.hidden=true;$("runRecentBtn").setAttribute("aria-expanded","false")}}
-function recentRender(){const m=$("runRecentMenu");m.innerHTML=recentHtml();wireRecent(m);$("runRecentBtn").textContent=`Recent runs (${recentGet().length}) ▾`}
+function recentRender(){const m=$("runRecentMenu");m.innerHTML=recentHtml();wireRecent(m);$("runRecentBtn").textContent=`Recent runs (${recentGet().length}) ▾`;recentPieces()}
 $("runRecentBtn").onclick=e=>{e.stopPropagation();const m=$("runRecentMenu");if(m.hidden){recentRender();m.hidden=false;$("runRecentBtn").setAttribute("aria-expanded","true")}else recentClose()};
 $("runRecentMenu").addEventListener("click",e=>e.stopPropagation());
 document.addEventListener("click",()=>recentClose());
@@ -4853,7 +4854,8 @@ function fmtAgo(t){const m=Math.round((Date.now()-t)/60000);return m<1?"just now
 function recentGet(){try{const a=JSON.parse(lsAll("recentRuns")||"[]");return Array.isArray(a)?a:[]}catch(e){return []}}
 function recentSet(a){lsAllSet("recentRuns",JSON.stringify(a.slice(0,30)))}
 function noteRecent(run){if(!LOCAL)return;const id=Object.keys(RUNS).find(k=>k===run||(RUNS[k].run||k)===run);const R=id&&RUNS[id];if(!R||!R.path)return;afmPost("/api/keptcopy",{run:R.run||id});
-  const a=recentGet().filter(x=>normP(x.path)!==normP(R.path));a.unshift({path:R.path,name:R.title||R.run||id,started:R.started||null,lib:LOCAL.library,t:Date.now()});recentSet(a);
+  const a=recentGet().filter(x=>normP(x.path)!==normP(R.path));a.unshift({path:R.path,name:R.title||R.run||id,started:R.started||null,lib:LOCAL.library,t:Date.now(),
+    pieces:(R.pieces||[]).map(p=>({material:p.material,oxide_nm:p.oxide_nm})),materials:R.materials||[]});recentSet(a);
   if(!$("runRecentMenu").hidden)recentRender()}
 // (2026-11-05m) the run card's top left: what was scanned (graphite on >= 200 nm oxide is screened for
 // rhombohedral graphite, as flakeid.rhombo.applies) and, small, the SiO2 thickness
@@ -4872,10 +4874,19 @@ function runKind(R,part){const P=(R.pieces||[]).length?R.pieces:(R.materials||[]
 // (2026-11-16) whose run: the folder after "Microscope Images" in its path (always the person's name)
 function runPerson(p){const a=normP(p).split("/").filter(Boolean),i=a.findIndex(x=>x.toLowerCase()==="microscope images");return i>=0&&a[i+1]&&i+2<a.length?a[i+1]:""}
 function runNameHtml(name,path){const who=runPerson(path);return `${who?`<span class="runwho">${escapeHtml(who)}</span>`:""}<b title="${escapeHtml(path||"")}">${escapeHtml(name)}</b><span class="runpar" title="${escapeHtml(path||"")}">${escapeHtml(runParents(path))}</span>`}
+// (2026-11-19) a recent run as a run card: the coloured bar (person, run, material) and, on the right, its start date,
+// oxide and folder, when it was viewed, Show / Add run and ✕.  Its material: the run in the list, else what was noted
+// with it, else its <run>.json (/api/runpieces, once; kept with the entry)
 function recentHtml(){const a=recentGet();if(!a.length)return `<div class="empty" id="runRecent" title="A run counts as viewed when you show it, Screen it, open its AFM runs, Screen AFM, its Flake table, or one of its flakes">No runs viewed yet</div>`;
   return `<div id="runRecent">`+a.map((x,i)=>{const here=Object.keys(RUNS).find(k=>normP(RUNS[k].path)===normP(x.path));const lib=libName(x.lib);
-    return `<div class="runrow"><div style="min-width:0">${runNameHtml(x.name,x.path)}<div class="sub">${x.started?"Started "+escapeHtml(fmtStarted(x.started))+" · ":""}viewed ${escapeHtml(fmtAgo(x.t))}${here?"":lib?` · in ${escapeHtml(lib)}`:""}</div></div>
-      <span class="row">${here&&inLib(RUNS[here].path)?`<button data-recshow="${escapeHtml(here)}" title="It is in the list: show it there">Show</button>`:`<button class="primary" data-recadd="${i}" title="Put this run in the list below (${escapeHtml(x.path)})">Add run</button>`}<button data-recdel="${i}" title="Remove from Recent runs (nothing else changes)">✕</button></span></div>`}).join("")+`</div>`}
+    const R=here?RUNS[here]:{path:x.path,pieces:x.pieces||[],materials:x.materials||[]},who=runPerson(x.path),mat=runKind(R,"mat");
+    return `<div class="runrow runcard reccard ${runKind(R,"cls")}"><div class="runbar" title="${escapeHtml(x.name+"\n"+x.path)}">${who?`<span class="rbwho">${escapeHtml(who)}</span>`:""}<span class="rbname">${escapeHtml(x.name).replace("_","_<wbr>")}</span>${mat?`<span class="rbmat">${escapeHtml(mat)}</span>`:"<span></span>"}</div><div class="runmain"><div style="min-width:0"><div class="bchead"><span class="sub">viewed ${escapeHtml(fmtAgo(x.t))}${here?"":lib?` · in ${escapeHtml(lib)}`:""}</span>${x.started?`<span class="rundate" title="Started ${escapeHtml(fmtStarted(x.started))}">${escapeHtml(fmtDay(x.started))}</span>`:""}</div><div class="sub mid">${runKind(R,"ox")?runKind(R,"ox")+" · ":""}<span title="${escapeHtml(x.path)}">${escapeHtml(runParents(x.path))}</span></div></div>
+      <span class="row">${here&&inLib(RUNS[here].path)?`<button data-recshow="${escapeHtml(here)}" title="It is in the list: show it there">Show</button>`:`<button class="primary" data-recadd="${i}" title="Put this run in the list below (${escapeHtml(x.path)})">Add run</button>`}<button data-recdel="${i}" title="Remove from Recent runs (nothing else changes)">✕</button></span></div></div>`}).join("")+`</div>`}
+async function recentPieces(){const a=recentGet();let ch=false;
+  for(const x of a){if(x.pieces&&x.pieces.length||x._nop||Object.keys(RUNS).some(k=>normP(RUNS[k].path)===normP(x.path)))continue;
+    const r=await fetch("/api/runpieces?dir="+encodeURIComponent(x.path)).then(r=>r.ok?r.json():null).catch(()=>null);
+    if(r&&r.pieces&&r.pieces.length){x.pieces=r.pieces.map(p=>({material:p.material,oxide_nm:p.oxide_nm}));ch=true}else if(r)x._nop=1}
+  if(ch){recentSet(a);if(!$("runRecentMenu").hidden){const m=$("runRecentMenu");m.innerHTML=recentHtml();wireRecent(m)}}}
 function runFocus(id){RUNTAB="here";lsAllSet("runTab","here");renderRuns();const c=document.getElementById("runcb-"+id),row=c&&c.closest(".runrow");
   if(row){row.scrollIntoView({block:"center"});row.classList.add("flash");setTimeout(()=>row.classList.remove("flash"),2200)}}
 function wireRecent(L){L.querySelectorAll("[data-recshow]").forEach(b=>b.onclick=e=>{e.preventDefault();recentClose();runFocus(b.dataset.recshow)});
@@ -4893,12 +4904,18 @@ const RF_DAYS=[["7","Last 7 days"],["30","Last 30 days"],["90","Last 90 days"],[
 function runMats(k){return (runKind(RUNS[k]||{},"mat")||"").split(" + ").filter(Boolean)}
 function runDay(k){const R=RUNS[k]||{};const d=R.started?new Date(String(R.started).replace(" ","T")):new Date(R.added||0);return isNaN(d)?0:+d}
 function runFilt(ids,sk){let a=ids;
+  // (2026-11-19) a remembered material / person that no run has any more (e.g. "Rhombohedral graphite", renamed
+  // "Rhombohedral"; a person whose runs were removed): dropped, back to all, instead of kept as an extra option
+  if(ids.length){let ch=false;
+    if(RF.mat&&!ids.some(k=>runMats(k).includes(RF.mat))){RF.mat="";ch=true}
+    if(RF.who&&!ids.some(k=>runPerson(RUNS[k].path)===RF.who)){RF.who="";ch=true}
+    if(ch)try{localStorage.setItem("fd_runfilt",JSON.stringify(RF))}catch(e){}}
   if(RF.mat)a=a.filter(k=>runMats(k).includes(RF.mat));if(RF.who)a=a.filter(k=>runPerson(RUNS[k].path)===RF.who);
   if(RF.date){const t=Date.now()-(+RF.date)*864e5;a=a.filter(k=>runDay(k)>=t)}
   if(RF.sort==="kept"||RF.sort==="afm"){const v=k=>{const c=runCounts(k);return RF.sort==="kept"?c.kept:c.ak};a=a.map(k=>[k,v(k)]).sort((x,y)=>y[1]-x[1]).map(x=>x[0])}   // (stable: ties stay newest first)
   return a}
 function runFiltHtml(ids){const uniq=f=>[...new Set(ids.flatMap(f))].filter(Boolean).sort((a,b)=>a.localeCompare(b));
-  const mats=uniq(runMats),who=uniq(k=>[runPerson(RUNS[k].path)]);if(RF.mat&&!mats.includes(RF.mat))mats.push(RF.mat);if(RF.who&&!who.includes(RF.who))who.push(RF.who);
+  const mats=uniq(runMats),who=uniq(k=>[runPerson(RUNS[k].path)]);
   const sel=(key,first,opts,tip)=>`<select data-rf="${key}" class="rfsel${RF[key]&&key!=="sort"?" set":""}" title="${tip}">${first?`<option value="">${first}</option>`:""}${opts.map(([v,t])=>`<option value="${escapeHtml(v)}"${RF[key]===v?" selected":""}>${escapeHtml(t)}</option>`).join("")}</select>`;
   return `<span class="rfrow">${sel("mat","Material",mats.map(m=>[m,m]),"Show only runs of this material")}${sel("who","Person",who.map(w=>[w,w]),"Show only this person's runs")}${sel("date","Date",RF_DAYS,"Show only runs started in this time")}${sel("sort","",[["date","Sort: date"],["kept","Sort: kept"],["afm","Sort: AFM kept"]],"Order of the runs: newest first, or most kept / most AFM kept flakes first")}</span>`}
 function runNoneSync(){const b=$("runNone");if(b)b.disabled=![...document.querySelectorAll("#runList [data-run]")].some(c=>c.checked)}
