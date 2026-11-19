@@ -190,7 +190,11 @@ dialog::backdrop{background:rgba(10,14,16,.5)}
 #imgDlg .iwrap{position:relative;margin:0 auto}
 #imgDlg .isplit{flex:1 1 auto!important;min-height:0;display:flex}#imgDlg .isplit>.ibody{flex:1 1 0!important;min-width:0}
 #afmSide{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:8px;padding:10px 12px;background:var(--canvas);border-left:2px solid #333d40;overflow:auto;color:#e4ebec;font-size:13px}
-#afmSide[hidden]{display:none}#afmSide .sub{color:#9fb0b4}#afmSide .row{flex-wrap:wrap;gap:8px;align-items:center}#afmSide canvas{position:static;inset:auto;display:block;image-rendering:pixelated;cursor:crosshair;touch-action:none}
+#afmSide[hidden]{display:none}
+/* (2026-11-18l) the AFM panel's width: the bar left of it (dragged); the AFM picture's size: the grip at its corner */
+#afmSplit{flex:0 0 8px;cursor:col-resize;background:#333d40;touch-action:none}#afmSplit:hover,#afmSplit.on{background:#4fe0e0}#afmSplit[hidden]{display:none}
+#afmSide.sized{flex:0 0 auto;border-left:0}#afmSide .afmimg{position:relative}
+#afmSide .afmgrip{position:absolute;right:-6px;bottom:28px;width:16px;height:16px;cursor:nwse-resize;touch-action:none;background:linear-gradient(135deg,transparent 45%,#e4ebec 45%,#e4ebec 55%,transparent 55%,transparent 70%,#e4ebec 70%,#e4ebec 80%,transparent 80%)}#afmSide .sub{color:#9fb0b4}#afmSide .row{flex-wrap:wrap;gap:8px;align-items:center}#afmSide canvas{position:static;inset:auto;display:block;image-rendering:pixelated;cursor:crosshair;touch-action:none}
 #afmSide .afmcv{position:relative;flex:0 0 auto;display:flex;gap:8px;align-items:flex-start}#afmSide svg.cbar{flex:0 0 70px;width:70px;overflow:visible;cursor:default}#afmSide .afmimg{display:flex;flex-direction:column;flex:0 0 auto}#afmSide svg.afmsb{display:block;overflow:visible}#afmSide .afmlow{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;flex:0 0 auto}#afmSide .afmlow>div{min-width:0;display:flex;flex-direction:column;gap:4px}#afmSide svg.hist{width:100%;height:110px;flex:0 0 auto;background:#11181a;border-radius:6px;cursor:ew-resize;touch-action:none}#afmSide svg.prof{width:100%;height:120px;flex:0 0 auto;background:#11181a;border-radius:6px}#afmSide input[type=number]{width:86px}
 #afmsBar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}#afmsBar code{font-size:12px}
 .revb .u{border:1px solid var(--line);padding:3px 9px;border-radius:6px;cursor:pointer}.revb .u[aria-pressed="true"]{background:#6c5ce7;border-color:#6c5ce7;color:#fff}#tfBar{grid-column:1/-1;border:2px solid #f5a524;background:rgba(245,165,36,.12);border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;gap:8px}
@@ -589,7 +593,7 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
     <div class="dfilters" id="imgInfo"></div>
     <div class="dfilters drawbar" id="drawBar" hidden></div>
     <div id="imgRevBar"><span class="revb" id="imgRev" hidden><span class="k" role="button" tabindex="0" id="imgKeep">Keep</span><span class="d" role="button" tabindex="0" id="imgDisc">Discard</span><span class="u" role="button" tabindex="0" id="imgUsed" title="Mark this flake used (key U; again: not used). A Library Show category">Used</span></span></div>
-    <div class="isplit"><div class="ibody"><div id="imgCap"><span id="imgCapL"></span><span id="imgCapC"></span><span></span></div><div class="iwrap" id="imgWrap"><div id="imgRot"><img id="imgEl" alt=""><canvas id="imgCv" hidden></canvas><canvas id="imgTx" hidden></canvas><svg id="imgSvg" aria-hidden="true"></svg></div><svg id="imgGrid" aria-hidden="true"><g id="imgGridG"></g><g id="imgCurG" hidden><line id="imgCurH"></line><line id="imgCurV"></line></g></svg><div id="imgScale" aria-hidden="true" hidden><span></span><i></i></div></div></div><div id="afmSide" hidden></div></div>
+    <div class="isplit"><div class="ibody"><div id="imgCap"><span id="imgCapL"></span><span id="imgCapC"></span><span></span></div><div class="iwrap" id="imgWrap"><div id="imgRot"><img id="imgEl" alt=""><canvas id="imgCv" hidden></canvas><canvas id="imgTx" hidden></canvas><svg id="imgSvg" aria-hidden="true"></svg></div><svg id="imgGrid" aria-hidden="true"><g id="imgGridG"></g><g id="imgCurG" hidden><line id="imgCurH"></line><line id="imgCurV"></line></g></svg><div id="imgScale" aria-hidden="true" hidden><span></span><i></i></div></div></div><div id="afmSplit" hidden title="Drag: the AFM panel wider or narrower (double-click: half and half)"></div><div id="afmSide" hidden></div></div>
   </div>
 </dialog>
 <dialog id="fmapDlg" aria-label="Chip map of the shown flakes" style="width:min(1500px,calc(100vw - 32px))">
@@ -2558,7 +2562,17 @@ function afmFixStep(D){const W=D.w,H=D.h,z=D.z,med=a=>{const b=a.filter(Number.i
     for(let s=0;s<n;s++)if(sc[s]>0){const ref=(seg[j-1][s]+seg[j+w][s])/2;for(let r=j;r<j+w;r++){const dz=seg[r][s]-ref;for(let i=a0(s);i<a1(s);i++)z[r*W+i]-=dz}}
     scars++}
   return {jump,at,scars}}
-async function afmSideDraw(f,ctx){const side=$("afmSide"),P=ctx?ctx.P:AFMS.plan,s=ctx?ctx.s:afmsSite(f),r=ctx?ctx.r:afmsRes(f);   // (ctx: the flake's latest AFM result, outside the AFM screening)
+// (2026-11-18l) the AFM panel's width (fraction of the picture area; 0: half) and the AFM picture's size (0: fit), this computer
+let AFMPX=0,AFMW=0;try{AFMPX=+localStorage.getItem("fd_afmpx")||0;AFMW=+localStorage.getItem("fd_afmw")||0}catch(e){}
+function afmSplitSync(){const sd=$("afmSide"),sp=$("afmSplit");sp.hidden=sd.hidden;sd.classList.toggle("sized",AFMW>0);sd.style.flexBasis=AFMW>0?(AFMW*100).toFixed(1)+"%":""}
+new MutationObserver(afmSplitSync).observe($("afmSide"),{attributes:true,attributeFilter:["hidden"]});afmSplitSync();
+{const sp=$("afmSplit");let on=false,t=0;
+  const redraw=()=>{afmSplitSync();if($("imgDlg").open&&IMG.f){layoutImg();const sd=$("afmSide");if(!sd.hidden&&afmSideDraw.last)afmSideDraw(...afmSideDraw.last)}};
+  sp.onpointerdown=e=>{e.preventDefault();sp.setPointerCapture(e.pointerId);on=true;sp.classList.add("on")};
+  sp.onpointermove=e=>{if(!on)return;const r=sp.parentElement.getBoundingClientRect();AFMW=Math.min(.85,Math.max(.2,(r.right-e.clientX)/r.width));afmSplitSync();clearTimeout(t);t=setTimeout(redraw,120)};
+  sp.onpointerup=sp.onpointercancel=()=>{if(!on)return;on=false;sp.classList.remove("on");try{localStorage.setItem("fd_afmw",AFMW.toFixed(3))}catch(e){}redraw()};
+  sp.ondblclick=()=>{AFMW=0;try{localStorage.removeItem("fd_afmw")}catch(e){}redraw()}}
+async function afmSideDraw(f,ctx){afmSideDraw.last=[f,ctx];const side=$("afmSide"),P=ctx?ctx.P:AFMS.plan,s=ctx?ctx.s:afmsSite(f),r=ctx?ctx.r:afmsRes(f);   // (ctx: the flake's latest AFM result, outside the AFM screening)
   if(!s){side.innerHTML=`<div class="sub">Flake ${f.rank} is not in this AFM list.</div>`;return}
   if(!r){side.innerHTML=`<b>Point ${s.n} · flake ${f.rank}</b><div class="sub">No AFM image for this point yet: choose the folder with the .spm files above (the files, in name order, go to the points from "first file = point").</div>`;return}
   const FS=afmFilesOf(P,s.n),kk=Math.max(0,FS.indexOf(r));
@@ -2569,7 +2583,7 @@ async function afmSideDraw(f,ctx){const side=$("afmSide"),P=ctx?ctx.P:AFMS.plan,
     <div class="row"><button id="afmL3" aria-pressed="false" title="3-point level: click three points of the same flat surface (e.g. the substrate) on the AFM picture; the plane through them is taken off">3-point level</button><button id="afmStep" title="Fix step: part of the picture at another height after a line (a jump of the scan, not the sample): the lines put back in line">Fix step</button><button id="afmL3r" hidden title="Back to the heights as read (no 3-point level, no step fix)">Undo level</button>
       <label class="sub"><select id="afmCm" aria-label="Colour scale" title="Colour scale">${Object.keys(CMAPS).map(k=>`<option${k===AFMS.cmap?" selected":""}>${k}</option>`).join("")}</select></label>
       <button id="afmAuto" title="2–98 % of the heights">Auto range</button><button id="afmCopy" title="Copy the AFM picture as it looks here, with its colour bar and scale bar, as a PNG">Copy PNG</button><span class="sub" id="afmL3msg"></span></div>
-    <div class="afmcv"><div class="afmimg"><canvas id="afmCv"></canvas><svg id="afmSb" class="afmsb" height="${AFMSB_H}" aria-label="Scale bar"></svg></div><svg id="afmBar" class="cbar" aria-label="Colour bar (nm)"></svg></div><div class="row"><span class="sub" id="afmHover">&nbsp;</span></div>
+    <div class="afmcv"><div class="afmimg"><canvas id="afmCv"></canvas><span class="afmgrip" id="afmGrip" title="Drag: the AFM picture larger or smaller (double-click: fit the panel again)"></span><svg id="afmSb" class="afmsb" height="${AFMSB_H}" aria-label="Scale bar"></svg></div><svg id="afmBar" class="cbar" aria-label="Colour bar (nm)"></svg></div><div class="row"><span class="sub" id="afmHover">&nbsp;</span></div>
     <div class="afmlow"><div><div class="row" style="gap:6px"><b class="sub" style="color:#e4ebec" title="Drag across a peak (e.g. the flake's or the substrate's heights): its left end is black, its right end white; or drag the black / white handle">Histogram</b><label class="sub">black <input type="number" id="afmLo" step="0.1"></label><label class="sub">white <input type="number" id="afmHi" step="0.1"> nm</label><label class="sub"><input type="checkbox" id="afmLog"${AFMS.hlog?" checked":""}> log</label></div>
       <div class="row" style="gap:6px" title="The histogram's range (mouse wheel on the histogram: zoom in / out at the pointer)"><label class="sub">from <input type="number" id="afmHmin" step="0.1"></label><label class="sub">to <input type="number" id="afmHmax" step="0.1"> nm</label><button id="afmHfull" title="The histogram's whole range again (0.1–99.9 % of the heights)">Full</button></div>
       <svg class="hist" id="afmHist" aria-label="Histogram of the heights"></svg></div>
@@ -2581,8 +2595,12 @@ async function afmSideDraw(f,ctx){const side=$("afmSide"),P=ctx?ctx.P:AFMS.plan,
   const cv=$("afmCv"),bar=$("afmBar"),BW=70;cv.width=D.w;cv.height=D.h;cv.style.width=cv.style.height="0px";bar.style.height="0px";
   // (Firefox gave the canvas 0 width with max-width:100% in a shrink-wrapped box: it is sized here from the panel's room)
   const used=[...side.children].reduce((a,c)=>a+c.getBoundingClientRect().height,0)+8*(side.children.length-1)+20,
-    avW=Math.max(120,side.clientWidth-24-BW-8),avH=Math.max(200,side.clientHeight-used),sc=Math.min(avW/D.w,avH/D.h);
-  cv.style.width=Math.round(D.w*sc)+"px";cv.style.height=Math.round(D.h*sc)+"px";
+    avW=Math.max(120,side.clientWidth-24-BW-8),avH=Math.max(200,side.clientHeight-used);
+  // (2026-11-18l) the size chosen with the corner grip (px of the picture's longer side, this computer), else the panel's room;
+  // never wider than the panel (drag the bar left of it for more), taller than the panel: it scrolls
+  const fitSc=px=>{const w=px?Math.max(120,side.clientWidth-24-BW-8):avW;return px?Math.min(w/D.w,Math.max(120,px)/Math.max(D.w,D.h)):Math.min(w/D.w,avH/D.h)};
+  let sc=fitSc(AFMPX);
+  const sizeTo=x=>{sc=x;cv.style.width=Math.round(D.w*sc)+"px";cv.style.height=Math.round(D.h*sc)+"px"};sizeTo(sc);
   const K=P.id+":"+s.n+":"+kk,pick={on:false,pts:[]},msg=t=>{$("afmL3msg").textContent=t};
   const boxes=()=>{$("afmLo").value=+D.lo.toFixed(2);$("afmHi").value=+D.hi.toFixed(2)};
   const paint=()=>{const im=cv.getContext("2d").createImageData(D.w,D.h),a=im.data,span=(D.hi-D.lo)||1;
@@ -2596,6 +2614,11 @@ async function afmSideDraw(f,ctx){const side=$("afmSide"),P=ctx?ctx.P:AFMS.plan,
   const sbar=()=>{const W=Math.round(D.w*sc),um=D.w*(D.pixel_nm||0)/1000,sb=$("afmSb");sb.setAttribute("width",W);sb.style.width=W+"px";
     if(!(um>0)){sb.innerHTML="";return}const L=niceLen(um/4),px=W*L/um;
     sb.innerHTML=`<rect x="${(W-px).toFixed(1)}" y="${AFMSB_H-9}" width="${px.toFixed(1)}" height="5" fill="#e4ebec"/><text x="${(W-px/2).toFixed(1)}" y="${AFMSB_H-13}" text-anchor="middle" fill="#e4ebec" font-size="12" font-family="sans-serif">${fmtLen(L)}</text>`};
+  {const gr=$("afmGrip");let st=null;
+    gr.onpointerdown=e=>{e.preventDefault();e.stopPropagation();gr.setPointerCapture(e.pointerId);st={x:e.clientX,y:e.clientY,px:Math.max(D.w,D.h)*sc}};
+    gr.onpointermove=e=>{if(!st)return;const px=st.px+Math.max(e.clientX-st.x,e.clientY-st.y);sizeTo(fitSc(px));cbar();sbar()};
+    gr.onpointerup=gr.onpointercancel=()=>{if(!st)return;st=null;AFMPX=Math.round(Math.max(D.w,D.h)*sc);try{localStorage.setItem("fd_afmpx",String(AFMPX))}catch(e){}};
+    gr.ondblclick=e=>{e.stopPropagation();AFMPX=0;try{localStorage.removeItem("fd_afmpx")}catch(err){}sizeTo(fitSc(0));cbar();sbar()}}
   $("afmCopy").onclick=async()=>{const b=$("afmCopy");try{await afmCopyPng(cv,bar,$("afmSb"),side);copyDone(b,true);status2("AFM picture copied.")}
     catch(e){copyDone(b,false);status2("Could not copy the AFM picture: "+(e&&e.message||e))}};
   // the colour bar: the colours from black (bottom) to white (top) with their heights
