@@ -70,7 +70,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
             sys.path.append(str(_r))
         break
 APP = "flakeid-designer"
-VERSION = "2026-11-18h"
+VERSION = "2026-11-18i"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -226,6 +226,27 @@ def switch_library(cfg, store, path):
     remember_library(cfg, store)
     save_config(cfg)
     store.scan()
+
+
+def add_run_start(store):
+    """(2026-11-18i) Where ＋ Add run's folder window starts: the parent folder of the last run added on this computer
+    (its runs are usually side by side), else the library's parent folder."""
+    last = load_config().get("last_added_run")
+    try:
+        if last and Path(last).parent.is_dir():
+            return str(Path(last).parent)
+    except OSError:
+        pass
+    return str(Path(store.library).parent) if store.library else None
+
+
+def note_added_run(p):
+    """(2026-11-18i) The last run folder added, for add_run_start."""
+    with LIBRARY_LOCK:
+        cfg = load_config()
+        if cfg.get("last_added_run") != p:
+            cfg["last_added_run"] = p
+            save_config(cfg)
 
 
 def save_added(store):
@@ -4369,7 +4390,7 @@ class Handler(BaseHTTPRequestHandler):
                                              "the folder there, or cancel it first."), 409)
             try:
                 p = pick_folder("Run folder to add" if path == "/api/runs/add" else "Folder with scan results",
-                                str(Path(S.store.library).parent) if path == "/api/runs/add" and S.store.library else None)
+                                add_run_start(S.store) if path == "/api/runs/add" else None)
             finally:
                 PICKING.release()
         if path == "/api/runs/add":
@@ -4379,6 +4400,7 @@ class Handler(BaseHTTPRequestHandler):
             p = str(Path(p))
             if not is_run_dir(p):
                 return self._json(dict(error=f"{p} is not a scan run's folder (no designer files, copy_done.json or chip folders in it)"), 400)
+            note_added_run(p)
             if not S.store.library:
                 # (2026-11-05c, no Directory button any more) the first run on a computer: its folder's parent becomes
                 # the library (its stacks and decisions in <parent>/_designer_data)
