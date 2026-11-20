@@ -69,8 +69,12 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
         if str(_r) not in sys.path:                  # until a build had run (appended: this folder's modules keep priority)
             sys.path.append(str(_r))
         break
+# Every helper process (the builder, the KLayout export, ...) reads and writes text as UTF-8 whatever this computer's
+# language: on a Chinese Windows the default is GBK, and reading a viewer's index.html failed with "'gbk' codec can't
+# decode byte 0xba" (2026-11-20, third_2poly_run_1).  The files this program reads itself name their encoding.
+os.environ.setdefault("PYTHONUTF8", "1")
 APP = "flakeid-designer"
-VERSION = "2026-11-19j"
+VERSION = "2026-11-20a"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -2186,8 +2190,8 @@ class Builder:
         than run.json's "source": pieces copied as their export ended, the IR pictures at the end).  A re-image, a copy
         by hand or a copy from before 2026-10-21 (no "rebuild") -> the whole build."""
         try:
-            cd = json.loads((d / "copy_done.json").read_text())
-            src = json.loads((ddir / "run.json").read_text()).get("source")
+            cd = json.loads((d / "copy_done.json").read_text(encoding="utf-8"))
+            src = json.loads((ddir / "run.json").read_text(encoding="utf-8")).get("source")
         except (OSError, ValueError):
             return False
         return bool(src) and isinstance(cd.get("rebuild"), str) and cd["rebuild"] <= src and (ddir / "bundle.json").is_file()
@@ -2207,7 +2211,7 @@ class Builder:
                 fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
             except FileExistsError:
                 try:
-                    info = json.loads(lock.read_text() or "{}")
+                    info = json.loads(lock.read_text(encoding="utf-8") or "{}")
                 except (OSError, ValueError):
                     info = {}
                 try:
@@ -2771,7 +2775,7 @@ class AlignJob(KlJob):
         st, self.state = self.state, "running"           # (not done until the placements are written)
         try:
             out = Path(self.td) / "fits.json"
-            fits = json.loads(out.read_text()) if out.is_file() else []
+            fits = json.loads(out.read_text(encoding="utf-8")) if out.is_file() else []
             by_path = {os.path.normcase(os.path.abspath(f["path"])): f for f in fits}
             res, now = {}, int(time.time() * 1000)
             for u, p in self.todo:
@@ -4214,7 +4218,7 @@ class Handler(BaseHTTPRequestHandler):
                 td = tempfile.mkdtemp(prefix="vdw_align_")
                 exp = {Path(str(p)).name: float(e["um_per_px"]) for e in b.get("photos") or [] if isinstance(e, dict)
                        and e.get("um_per_px") for u, p in todo if u == e.get("url")}
-                (Path(td) / "expect.json").write_text(json.dumps(exp))
+                (Path(td) / "expect.json").write_text(json.dumps(exp), encoding="utf-8")
                 cmd = helper_cmd("marks", [str(p) for _, p in todo] + ["--gds", str(gds), "--fits-json", str(Path(td) / "fits.json"),
                                                                      "--outline-max-um-px", "0", "--expect-um", str(Path(td) / "expect.json")])
                 job = AlignJob(cmd, dict(stack=sid, gds=gds.name), td, todo, sid, gds.name, S.store.folders)
@@ -4702,7 +4706,7 @@ WScript.Echo "shortcut: " & sh.SpecialFolders("Desktop") & "\\{name}.lnk"
         (mac / "launcher").write_text(f'''#!/bin/sh
 # starts the designer server in the background (it stops by itself when unused) and opens the designer
 "{sys.executable}" "{HERE}" >/dev/null 2>&1 &
-''')
+''', encoding="utf-8")
         os.chmod(mac / "launcher", 0o755)
         icns = HERE / "static" / "designer.icns"
         if icns.is_file():
@@ -4716,7 +4720,7 @@ WScript.Echo "shortcut: " & sh.SpecialFolders("Desktop") & "\\{name}.lnk"
 <key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>{VERSION}</string>
 <key>LSUIElement</key><true/>
 </dict></plist>
-''')
+''', encoding="utf-8")
         desk = Path.home() / "Desktop" / f"{name}.app"
         if desk.is_symlink() and Path(os.readlink(desk)) != app:
             desk.unlink()
