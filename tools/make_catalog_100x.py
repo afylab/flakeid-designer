@@ -85,7 +85,7 @@ def t100x(R, material=None):
     return dict(t=x["t"], alts=list(x.get("alts") or []), agree=x.get("agree"), poor=bool(x.get("poor")))
 
 def h100(viewer: Path) -> dict:
-    h = (viewer / "index.html").read_text()
+    h = (viewer / "index.html").read_text(encoding="utf-8")
     i = h.index("const H100=") + 11
     return json.loads(h[i:h.index(";\n", i)])
 
@@ -266,7 +266,7 @@ def load_mosaic(viewer, e, R, wh):
     if not (mj.is_file() and (viewer / e["mos"]).is_file()):
         return None
     try:
-        J = json.loads(mj.read_text())
+        J = json.loads(mj.read_text(encoding="utf-8"))
         Ww, Hh = wh
         r = float(np.sqrt(abs(np.linalg.det(np.asarray(J["um_per_px"], float))))) / float(R["px_um"])
         (mw, mh), (mcx, mcy) = J["size_px"], J["main_centre_px"]
@@ -412,7 +412,7 @@ def main(argv=None):
     ap.add_argument("--no-refine-outline", action="store_true", help="the flake outline of the colour mask, not refined on "
                     "the 100x picture (flakeid.outline100; before 2026-10-22)")
     a = ap.parse_args(argv)
-    a.only_map = ({k: {int(x) for x in v} for k, v in json.loads(Path(a.only).read_text()).items()} if a.only else None)
+    a.only_map = ({k: {int(x) for x in v} for k, v in json.loads(Path(a.only).read_text(encoding="utf-8")).items()} if a.only else None)
     a.left_out = {}
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -508,7 +508,7 @@ def _pieces(a, out, flakes, cutouts, scans, thumbs, screens, stage):
         H_all = H
         if only is not None:
             H = {k: v for k, v in H.items() if int(k) in only}
-        rows = {int(r["terrace_id"]): r for r in csv.DictReader(open(results_file(res, "*_live_terraces.csv")))}
+        rows = {int(r["terrace_id"]): r for r in csv.DictReader(open(results_file(res, "*_live_terraces.csv"), encoding="utf-8", newline=""))}
         F = {f["id"]: f for f in D["flakes"]}
         T = {int(k): v for k, v in D["terraces"].items()}
         sm = D["stage_map"]
@@ -580,7 +580,7 @@ def _pieces(a, out, flakes, cutouts, scans, thumbs, screens, stage):
             rj = viewer / re.sub(r"\.jpg$", "_regions.json", e["f"])
             if not rj.is_file():
                 continue
-            R = json.loads(rj.read_text())
+            R = json.loads(rj.read_text(encoding="utf-8"))
             tid = int(f["terr"][0])                         # the terrace the 100x target was centred on
             expect = dict(area_um2=T[tid].get("area"), contrast=T[tid].get("c"))
             rgb = cv2.cvtColor(read_img(stage.path(viewer / e["f"])), cv2.COLOR_BGR2RGB)
@@ -768,7 +768,7 @@ def _pieces(a, out, flakes, cutouts, scans, thumbs, screens, stage):
             mj = viewer / re.sub(r"\.jpg$", ".json", e["mos"]) if e.get("mos") else None
             if mj is not None and mj.is_file() and (viewer / e["mos"]).is_file():
                 try:                                        # placed in the main picture's pixels: same scale, main at 0,0
-                    J = json.loads(mj.read_text())
+                    J = json.loads(mj.read_text(encoding="utf-8"))
                     r = float(np.sqrt(abs(np.linalg.det(np.asarray(J["um_per_px"], float))))) / float(R["px_um"])
                     (mw, mh), (mcx, mcy) = J["size_px"], J["main_centre_px"]
                     mos = dict(w=round(mw * r, 1), h=round(mh * r, 1), x=round(mcx * r - Ww / 2, 1), y=round(mcy * r - Hh / 2, 1),
@@ -888,7 +888,7 @@ def _write(out, flakes, cutouts, scans, thumbs, left_out=None):
                     "thicknesses from the measured 10x calibrations (graphene layer peaks, labelled hBN thin/thick).",
                atlas_size=ATLAS, atlases=[f"flakes_{s:02d}.webp" for s in range(n_sheets)], thumbs=thumb_files,
                scans=scans, flakes=flakes, left_out=left_out or {})
-    (out / "catalog.json").write_text(json.dumps(cat, separators=(",", ":")))
+    (out / "catalog.json").write_text(json.dumps(cat, separators=(",", ":")), encoding="utf-8")
     if (ROOT / "tools" / "designer_page.html").is_file():   # (the old standalone page; not in the packaged designer app)
         shutil.copy(ROOT / "tools" / "designer_page.html", out / "index.html")
     print(f"{len(flakes)} flakes, {n_sheets} atlases -> {out}")

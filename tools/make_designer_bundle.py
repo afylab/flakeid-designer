@@ -335,7 +335,7 @@ def main(argv=None):
     if rc not in (0, None) or not (tmp / "catalog.json").is_file():
         print("the catalog could not be made")
         return 1
-    cat = json.loads((tmp / "catalog.json").read_text())
+    cat = json.loads((tmp / "catalog.json").read_text(encoding="utf-8"))
     if not cat["flakes"]:
         print("no flakes imaged at 100x left in the catalog: nothing to add")
         shutil.rmtree(tmp)
@@ -414,7 +414,7 @@ def run_mounts(run_folder, pieces):
         cands += sorted(d.glob("*_run_*.json"))
     for f in cands:
         try:
-            m = json.loads(f.read_text())
+            m = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         if m.get("mounts"):
@@ -442,7 +442,7 @@ def copy_mark(run_folder, bundle, title=None):
     cd = {}
     if run_folder is not None:
         try:
-            cd = json.loads((Path(run_folder) / "copy_done.json").read_text())
+            cd = json.loads((Path(run_folder) / "copy_done.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             cd = {}
     p = cd.get("partial")
@@ -500,7 +500,7 @@ def todo_flakes(pieces, bundle):
             bak = sorted(viewer_dir(p).glob("index.html.bak-*"))
             if bak:
                 try:
-                    m = re.search(r"const H100=(.*?);\n", bak[0].read_text(), re.S)
+                    m = re.search(r"const H100=(.*?);\n", bak[0].read_text(encoding="utf-8"), re.S)
                     left[stem] = {int(k) for k in json.loads(m.group(1))} - set(have.get(stem, {}))
                 except (OSError, ValueError, AttributeError):
                     pass
@@ -558,7 +558,7 @@ def update(a, pieces, final: Path, run, run_folder=None):
         out, tmp = work / "designer", work / "_catalog"
         out.mkdir(parents=True)
         tmp.mkdir()
-        (work / "only.json").write_text(json.dumps({k: sorted(v) for k, v in todo.items()}))
+        (work / "only.json").write_text(json.dumps({k: sorted(v) for k, v in todo.items()}), encoding="utf-8")
         make_catalog_100x.PROGRESS = lambda f, t: progress(0.70 * f, t)
         new_pieces = [k for k in todo if k not in bundle["scans"]]   # (pieces copied since: their chip overview too)
         rc = catalog([str(p) for p in pieces] + ["-o", str(tmp), "--only", str(work / "only.json")]
@@ -566,7 +566,7 @@ def update(a, pieces, final: Path, run, run_folder=None):
         if rc not in (0, None) or not (tmp / "catalog.json").is_file():
             print("the catalog could not be made")
             return 1
-        cat = json.loads((tmp / "catalog.json").read_text())
+        cat = json.loads((tmp / "catalog.json").read_text(encoding="utf-8"))
         if not a.no_terraces100:
             from terraces100 import TERRACE_MATERIALS
             ii = [i for i, f in enumerate(cat["flakes"]) if f["material"] in TERRACE_MATERIALS and isinstance(f.get("img"), str) and f["terraces"]]
