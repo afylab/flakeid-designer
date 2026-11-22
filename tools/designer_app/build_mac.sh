@@ -31,6 +31,8 @@ DESIGNER_NAME="$NAME" DESIGNER_STACKER=$STACKER DESIGNER_VERSION_JSON="$PWD/buil
   "$PY" -m PyInstaller --noconfirm --workpath build_app --distpath dist_app tools/designer_app/designer_app.spec
 VER=$(grep '^VERSION = ' flakeid_designer/__main__.py | sed 's/.*"\(.*\)".*/\1/')
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VER" "dist_app/$NAME.app/Contents/Info.plist" || true
+# signed again (ad hoc) after the version is set: else macOS reports the app as modified ("invalid Info.plist")
+codesign --force --deep --sign - "dist_app/$NAME.app" >/dev/null 2>&1 || true
 rm -rf dist_app/dmg && mkdir -p dist_app/dmg && cp -R "dist_app/$NAME.app" dist_app/dmg/ && ln -s /Applications dist_app/dmg/Applications
 hdiutil create -volname "$NAME" -srcfolder dist_app/dmg -ov -format UDZO "dist_app/$NAME $VER.dmg" >/dev/null
 rm -rf dist_app/dmg
