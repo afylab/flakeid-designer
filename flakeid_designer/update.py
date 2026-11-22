@@ -17,6 +17,8 @@ An update:
   4. installed_version.json written; the designer restarts (the browser version) or asks to be restarted (the app).
 A designer in a folder this account cannot write (C:\\Program Files without admin rights: [Errno 13] Permission denied)
 is first copied to MOVE_DIR, updated there, its shortcut made again, and started from there (2026-11-16c).
+The Mac app (2026-11-21a, tools/designer_app/launcher.py) runs this code from a folder of its own
+(~/Library/Application Support/vdW Stack Designer/code), so ROOT is that folder and the app is updated the same way.
 A folder that is a git checkout is not updated (git pull).  A changed requirements.txt is reported: new packages are
 not installed here.
 """

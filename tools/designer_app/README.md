@@ -27,6 +27,13 @@ needed on the computers it is installed on; a new version means installing the n
 
 The version is `VERSION` in `flakeid_designer/__main__.py`.
 
+**The Mac app is a thin app** (`tools/designer_app/designer_app.spec`, `launcher.py`): it carries Python and the
+libraries, and a copy of the designer's code as plain files. At start the code is copied to
+`~/Library/Application Support/vdW Stack Designer/code` (when that has none, or an older commit than the app) and runs
+from there, so the designer's **Update…** replaces it like the browser version's. Rebuild the app only when the Python
+packages change (`requirements.txt`); a code update that needs a package the app lacks does not start, and the app
+puts its own copy back. `FLAKEID_DESIGNER_CODE` points it at another folder (tests). The Windows build is not thin yet.
+
 ## Install
 
 - **Mac:** open the .dmg, drag the app to Applications. The app is not signed: the first time, right-click it →
