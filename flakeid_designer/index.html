@@ -439,7 +439,7 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
         <button data-view="stack" aria-pressed="false" title="Assemble it at the stacker: pick-up order, live camera, pictures, where each layer really went">Stack</button>
         <button data-view="finalize" aria-pressed="false" title="Fabrication: the device photos of each fabrication step (the scanner's Device photos, with what was done), and the finished stack on pictures from the better microscope: final positions, shapes, export to KLayout">Fabrication</button>
       </div>
-      <span class="hgroup"><span class="dirwrap"><button id="bRuns" hidden title="The scan runs whose flakes are in the catalog; add a new run's results" aria-haspopup="menu" aria-expanded="false">Scan results</button><div id="dirMenu" class="dirmenu" role="menu" hidden></div></span><button id="bRefresh" hidden title="Look for new scan runs on the share and reload stacks, imported flakes and decisions">Refresh</button><button id="bUpd" hidden title="Get the newest version of the designer from GitHub (afylab/flakeid-designer)">Update…</button></span>
+      <span class="hgroup"><span class="dirwrap"><button id="bUser" hidden title="Who is using the designer: your runs, the runs you loaded and your name on decisions follow you to any computer" aria-haspopup="menu" aria-expanded="false">User ▾</button><div id="userMenu" class="dirmenu" role="menu" hidden></div></span><span class="dirwrap"><button id="bRuns" hidden title="The scan runs whose flakes are in the catalog; add a new run's results" aria-haspopup="menu" aria-expanded="false">Scan results</button><div id="dirMenu" class="dirmenu" role="menu" hidden></div></span><button id="bRefresh" hidden title="Look for new scan runs on the share and reload stacks, imported flakes and decisions">Refresh</button><button id="bUpd" hidden title="Get the newest version of the designer from GitHub (afylab/flakeid-designer)">Update…</button></span>
       <div class="sub hstatus" id="sub">Loading the flake catalog…</div>
     </div>
     <div class="hrow" id="hrow2" data-in="plan stack finalize">
@@ -917,9 +917,16 @@ const LOCAL=window.FLAKEID_LOCAL||null;
 let OFF=Object.assign({on:false,forced:false,n:0},(LOCAL&&LOCAL.offline)||{}),OFFST=null;
 // browser storage per library (a shared computer: each person's own runs selection, open stack, ...); the first library
 // opened after this change takes over what was stored before
-const LSK=k=>LOCAL&&LOCAL.library?`vdw:${LOCAL.library}|${k}`:`vdw:${k}`;
-function lsGet(k){try{let v=localStorage.getItem(LSK(k));if(v==null&&LSK(k)!==`vdw:${k}`){v=localStorage.getItem(`vdw:${k}`);
+// (2026-11-23) and per person (people.py: User ▾): two people on one computer and library keep their own; a person's first
+// visit starts from the library's (copied: the others keep it)
+const LSLIB=k=>LOCAL&&LOCAL.library?`vdw:${LOCAL.library}|${k}`:`vdw:${k}`;
+const LSK=k=>LOCAL&&LOCAL.library&&LOCAL.person?`vdw:${LOCAL.library}|@${LOCAL.person}|${k}`:LSLIB(k);
+function lsGet(k){try{let v=localStorage.getItem(LSK(k));
+  if(v==null&&LSK(k)!==LSLIB(k)){v=localStorage.getItem(LSLIB(k));if(v!=null)localStorage.setItem(LSK(k),v)}
+  if(v==null&&LSLIB(k)!==`vdw:${k}`){v=localStorage.getItem(`vdw:${k}`);
   if(v!=null){localStorage.setItem(LSK(k),v);localStorage.removeItem(`vdw:${k}`)}}return v}catch(e){return null}}
+// (2026-11-23) a decision's "by": the person's name for the computer logins their older decisions carry
+const whoName=b=>(LOCAL&&LOCAL.aliases&&b&&LOCAL.aliases[b])||b;
 function lsSet(k,v){try{localStorage.setItem(LSK(k),v)}catch(e){}}
 const runId=s=>String(s||"run").replace(/[^A-Za-z0-9_.~:@+-]/g,"_").replace(/^\.+$/,"run").slice(0,180);
 // Each collection is asked for every 20 s with the version the page has (ETag): the server answers 304 when nothing
@@ -974,15 +981,27 @@ function wireHide(L){L.querySelectorAll("[data-runhide]").forEach(b=>b.onclick=e
   const d=L.querySelector("#hidRuns");if(d)d.ontoggle=()=>{HIDROPEN=d.open}}
 function archHtml(arch){if(!arch.length)return "";
   return `<details class="archrow"${ARCHOPEN?" open":""}><summary title="Not loaded, not in the flake list or screening">Archived runs (${arch.length})</summary>${arch.map(id=>{const R=RUNS[id]||{},x=ARCH[id]||{};
-    return `<div class="runrow"><div style="min-width:0">${runNameHtml(R.title||R.run||id,R.path)}${screenBadge(id)}<div class="sub">${[R.started?"Started "+fmtStarted(R.started):"",R.n_flakes!=null?R.n_flakes+" flakes":"",(R.materials||[]).join(", ").replace("hbn","hBN"),(R.scans||[]).join(", "),x.by?"archived by "+x.by:"",ARCH_NEED.has(id)?"loaded for a stack":""].filter(Boolean).map(escapeHtml).join(" · ")}</div></div>
+    return `<div class="runrow"><div style="min-width:0">${runNameHtml(R.title||R.run||id,R.path)}${screenBadge(id)}<div class="sub">${[R.started?"Started "+fmtStarted(R.started):"",R.n_flakes!=null?R.n_flakes+" flakes":"",(R.materials||[]).join(", ").replace("hbn","hBN"),(R.scans||[]).join(", "),x.by?"archived by "+whoName(x.by):"",ARCH_NEED.has(id)?"loaded for a stack":""].filter(Boolean).map(escapeHtml).join(" · ")}</div></div>
       <span class="row"><button data-unarch="${escapeHtml(id)}" title="Back to the run list: its flakes are listed and can be screened again">Unarchive</button></span></div>`}).join("")}</details>`}
 function wireArch(L){L.querySelectorAll("[data-arch]").forEach(b=>b.onclick=e=>{e.preventDefault();e.stopPropagation();setArch(b.dataset.arch,true)});
   L.querySelectorAll("[data-unarch]").forEach(b=>b.onclick=e=>{e.preventDefault();e.stopPropagation();setArch(b.dataset.unarch,false)});
   const d=L.querySelector("details.archrow");if(d)d.ontoggle=()=>{ARCHOPEN=d.open}}
+// (2026-11-23) a person's loaded (ticked) runs are kept in their file on the share (LOCAL.ticked: paths), so they follow
+// them to another computer: they replace this browser's at each start; a run not known yet is loaded when it is ticked
+// there, or added here (TICK.set)
+const TICK={set:LOCAL&&LOCAL.person&&Array.isArray(LOCAL.ticked)?new Set(LOCAL.ticked.map(p=>String(p||"").replace(/\\/g,"/").replace(/\/+$/,""))):null,sent:null,timer:0};
 function updateRunSel(all){const ids=Object.keys(all).sort((a,b)=>(all[b].added||0)-(all[a].added||0));
-  if(!RUNSEL.on){RUNSEL.on=new Set(ids.slice(0,10));RUNSEL.known=new Set(ids)}
-  else ids.forEach(k=>{if(!RUNSEL.known.has(k)){RUNSEL.known.add(k);RUNSEL.on.add(k)}});saveRunSel()}
-function saveRunSel(){lsSet("runsel",JSON.stringify({on:[...RUNSEL.on],known:[...RUNSEL.known]}))}
+  if(TICK.set){if(!RUNSEL.known||!TICK.applied){RUNSEL.on=new Set();RUNSEL.known=new Set();TICK.applied=true}
+    ids.forEach(k=>{if(!RUNSEL.known.has(k)){RUNSEL.known.add(k);const p=all[k]&&all[k].path;if(p&&TICK.set.has(normP(p)))RUNSEL.on.add(k)}})}
+  else if(!RUNSEL.on){RUNSEL.on=new Set(ids.slice(0,10));RUNSEL.known=new Set(ids)}
+  else ids.forEach(k=>{if(!RUNSEL.known.has(k)){RUNSEL.known.add(k);RUNSEL.on.add(k)}});if(ids.length)TICK.ready=true;saveRunSel()}
+function saveRunSel(){lsSet("runsel",JSON.stringify({on:[...RUNSEL.on],known:[...RUNSEL.known]}));
+  if(!LOCAL||!LOCAL.person||!TICK.ready||!RUNSEL.on)return;clearTimeout(TICK.timer);TICK.timer=setTimeout(()=>{
+    // (a ticked run not listed (yet: the share's first walk, another computer's run) stays ticked)
+    const listed=new Set(Object.keys(RUNS).map(k=>RUNS[k]&&RUNS[k].path).filter(Boolean).map(normP));
+    const paths=[...new Set([...RUNSEL.on].map(k=>RUNS[k]&&RUNS[k].path).filter(Boolean).map(normP).concat(TICK.set?[...TICK.set].filter(p=>!listed.has(p)):[]))].sort(),j=JSON.stringify(paths);if(j===TICK.sent)return;TICK.sent=j;
+    if(TICK.set)TICK.set=new Set(paths);
+    fetch("/api/people/ticked",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({paths})}).catch(()=>{TICK.sent=null})},1500)}
 // The catalog is the published catalog.json plus every scan run added from the page ("Scan results"): each run is a
 // bundle (bundle.json + images, made by tools/make_designer_bundle.py) stored as assets, listed in the db's "runs".
 let BASE=null,RUNS={},RUNDATA={},runsReady=false,firstBuild=true,assets=null;
@@ -2026,7 +2045,7 @@ function drawClose(){if(DRAW.pts.length<3){status2("A terrace needs at least thr
     status2(`Terrace saved (${t} nm, ${Math.round(g.area)} µm²): it is now one of this flake's terraces.`)}}
 // a drawn terrace shown in the picture: who drew it, use it for the selected layer, delete it (two clicks)
 function drawBarFor(t,offerUse){const b=$("drawBar");const L=layers[sel];const canUse=L&&TR[L.tid]&&TR[L.tid].f.id===IMG.f.id&&L.tid!==t.id;
-  b.hidden=false;b.innerHTML=`<span class="sub">✎ drawn terrace · ${t.t} nm · ${Math.round(t.area)} µm²${t.user.note?` · “${escapeHtml(t.user.note)}”`:""}${t.user.by?` · by ${escapeHtml(t.user.by)}`:""}${t.user.created?` · ${new Date(t.user.created).toLocaleDateString()}`:""}</span>
+  b.hidden=false;b.innerHTML=`<span class="sub">✎ drawn terrace · ${t.t} nm · ${Math.round(t.area)} µm²${t.user.note?` · “${escapeHtml(t.user.note)}”`:""}${t.user.by?` · by ${escapeHtml(whoName(t.user.by))}`:""}${t.user.created?` · ${new Date(t.user.created).toLocaleDateString()}`:""}</span>
     ${canUse?`<button class="${offerUse?"primary":""}" id="drawUse">Use for layer ${num(sel)}</button>`:""}<button id="drawDel">Delete this terrace</button>`;
   if(canUse)$("drawUse").onclick=()=>{pushUndo();const w=toWorld(L,t.c[0],t.c[1]);L.tid=t.id;L.x=w[0];L.y=w[1];changed();status2(`Layer ${num(sel)} now uses the drawn terrace.`);drawBarFor(t)};
   $("drawDel").onclick=e=>{if(e.target.dataset.sure!=="1"){const used=layers.some(K=>K.tid===t.id);e.target.dataset.sure="1";e.target.textContent=used?"Delete (a layer uses it)? Click again":"Click again to delete";return}
@@ -3462,7 +3481,7 @@ function renderFinal(force){const el=$("pFinal");if(!el||el.hidden)return;
     <div class="sub">${p.objective?escapeHtml(p.objective)+" · ":""}${p.s&&p.f?(p.s*p.f).toFixed(4)+" µm/px":""}${p.original?" · original kept":""}</div>
     <div class="row"><button data-fiuse="${i}"${p.url===cur?" disabled":""}>Show</button></div></div></div>`).join("")||`<div class="sub">No picture yet.</div>`;
   h+=`<div class="lbl" style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">Notes</div><textarea id="fiNotes" placeholder="The finished stack: what it looks like, what changed at the end, what to watch in the next steps …" style="width:100%;min-height:70px;font:12.5px var(--sans);box-sizing:border-box">${escapeHtml(F.notes||"")}</textarea>`;
-  h+=`<div class="lbl" style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">KLayout exports</div>`+(ex.slice().reverse().map(x=>`<div class="fiexp">${fmtT(x.at)}${x.by?" · "+escapeHtml(x.by):""}<br>${x.lys?`<code>${escapeHtml(x.lys)}</code>`:""}${x.added_to?`<br>added to <code>${escapeHtml(x.added_to)}</code>`:""}<br><span class="sub">${(x.pictures||[]).filter(q=>q.placed).length} of ${(x.pictures||[]).length} pictures placed${x.template?" · "+escapeHtml(x.template.split(/[\\/]/).pop()):""}</span></div>`).join("")||`<div class="sub">None yet: Export to KLayout (top bar) uses this stack's pictures.</div>`);
+  h+=`<div class="lbl" style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">KLayout exports</div>`+(ex.slice().reverse().map(x=>`<div class="fiexp">${fmtT(x.at)}${x.by?" · "+escapeHtml(whoName(x.by)):""}<br>${x.lys?`<code>${escapeHtml(x.lys)}</code>`:""}${x.added_to?`<br>added to <code>${escapeHtml(x.added_to)}</code>`:""}<br><span class="sub">${(x.pictures||[]).filter(q=>q.placed).length} of ${(x.pictures||[]).length} pictures placed${x.template?" · "+escapeHtml(x.template.split(/[\\/]/).pop()):""}</span></div>`).join("")||`<div class="sub">None yet: Export to KLayout (top bar) uses this stack's pictures.</div>`);
   el.innerHTML=h;fabWire(el);
   $("fiAdd").onclick=()=>$("simgFile").click();
   el.querySelectorAll("[data-fiuse]").forEach(b=>b.onclick=()=>useFinalImage(+b.dataset.fiuse));
@@ -4316,7 +4335,7 @@ function fabShow(){if($("fabView").hidden)return;const c=fabCur(),img=$("fabImg"
   const {st,P,k}=c,n=fab().steps.length,ph=P[k]||null;
   if(ph){FAB.obj=ph.objective;FAB.label=ph.label}
   $("fabHead").innerHTML=(st.final?`<b>Final stack pictures</b><span class="fsub">before the fabrication steps${n?` (→ step 1 of ${n})`:""}</span>`
-    :`<b>Step ${FAB.i+1} of ${n}: ${escapeHtml(st.title||st.set||"step")}</b><span class="fsub">${fmtT(st.taken||st.at)}${st.by?" · "+escapeHtml(st.by):""}</span>`)+
+    :`<b>Step ${FAB.i+1} of ${n}: ${escapeHtml(st.title||st.set||"step")}</b><span class="fsub">${fmtT(st.taken||st.at)}${st.by?" · "+escapeHtml(whoName(st.by)):""}</span>`)+
     (ph?`<span><b>${escapeHtml(ph.objective||"")}</b>${ph.label&&ph.label!=="main"?" · "+escapeHtml(ph.label):""} <span class="fsub">(${k+1} of ${P.length} pictures: ${P.map(q=>escapeHtml(q.objective)+(q.label&&q.label!=="main"?"*":"")).join(", ")})</span></span>`:`<span class="fsub">no pictures</span>`);
   const views=ph?[["photo","Photo",ph.url]].concat(ph.terrace_map?[["map","Terraces",ph.terrace_map]]:[]).concat((ph.terraces||[]).filter(t=>t.hc).map(t=>["T"+t.n,`T${t.n} ±8 %${t.area_um2?` (${Math.round(t.area_um2)} µm²)`:""}`,t.hc])):[];
   if(!views.some(v=>v[0]===FAB.view))FAB.view="photo";
@@ -4549,13 +4568,13 @@ function renderSteps(force){const el=$("pSteps");if(!el||el.hidden)return;
   S0.forEach((st,k)=>{const ph=(st.photos||[])[0];
     h+=`<button class="stitem${STEPSEL===k?" sel":""}" data-st="${k}"><span class="stth">${ph?`<img src="${escapeHtml(ph.url)}" alt="">`:(st.kind==="pickup"?"↑":st.kind==="release"?"↓":"•")}</span>
       <div><b>${k+1}. ${escapeHtml(stepTitle(st))}</b>${st.kind==="pickup"&&!st.confirmed?`<span class="sttag">not confirmed</span>`:""}
-      <div class="sub">${fmtT(st.at)}${st.by?" · "+escapeHtml(st.by):""}</div><div class="sub">${escapeHtml(stepSummary(st))}</div></div></button>`});
+      <div class="sub">${fmtT(st.at)}${st.by?" · "+escapeHtml(whoName(st.by)):""}</div><div class="sub">${escapeHtml(stepSummary(st))}</div></div></button>`});
   h+=`</div>`;
   const st=STEPSEL!=null?S0[STEPSEL]:null;
   if(st){const kinds={pickup:"Pick-up",release:"Release onto the target",event:"Other event"};
     h+=`<div class="stdet"><div class="row"><select id="stKind">${Object.entries(kinds).map(([k,v])=>`<option value="${k}"${st.kind===k?" selected":""}>${v}</option>`).join("")}</select>
       <input id="stWhat" placeholder="what (anneal, cleaning, AFM …)" value="${escapeHtml(st.what||"")}"${st.kind==="event"?"":" hidden"}></div>
-      <div class="sub">${fmtT(st.at)}${st.by?" · "+escapeHtml(st.by):""}${st.objective?" · "+escapeHtml(st.objective):""}${st.um_per_px?" · "+(+st.um_per_px).toFixed(4)+" µm/px":""}${st.confirmed_at?" · confirmed "+fmtT(st.confirmed_at):""}</div>
+      <div class="sub">${fmtT(st.at)}${st.by?" · "+escapeHtml(whoName(st.by)):""}${st.objective?" · "+escapeHtml(st.objective):""}${st.um_per_px?" · "+(+st.um_per_px).toFixed(4)+" µm/px":""}${st.confirmed_at?" · confirmed "+fmtT(st.confirmed_at):""}</div>
       <div class="lbl">Pictures</div><div class="stphotos">${(st.photos||[]).map((p,i)=>`<button class="ph" data-ph="${i}" title="Show it under the layers, placed as taken"><img src="${escapeHtml(p.url)}" alt="picture ${i+1}"></button>`).join("")}
         <button id="stAddPic" title="A picture file (from this or another microscope)">Add picture…</button>${!$("bLive").hidden?`<button id="stLivePic" title="The live camera's picture now">Take picture</button>`:""}</div>
       <div class="lbl">Layers at this step</div>${Object.keys(st.poses||{}).map(u=>{const L=layerOfUid(u),d=poseDev(st.poses[u],u),fl=(st.flags||{})[u]||[];
@@ -4650,9 +4669,9 @@ async function lockBeat(){if(!LOCAL)return;if(LOCKED_ID&&LOCKED_ID!==curStackId)
   if(!curStackId){if($("stackBanner").className==="info")banner("");return}
   const r=await fetch("/api/stacklock",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:curStackId,session:SESSION})}).then(r=>r.json()).catch(()=>null);if(!r)return;
   if(r.ok){LOCKED_ID=curStackId;if($("stackBanner").className==="info")banner("")}
-  else if(r.other)banner(`This stack is also open on <b>${escapeHtml(r.other.host||"another computer")}</b>${r.other.by?" ("+escapeHtml(r.other.by)+")":""} since ${fmtT((r.other.since||0)*1000)}. Save on one of them only: a save here will not overwrite one made there, it will ask.`,true)}
+  else if(r.other)banner(`This stack is also open on <b>${escapeHtml(r.other.host||"another computer")}</b>${r.other.by?" ("+escapeHtml(whoName(r.other.by))+")":""} since ${fmtT((r.other.since||0)*1000)}. Save on one of them only: a save here will not overwrite one made there, it will ask.`,true)}
 setInterval(lockBeat,60000);addEventListener("pagehide",()=>{if(LOCKED_ID&&navigator.sendBeacon)navigator.sendBeacon("/api/stacklock",JSON.stringify({id:LOCKED_ID,session:SESSION,release:true}))});
-function showConflict(c,body,id){banner(`This stack was saved on <b>${escapeHtml(c.host||"another computer")}</b>${c.by?" by "+escapeHtml(c.by):""} at ${fmtT(c.at)}, after you opened it. <button id="cfLoad">Open that version</button> <button id="cfMine">Save mine over it</button> <button id="cfLater">Decide later</button>`);
+function showConflict(c,body,id){banner(`This stack was saved on <b>${escapeHtml(c.host||"another computer")}</b>${c.by?" by "+escapeHtml(whoName(c.by)):""} at ${fmtT(c.at)}, after you opened it. <button id="cfLoad">Open that version</button> <button id="cfMine">Save mine over it</button> <button id="cfLater">Decide later</button>`);
   $("cfLoad").onclick=async()=>{const list=await fetch("/api/db/stacks").then(r=>r.json()).catch(()=>[]);const x=list.find(d=>d.id===id);if(x){loadStack(id,x.data);banner("");status2("The other version is open (yours was not saved).")}};
   $("cfMine").onclick=async()=>{const ok=await putStack(id,Object.assign({},body,{_force:true}));if(ok){banner("");lockBeat();status2("Saved (the other version was replaced; it is in no backup unless you made one).")}};
   $("cfLater").onclick=()=>banner("")}
@@ -4847,7 +4866,7 @@ function wireAdded(L){L.querySelectorAll("[data-rmadded]").forEach(b=>b.onclick=
 async function addRunFolder(){const b=$("runAddBig");b.disabled=true;runMsg("Choose the run's folder in the window that opened (it can be behind the browser)…");
   const r=await fetch("/api/runs/add",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(r=>r.json()).catch(e=>({error:String(e)}));b.disabled=false;
   if(r.error){runMsg(r.error,true);return}if(!r.picked){runMsg("");return}addedRun(r)}
-function addedRun(r){if(Array.isArray(r.added)&&LOCAL)LOCAL.added_runs=r.added;if(r.reload){try{saveLocal()}catch(e){}lsAllSet("runFocusPath",r.picked);location.reload();return}
+function addedRun(r){if(Array.isArray(r.added)&&LOCAL)LOCAL.added_runs=r.added;if(TICK.set&&r.picked)TICK.set.add(normP(r.picked));if(r.reload){try{saveLocal()}catch(e){}lsAllSet("runFocusPath",r.picked);location.reload();return}
   if(r.roots)LOCAL.roots=r.roots;runMsg("");lsAllSet("runFocusPath",r.picked);localDb_.poll("runs");pollBuilds();renderRuns()}
 // (2026-11-05i, Avram) Recent runs: a dropdown right of ＋ Add run (was a tab of the list)
 function recentClose(){const m=$("runRecentMenu");if(m){m.hidden=true;$("runRecentBtn").setAttribute("aria-expanded","false")}}
@@ -4862,8 +4881,9 @@ function fmtDay(s){if(!s)return "";const d=new Date(String(s).replace(" ","T"));
   return `${z(d.getMonth()+1)}/${z(d.getDate())}/${z(d.getFullYear()%100)} ${z(h%12||12)}:${z(d.getMinutes())} ${h<12?"AM":"PM"}`}
 function fmtStarted(s){if(!s)return "";const d=new Date(String(s).replace(" ","T"));return isNaN(d)?String(s):d.toLocaleString([],{dateStyle:"medium",timeStyle:"short"})}
 function fmtAgo(t){const m=Math.round((Date.now()-t)/60000);return m<1?"just now":m<60?m+" min ago":m<1440?Math.round(m/60)+" h ago":Math.round(m/1440)+" day"+(m<2880?"":"s")+" ago"}
-function recentGet(){try{const a=JSON.parse(lsAll("recentRuns")||"[]");return Array.isArray(a)?a:[]}catch(e){return []}}
-function recentSet(a){lsAllSet("recentRuns",JSON.stringify(a.slice(0,30)))}
+const RECK=()=>"recentRuns"+(LOCAL&&LOCAL.person?"|@"+LOCAL.person:"");   // (2026-11-23: per person; their first visit starts from this computer's)
+function recentGet(){try{const a=JSON.parse(lsAll(RECK())||lsAll("recentRuns")||"[]");return Array.isArray(a)?a:[]}catch(e){return []}}
+function recentSet(a){lsAllSet(RECK(),JSON.stringify(a.slice(0,30)))}
 function noteRecent(run){if(!LOCAL)return;const id=Object.keys(RUNS).find(k=>k===run||(RUNS[k].run||k)===run);const R=id&&RUNS[id];if(!R||!R.path)return;afmPost("/api/keptcopy",{run:R.run||id});
   const a=recentGet().filter(x=>normP(x.path)!==normP(R.path));a.unshift({path:R.path,name:R.title||R.run||id,started:R.started||null,lib:LOCAL.library,t:Date.now(),
     pieces:(R.pieces||[]).map(p=>({material:p.material,oxide_nm:p.oxide_nm})),materials:R.materials||[]});recentSet(a);
@@ -5073,7 +5093,7 @@ async function switchLibrary(url,body){const m=$("dirMenu");const st=m.querySele
   const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})}).then(r=>r.json()).catch(()=>null);
   if(r&&r.picked){try{saveLocal()}catch(e){}location.reload()}
   else if(st)st.textContent=r&&r.error?r.error:"No folder chosen."}
-function openDirMenu(){const m=$("dirMenu");const libs=(LOCAL.libraries||[]);
+function openDirMenu(){closeUserMenu();const m=$("dirMenu");const libs=(LOCAL.libraries||[]);
   const cur=LOCAL.library;const rows=libs.map(l=>`<button role="menuitem" data-lib="${escapeHtml(l.path)}" aria-current="${l.path===cur}" title="${escapeHtml(l.path)}"><span>${l.path===cur?"✓ ":""}${escapeHtml(l.name)}</span><span class="sub">${escapeHtml(l.path)}</span></button>`).join("");
   m.innerHTML=`<div class="dlab">Directory (whose scan results, designs and decisions)</div>${rows||`<div class="msg">No directory chosen yet.</div>`}
     <button role="menuitem" id="dmNew"><span>Choose a folder…</span><span class="sub">a person's scanresults folder</span></button><hr>
@@ -5085,6 +5105,28 @@ function openDirMenu(){const m=$("dirMenu");const libs=(LOCAL.libraries||[]);
   $("dmNew").onclick=()=>switchLibrary("/api/library/pick");
   $("dmRuns").onclick=()=>{closeDirMenu();if(VIEW!=="library")enterView("library");else renderRuns()};
   (m.querySelector("button")||m).focus()}
+// (2026-11-23) User ▾: switch person (people.py): their run list, loaded runs and name on decisions, from their file
+// on the share (<their directory>/_designer_data/people/<name>.json); a new name is made in the current directory
+function userBtn(){const b=$("bUser");b.hidden=false;b.textContent=LOCAL.person?`User: ${LOCAL.person} ▾`:"Who are you? ▾";b.classList.toggle("primary",!LOCAL.person)}
+async function switchUser(name,home){const m=$("userMenu"),st=m.querySelector(".msg");if(st)st.textContent="Switching to "+name+"…";
+  const r=await fetch("/api/people/use",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(home?{name,home}:{name})}).then(r=>r.json()).catch(e=>({error:String(e)}));
+  if(r&&r.person){try{saveLocal()}catch(e){}location.reload()}else if(st)st.textContent=(r&&r.error)||"Could not switch."}
+async function openUserMenu(){const m=$("userMenu");m.hidden=false;$("bUser").setAttribute("aria-expanded","true");
+  const draw=info=>{const cur=LOCAL.person,ppl=(info&&info.people)||LOCAL.people||[],lib=(info&&info.in_library)||[];
+    const row=(p,sub,here)=>`<button role="menuitem" data-user="${escapeHtml(p.name)}"${here?` data-home="${escapeHtml(p.home||"")}"`:""} aria-current="${p.name===cur}" title="${escapeHtml(p.home||"")}"><span>${p.name===cur?"✓ ":""}${escapeHtml(p.name)}</span><span class="sub">${escapeHtml(sub)}</span></button>`;
+    m.innerHTML=`<div class="dlab">Who is using the designer</div>${ppl.map(p=>row(p,p.home?"directory: "+(libName(p.home)||p.home):"",false)).join("")}${lib.map(p=>row(p,"in this directory",true)).join("")}${!ppl.length&&!lib.length?`<div class="msg">Nobody chosen on this computer yet.</div>`:""}${info?"":`<div class="msg">Looking for people in this directory…</div>`}<hr>
+      <div style="display:flex;gap:6px;padding:4px 8px"><input id="umName" placeholder="${cur?"Another":"Your"} name" maxlength="40" style="flex:1;min-width:0" aria-label="Name"><button id="umAdd" class="primary" style="flex:0 0 auto;justify-content:center;background:var(--accent);color:var(--accent-ink)">${cur?"Add":"That's me"}</button></div>
+      <div class="msg">Your runs, the runs you load and your name on decisions follow you to any computer.${cur?"":" The runs listed now become yours."}</div>`;
+    m.querySelectorAll("[data-user]").forEach(b=>b.onclick=()=>{if(b.dataset.user===cur){closeUserMenu();return}switchUser(b.dataset.user,b.dataset.home||null)});
+    const go=()=>{const v=$("umName").value.trim();if(v)switchUser(v,null)};$("umAdd").onclick=go;$("umName").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();go()}};
+    m.style.left="0";m.style.right="auto";const rb=m.getBoundingClientRect();if(rb.right>innerWidth-8){m.style.left="auto";m.style.right="0"}};
+  draw(null);(m.querySelector("button")||$("umName")).focus();
+  const info=await fetch("/api/people",{cache:"no-store"}).then(r=>r.json()).catch(()=>null);if(!m.hidden&&info&&!$("umName").value)draw(info)}
+function closeUserMenu(){$("userMenu").hidden=true;$("bUser").setAttribute("aria-expanded","false")}
+document.addEventListener("click",e=>{if(!$("userMenu").hidden&&!e.target.closest(".dirwrap"))closeUserMenu()});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("userMenu").hidden)closeUserMenu()});
+$("bUser").onclick=e=>{e.stopPropagation();if($("userMenu").hidden){closeDirMenu();openUserMenu()}else closeUserMenu()};
+$("userMenu").addEventListener("click",e=>e.stopPropagation());
 function closeDirMenu(){$("dirMenu").hidden=true;$("bRuns").setAttribute("aria-expanded","false")}
 document.addEventListener("click",e=>{if(!$("dirMenu").hidden&&!e.target.closest(".dirwrap"))closeDirMenu()});
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("dirMenu").hidden)closeDirMenu()});
@@ -5141,7 +5183,7 @@ if(LOCAL){$("updBannerGo").onclick=updOpen;updAvail();setInterval(updAvail,30*60
 if(LOCAL){$("bRefresh").hidden=false;$("bRefresh").onclick=async()=>{const b=$("bRefresh");b.disabled=true;b.textContent="Refreshing…";
     try{await fetch("/api/rescan",{method:"POST"});["runs","stacks","manual","review","terraces","designs"].forEach(c=>localDb_&&localDb_.poll(c));checkLegacy();afmLoadAll();status2("Refreshed: runs, stacks and imported flakes reloaded from the share.")}
     catch(e){status2("Could not refresh: "+e)}finally{setTimeout(()=>{b.disabled=false;b.textContent="Refresh"},800)}};
-  $("bRuns").textContent=`Directory: ${libName(LOCAL.library)||"none"} ▾`;$("bRuns").title="Whose scan results, stacks and decisions: switch to another person's directory, or choose the runs to load";}
+  userBtn();$("bRuns").textContent=`Directory: ${libName(LOCAL.library)||"none"} ▾`;$("bRuns").title="Whose scan results, stacks and decisions: switch to another person's directory, or choose the runs to load";}
 $("bRuns").onclick=()=>{if(LOCAL){if($("dirMenu").hidden)openDirMenu();else closeDirMenu();return}renderRuns();$("runDlg").showModal()};$("runClose").onclick=()=>$("runDlg").close();
 $("runFolder").addEventListener("change",e=>{const f=[...e.target.files];e.target.value="";if(f.length)addRun(f)});
 $("runFiles").addEventListener("change",e=>{const f=[...e.target.files];e.target.value="";if(f.length)addRun(f)});

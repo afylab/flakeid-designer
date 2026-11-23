@@ -7,8 +7,10 @@ decisions kept in a shared folder.  Only Python 3.8+ is needed (no other package
     python flakeid_designer --install-shortcut   desktop shortcut (Windows) / app icon (Mac)
 
 Runs: every <run>/designer/bundle.json up to a few folders below each root (add roots from the page: Scan results ->
-Add a folder).  Shared data (designs, decisions): --data, else <first root>/_designer_data.  Settings per person:
-~/.flakeid_designer.json.  The server stops by itself 15 minutes after the last designer tab is closed.
+Add a folder).  Shared data (designs, decisions): --data, else <first root>/_designer_data.  Settings per computer:
+~/.flakeid_designer.json; each person (User ▾) keeps their runs and loaded runs in
+<their directory>/_designer_data/people/<name>.json (people.py).  The server stops by itself 15 minutes after the last
+designer tab is closed.
 
 "Export to KLayout..." runs marks_to_klayout.py (next to this file) with this Python as a separate process; that tool
 needs numpy, opencv-python and gdstk (python -m pip install numpy opencv-python gdstk).  Its choices are kept in the
@@ -58,6 +60,10 @@ try:                                                 # stacks kept on this compu
     from . import offline as OF
 except ImportError:
     import offline as OF                             # type: ignore
+try:                                                 # who uses the designer, and their runs (people.py)
+    from . import people as PP
+except ImportError:
+    import people as PP                              # type: ignore
 try:                                                 # updates from GitHub (update.py)
     from . import update as UPD
 except ImportError:
@@ -74,7 +80,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
 # decode byte 0xba" (2026-11-20, third_2poly_run_1).  The files this program reads itself name their encoding.
 os.environ.setdefault("PYTHONUTF8", "1")
 APP = "flakeid-designer"
-VERSION = "2026-11-23b"
+VERSION = "2026-11-23c"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -254,11 +260,186 @@ def note_added_run(p):
 
 
 def save_added(store):
-    """(2026-11-05j) Keep the store's added run folders in the settings (this computer, any library)."""
+    """(2026-11-05j) Keep the store's added run folders in the settings (this computer, any library).  (2026-11-23)
+    With a person chosen, the list is that person's (people.py): kept in the settings and written to their file on the
+    share in the background."""
+    with PERSON_LOCK:
+        if PERSON["name"]:
+            PP.set_list(PERSON["doc"], list(store.added or []), PERSON["home"])
     with LIBRARY_LOCK:
         cfg = load_config()
         cfg["added_runs"] = list(store.added or [])
+        person_cache(cfg)
         save_config(cfg)
+    person_sync_soon(store)
+
+
+# ---- people (2026-11-23, people.py): who is using the designer on this computer, and their list of runs
+PERSON = dict(name=None, home=None, data=None, doc=None)    # the person chosen on this computer (None: as before)
+PERSON_LOCK = threading.Lock()                              # PERSON (never held around share I/O)
+_PSYNC = dict(lock=threading.Lock(), busy=False, again=False)
+
+
+def person_data_dir(cfg, home):
+    """The designer data of a person's home library (its own _designer_data, as the library is opened)."""
+    lib = (cfg.get("libraries") or {}).get(home) or {}
+    if lib.get("data_dir") and lib_owns(home, lib.get("roots"), lib.get("data_dir")):
+        return lib["data_dir"]
+    return str(Path(home) / "_designer_data")
+
+
+def apply_person(store, cfg, key):
+    """Make the person saved in the settings under `key` the current one, from the settings' copy (no share I/O): the
+    store's run list becomes theirs.  -> False (no such person: none chosen, the list as before)."""
+    e = (cfg.get("people") or {}).get(key) if key else None
+    if not isinstance(e, dict) or not e.get("name") or not e.get("home"):
+        with PERSON_LOCK:
+            PERSON.update(name=None, home=None, data=None, doc=None)
+        return False
+    doc = e.get("doc") if PP.valid(e.get("doc")) else PP.new_doc(e["name"])
+    with PERSON_LOCK:
+        PERSON.update(name=e["name"], home=e["home"], data=person_data_dir(cfg, e["home"]), doc=doc)
+        store.added = PP.run_paths(doc, e["home"])          # (a list, even empty: never seeded from the ticked runs)
+    return True
+
+
+def person_cache(cfg):
+    """The current person's copy into the settings (read by the next start, and when the share does not answer)."""
+    with PERSON_LOCK:
+        if not PERSON["name"]:
+            return cfg
+        k = PP.key_of(PERSON["name"])
+        e = cfg.setdefault("people", {}).setdefault(k, {})
+        e.update(name=PERSON["name"], home=PERSON["home"], doc=json.loads(json.dumps(PERSON["doc"])), used=time.time())
+        cfg["person"] = k
+        cfg["added_runs"] = PP.run_paths(PERSON["doc"], PERSON["home"])   # (an older designer started here: the same list)
+    return cfg
+
+
+def person_sync_soon(store):
+    """The person's file on the share merged with this computer's copy, in a background thread (one at a time; a
+    request meanwhile runs it once more).  A change made on another computer comes back into the run list."""
+    with PERSON_LOCK:
+        if not PERSON["name"]:
+            return
+    with _PSYNC["lock"]:
+        if _PSYNC["busy"]:
+            _PSYNC["again"] = True
+            return
+        _PSYNC["busy"] = True
+    threading.Thread(target=_person_sync, args=(store,), daemon=True).start()
+
+
+def _person_sync(store):
+    while True:
+        try:
+            with PERSON_LOCK:
+                name, home, data = PERSON["name"], PERSON["home"], PERSON["data"]
+                doc = json.loads(json.dumps(PERSON["doc"])) if name else None
+            if name:
+                merged = PP.save(PP.person_file(data, name), doc)
+                if merged is None:
+                    sys.stderr.write(f"{time.strftime('%H:%M:%S')} PEOPLE: {name}'s list not written to {data} "
+                                     f"(kept on this computer, written when the share answers)\n")
+                changed = False
+                with PERSON_LOCK:
+                    if merged is not None and PERSON["name"] == name:
+                        PERSON["doc"] = PP.merge(PERSON["doc"], merged)
+                        new = PP.run_paths(PERSON["doc"], home)
+                        if new != store.added:
+                            store.added, changed = new, True
+                with LIBRARY_LOCK:
+                    cfg = load_config()
+                    person_cache(cfg)
+                    save_config(cfg)
+                if changed:
+                    store.scan()
+        except Exception as e:                           # (never stops the designer)
+            sys.stderr.write(f"{time.strftime('%H:%M:%S')} PEOPLE: sync failed: {e}\n")
+        with _PSYNC["lock"]:
+            if not _PSYNC["again"]:
+                _PSYNC["busy"] = False
+                return
+            _PSYNC["again"] = False
+
+
+def people_info(cfg):
+    """For the page: the person, the people used on this computer, the old computer logins each one's decisions carry
+    (aliases: shown with the person's name), and the person's loaded (ticked) runs."""
+    with PERSON_LOCK:
+        cur = PERSON["name"]
+        ticked = PP.ticked_paths(PERSON["doc"], PERSON["home"]) if cur else None
+    ppl = [dict(name=e.get("name"), home=e.get("home")) for k, e in sorted((cfg.get("people") or {}).items(),
+           key=lambda kv: -float(kv[1].get("used", 0) if isinstance(kv[1], dict) else 0)) if isinstance(e, dict) and e.get("name")]
+    al = {}
+    for e in (cfg.get("people") or {}).values():
+        if isinstance(e, dict) and e.get("name"):
+            for a in ((e.get("doc") or {}).get("aliases") or []):
+                al[a] = e["name"]
+            al[f"{PP.file_id(e['name'])}@{_host()}"] = e["name"]
+    return dict(person=cur, people=ppl, aliases=al, ticked=ticked)
+
+
+def use_person(store, name, home=None):
+    """Switch to the person `name` (made on this computer if new: their home library is `home`, else the current
+    library).  Their file on the share is read first (outside the library lock); the first person made on a computer
+    takes over its run list and its login's decisions (aliases).  -> (dict for the page, error)."""
+    name = PP.clean_name(name)
+    if not PP.file_id(name):
+        return None, "Type a name."
+    key = PP.key_of(name)
+    cfg0 = load_config()
+    e0 = (cfg0.get("people") or {}).get(key)
+    if isinstance(e0, dict) and e0.get("home"):
+        home = e0["home"]
+    home = str(Path(home)) if home else (store.library or None)
+    if not home:
+        return None, "Add a run first (its folder's parent becomes the directory), then choose your name."
+    shared = PP.load(PP.person_file(person_data_dir(cfg0, home), name))      # (share I/O: before the lock)
+    home_ok = Path(home).is_dir()
+    with LIBRARY_LOCK:
+        cfg = load_config()
+        remember_library(cfg, store)
+        people = cfg.setdefault("people", {})
+        e = people.get(key) if isinstance(people.get(key), dict) else None
+        if e is None:
+            first = not any(isinstance(v, dict) and v.get("name") for v in people.values())
+            doc = PP.new_doc(name, [legacy_user()] if first else [])
+            if first and store.added:
+                PP.set_list(doc, list(store.added), home)     # (this computer's list so far: its first person's)
+            if shared:
+                doc = PP.merge(shared, doc)
+                doc["name"] = shared.get("name") or name
+            e = people[key] = dict(name=doc["name"], home=home, doc=doc, used=time.time())
+        elif shared:
+            e["doc"] = PP.merge(shared, e.get("doc"))
+        cfg["person"] = key
+        apply_person(store, cfg, key)
+        person_cache(cfg)
+        switched = False
+        if store.library != home and home_ok:
+            switch_library(cfg, store, home)                 # (saves the settings and walks the runs)
+            switched = True
+        else:
+            save_config(cfg)
+    if not switched:
+        store.scan()
+    person_sync_soon(store)
+    return dict(person=PERSON["name"], home=home, reload=True), None
+
+
+def set_ticked(store, paths):
+    """The person's loaded (ticked) runs, from the page."""
+    with PERSON_LOCK:
+        if not PERSON["name"]:
+            return False
+        PP.set_ticked(PERSON["doc"], [str(Path(p)) for p in paths if isinstance(p, str) and p], PERSON["home"])
+    with LIBRARY_LOCK:
+        cfg = load_config()
+        person_cache(cfg)
+        save_config(cfg)
+    person_sync_soon(store)
+    return True
 
 
 def save_config(c):
@@ -277,11 +458,31 @@ def save_config(c):
         pass
 
 
-def user_name():
+def _host():
     try:
-        return SAFE_ID.sub("_", f"{getpass.getuser()}@{socket.gethostname().split('.')[0]}")
+        return socket.gethostname().split('.')[0]
+    except Exception:
+        return "pc"
+
+
+def legacy_user():
+    """This computer's login (login@computer): who made a decision before people were chosen in the designer."""
+    try:
+        return SAFE_ID.sub("_", f"{getpass.getuser()}@{_host()}")
     except Exception:
         return "user"
+
+
+def user_name():
+    """The writer's id in file names (review/<id>.jsonl: one computer writes each file): person@computer when a person
+    is chosen (2026-11-23), else the login (login@computer)."""
+    n = PERSON.get("name")
+    return SAFE_ID.sub("_", f"{PP.file_id(n)}@{_host()}") if n else legacy_user()
+
+
+def by_name():
+    """Who made a decision, step or list (the 'by' written with it): the person chosen, else the login."""
+    return PERSON.get("name") or user_name()
 
 
 def run_pieces(run_dir):
@@ -320,7 +521,7 @@ class Store:
         self._files = {}                # shared-data file path -> ((mtime_ns, size), parsed)
         self._lists = {}                # collection -> (signature, list)
         self._review = {}               # review .jsonl path -> dict(key, pos, latest)
-        self.folders = SD.Folders(load_config, save_config, user_name)   # folder stacks (Open..., Open recent)
+        self.folders = SD.Folders(load_config, save_config, by_name)   # folder stacks (Open..., Open recent)
 
     # ---- runs
     def scan(self):
@@ -633,7 +834,7 @@ class Store:
         d = self._dir("designs")
         if d is None:
             raise OSError("no shared data folder")
-        body = dict(body, by=body.get("by") or user_name())
+        body = dict(body, by=body.get("by") or by_name())
         tmp = d / f".{did}.tmp"
         tmp.write_text(json.dumps(body), encoding="utf-8")
         os.replace(tmp, d / f"{did}.json")
@@ -660,7 +861,7 @@ class Store:
         d = self._dir("stacks")
         if d is None:
             raise OSError("no shared data folder")
-        body = dict(body, by=body.get("by") or user_name())
+        body = dict(body, by=body.get("by") or by_name())
         base, force = body.pop("_base", None), body.pop("_force", False)
         bsig = body.pop("_base_sig", None)
         body.pop("_sig", None)
@@ -713,7 +914,7 @@ class Store:
             return True, None
         if other and not mine and time.time() - (other.get("beat") or 0) < stale_s:
             return False, dict(by=other.get("by"), host=other.get("host"), since=other.get("since"))
-        f.write_text(json.dumps(dict(session=session, by=user_name(), host=platform.node(), beat=time.time(),
+        f.write_text(json.dumps(dict(session=session, by=by_name(), host=platform.node(), beat=time.time(),
                                      since=(other or {}).get("since") if mine else time.time())), encoding="utf-8")
         return True, None
 
@@ -887,7 +1088,7 @@ class Store:
         d = self._dir("manual")
         if d is None:
             raise OSError("no shared data folder")
-        body = dict(body, by=body.get("by") or user_name())
+        body = dict(body, by=body.get("by") or by_name())
         tmp = d / f".{mid}.tmp"
         tmp.write_text(json.dumps(body), encoding="utf-8")
         os.replace(tmp, d / f"{mid}.json")
@@ -918,7 +1119,7 @@ class Store:
         d = self._dir("terraces")
         if d is None:
             raise OSError("no shared data folder")
-        body = dict(body, by=body.get("by") or user_name())
+        body = dict(body, by=body.get("by") or by_name())
         tmp = d / f".{tid}.tmp"
         tmp.write_text(json.dumps(body, indent=1), encoding="utf-8")
         os.replace(tmp, d / f"{tid}.json")
@@ -1024,7 +1225,7 @@ class Store:
                 j = json.loads(f.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 j = {}
-            j[rid] = dict(by=user_name(), at=body.get("at") or int(time.time() * 1000))
+            j[rid] = dict(by=by_name(), at=body.get("at") or int(time.time() * 1000))
             tmp = d / ".screened_runs.tmp"
             tmp.write_text(json.dumps(j, indent=1), encoding="utf-8")
             os.replace(tmp, f)
@@ -1054,7 +1255,7 @@ class Store:
                 j = json.loads(f.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 j = {}
-            j[rid] = dict(run=str(body.get("run") or rid), archived=bool(body.get("archived")), by=user_name(),
+            j[rid] = dict(run=str(body.get("run") or rid), archived=bool(body.get("archived")), by=by_name(),
                           at=body.get("at") or int(time.time() * 1000))
             tmp = d / ".archived_runs.tmp"
             tmp.write_text(json.dumps(j, indent=1), encoding="utf-8")
@@ -1076,7 +1277,7 @@ class Store:
             raise OSError("no shared data folder")
         prev = self.review_state()[2].get(tid) or {}
         upd = max(int(time.time() * 1000), int(prev.get("updated") or 0) + 1)
-        e = dict(id=tid, updated=upd, by=user_name(), body=dict(body, updated=upd))
+        e = dict(id=tid, updated=upd, by=by_name(), body=dict(body, updated=upd))
         with self.review_lock, open(d / f"{user_name()}.jsonl", "a", encoding="utf-8") as fh:
             fh.write(json.dumps(e) + "\n")
         RUN_DATA.mirror(self, [e])                       # (also in the run's own folder: seen by any computer that adds it)
@@ -1086,7 +1287,7 @@ class Store:
                 if body.get("decision") in KP.KEEP:
                     KEPT_COPY.want(self, (KP.parse_tid(tid) or [None])[0])
             if tid.endswith(".clean"):                   # (the AFM center, also next to the 100x pictures: kept.py)
-                threading.Thread(target=KP.write_center, args=(self, tid, dict(body, by=user_name())), daemon=True).start()
+                threading.Thread(target=KP.write_center, args=(self, tid, dict(body, by=by_name())), daemon=True).start()
         except Exception as ex:                          # (never fails the decision)
             sys.stderr.write(f"{time.strftime('%H:%M:%S')} kept pictures not requested: {ex}\n")
 
@@ -1422,7 +1623,7 @@ def restore_coords(store, run, pid):
         keep.mkdir(parents=True, exist_ok=True)
         shutil.copy2(rm, keep / "remeasure.json")
     keep.mkdir(parents=True, exist_ok=True)
-    (keep / "restore_note.json").write_text(json.dumps(dict(date=time.strftime("%Y-%m-%d %H:%M"), restored=pid, by=user_name()),
+    (keep / "restore_note.json").write_text(json.dumps(dict(date=time.strftime("%Y-%m-%d %H:%M"), restored=pid, by=by_name()),
                                                        indent=1), encoding="utf-8")
     for f in files:
         dst = d / f.relative_to(src)
@@ -1672,14 +1873,14 @@ def _reset_review(store, run, afm=False):
         if afm:
             if tid.endswith(".afmdec") and ((e or {}).get("body") or {}).get("afmdec") in ("keep", "discard"):
                 upd = max(now, int(e.get("updated") or 0) + 1)
-                lines.append(json.dumps(dict(id=tid, updated=upd, by=user_name(), body=dict(
+                lines.append(json.dumps(dict(id=tid, updated=upd, by=by_name(), body=dict(
                     afmdec=None, flake=tid[:-len(".afmdec")], run=run, reset=True, updated=upd))))
             continue
         if tid.endswith(".stars"):
             continue
         if ((e or {}).get("body") or {}).get("decision") in ("keep", "discard"):
             upd = max(now, int(e.get("updated") or 0) + 1)
-            lines.append(json.dumps(dict(id=tid, updated=upd, by=user_name(),
+            lines.append(json.dumps(dict(id=tid, updated=upd, by=by_name(),
                                          body=dict(decision=None, terrace=tid, reset=True, updated=upd))))
     if lines:
         with store.review_lock, open(d / f"{user_name()}.jsonl", "a", encoding="utf-8") as fh:
@@ -2208,7 +2409,7 @@ class Builder:
         computer that stopped mid-build) is taken over; one from an older designer (no renewal) after LOCK_H hours."""
         import platform
         import uuid
-        me = json.dumps(dict(by=user_name(), host=platform.node(), since=time.strftime("%Y-%m-%d %H:%M:%S"), beat=self.LOCK_BEAT_S))
+        me = json.dumps(dict(by=by_name(), host=platform.node(), since=time.strftime("%Y-%m-%d %H:%M:%S"), beat=self.LOCK_BEAT_S))
         for attempt in (0, 1):
             try:
                 fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
@@ -3480,9 +3681,9 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
         if path in ("/", "/index.html"):
             html = (HERE / "index.html").read_text(encoding="utf-8")
-            cfg = dict(user=user_name(), roots=S.store.roots, data_dir=str(S.store.data) if S.store.data else None, version=VERSION,
+            cfg = dict(user=by_name(), roots=S.store.roots, data_dir=str(S.store.data) if S.store.data else None, version=VERSION,
                        added_runs=S.store.added,
-                       offline=S.offline.brief(), **library_info(load_config(), S.store))
+                       offline=S.offline.brief(), **dict(library_info(load_config(), S.store), **people_info(load_config())))
             inj = f'<link rel="icon" href="/static/designer_64.png"><script>window.FLAKEID_LOCAL={json.dumps(cfg)};</script>'
             mb = re.search(r"<body[^>]*>", html)            # (the body tag may carry attributes: data-view)
             html = html[:mb.end()] + inj + html[mb.end():] if mb else inj + html
@@ -3532,8 +3733,17 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/ping":
             return self._json(dict(app=APP, version=VERSION))
         if path == "/api/config":
-            return self._json(dict(user=user_name(), roots=S.store.roots, data_dir=str(S.store.data) if S.store.data else None,
-                                   scanned=S.store.scanned, **library_info(load_config(), S.store)))
+            return self._json(dict(user=by_name(), roots=S.store.roots, data_dir=str(S.store.data) if S.store.data else None,
+                                   scanned=S.store.scanned, **dict(library_info(load_config(), S.store), **people_info(load_config()))))
+        if path == "/api/people":
+            # (2026-11-23) the people used on this computer, and those with a file in the current library (its
+            # _designer_data/people: one folder listed on the share)
+            cfg = load_config()
+            info = people_info(cfg)
+            seen = {PP.key_of(x["name"]) for x in info["people"]}
+            info["in_library"] = [dict(name=x["name"], home=S.store.library) for x in PP.listed(S.store.data)
+                                  if PP.key_of(x["name"]) not in seen] if S.store.data and S.store.library else []
+            return self._json(info)
         if path == "/api/offline":
             return self._json(S.offline.status())
         if S.offline.offline and self._offline_get(path):
@@ -4250,7 +4460,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(dict(error="no pictures"), 400)
                 title, desc = str(b.get("title") or "").strip(), str(b.get("description") or "")
                 if SD.is_folder_id(sid):
-                    return self._json(dict(step=S.store.folders.new_step(sid, title, desc, user_name(), photos)))
+                    return self._json(dict(step=S.store.folders.new_step(sid, title, desc, by_name(), photos)))
                 return self._json(S.store.new_fab_photos(sid, title, photos))
             except (ValueError, OSError, RuntimeError) as e:
                 return self._json(dict(error=str(e)), 400)
@@ -4268,7 +4478,7 @@ class Handler(BaseHTTPRequestHandler):
                     src = str(b.get("path") or "")
                     rec = S.store.device_photo_set(src)[0] if not (Path(src) / "step.json").is_file() else None
                     return self._json(dict(step=S.store.folders.import_step(sid, src, str(b.get("title") or ""),
-                                                                            str(b.get("description") or ""), user_name(), rec)))
+                                                                            str(b.get("description") or ""), by_name(), rec)))
                 return self._json(S.store.import_device_photos(sid, str(b.get("path") or "")))
             except (ValueError, RuntimeError) as e:
                 return self._json(dict(error=str(e)), 400)
@@ -4478,6 +4688,22 @@ class Handler(BaseHTTPRequestHandler):
                 cfg = load_config()
                 switch_library(cfg, S.store, p)
             return self._json(dict(picked=p, roots=S.store.roots, data_dir=str(S.store.data), **library_info(cfg, S.store)))
+        if path in ("/api/people/use", "/api/people/ticked"):
+            # (2026-11-23) use: switch to a person (made if new: {name, home}); ticked: the person's loaded runs {paths}
+            if not (self.headers.get("Content-Type") or "").lower().startswith("application/json"):
+                return self._json(dict(error="JSON only"), 415)
+            try:
+                b = self._body()
+            except ValueError:
+                return self._json(dict(error="bad request"), 400)
+            if path == "/api/people/ticked":
+                ok = set_ticked(S.store, b.get("paths") if isinstance(b.get("paths"), list) else [])
+                return self._json(dict(ok=ok))
+            home = b.get("home")
+            if home and not Path(str(home)).is_dir():
+                return self._json(dict(error=f"{home} is not reachable (is the share connected?)"), 400)
+            r, err = use_person(S.store, b.get("name"), str(home) if home else None)
+            return self._json(dict(error=err), 400) if err else self._json(r)
         if path in ("/api/runs/remove", "/api/runs/seed"):
             # (2026-11-05j) remove: a run off the list (nothing on disk changes); seed: the first list on this computer
             # (the runs ticked then), only when none was chosen yet
@@ -4862,7 +5088,9 @@ def main(argv=None):
             webbrowser.open(url)
         return 0
     store = Store(roots, data, library, added=cfg.get("added_runs"))
+    apply_person(store, cfg, cfg.get("person"))        # (2026-11-23: the person's runs, from this computer's copy)
     threading.Thread(target=store.scan, daemon=True).start()
+    person_sync_soon(store)                           # (then their file on the share: changes from other computers)
     srv = make_server(port, store)
     print(f"vdW Stack Designer: {url}  (roots: {', '.join(roots) or 'none yet'}; designs and decisions: {data or 'none yet'})")
     if not a.no_browser:
