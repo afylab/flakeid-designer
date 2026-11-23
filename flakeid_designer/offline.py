@@ -1033,7 +1033,7 @@ class Offline:
             if not force and bsig and cur.get("_sig") and bsig != cur.get("_sig") and cur.get("session") != body.get("session"):
                 raise self.D.StackConflict(dict(by=cur.get("by"), at=cur.get("updated"), host=cur.get("saved_on")))
             n = int(m.get("n_local") or 0) + 1
-            body["by"] = body.get("by") or self.D.user_name()
+            body["by"] = body.get("by") or getattr(self.D, "by_name", self.D.user_name)()
             body["rev"] = int(cur.get("rev") or (m.get("base") or {}).get("rev") or 0)
             body["updated"] = max(int(body.get("updated") or 0), int(time.time() * 1000), int(cur.get("updated") or 0) + 1)
             if m.get("kind") == "folder":
@@ -1252,7 +1252,7 @@ class Offline:
         b = {k: v for k, v in body.items() if k not in ("folder", "file", "session", "rev", "_force", "_base_sig")}
         b["name"] = f"{body.get('name') or 'stack'} (offline edits {date})"
         b["offline_copy_of"] = dict(id=sid, kind=m.get("kind"), folder=m.get("folder"), file=m.get("file"), at=int(time.time() * 1000),
-                                    host=platform.node(), by=self.D.user_name())
+                                    host=platform.node(), by=getattr(self.D, "by_name", self.D.user_name)())
         if self.S.data is not None:
             base = sid if m.get("kind") != "folder" else "folder_" + sid[2:]
             nid = re.sub(r"[^A-Za-z0-9_.~@+-]", "_", f"{base}_offline_{stamp}")[:180]
