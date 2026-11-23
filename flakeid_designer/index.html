@@ -606,7 +606,7 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
     <div class="dhead"><b id="imgTitle">100x image</b><div class="row seg">
       <span class="row seg" id="imgAfmV" hidden><button id="imgVOpt" aria-pressed="false" title="The optical picture alone">Optical</button><button id="imgVAfm" aria-pressed="true" title="The optical picture with the flake's AFM picture next to it">Optical+AFM</button></span>
       <span class="row seg" id="imgNavB" hidden><button id="imgPrev" title="The previous flake (key ←), e.g. to change a keep / discard you made by mistake">◀</button><button id="imgNext" title="The next flake (key → or Space)">▶</button></span>
-      <button id="imgNat" aria-pressed="true" title="Key 1">Natural</button><button id="imgSg" aria-pressed="false" title="Black and white: the green channel against the terrace, ±4 %, flattened (the scanner's _sg picture; key 2)">B/W green</button><button id="imgC8" aria-pressed="false" title="Colour, each channel against the terrace ±8 % (key 3)">High contrast</button><button id="imgTx10" aria-pressed="false" title="The flake in the chip's 10x scan, where the 10x analysis found it (key 4): scroll to zoom, drag to move, double-click to go back; O shows its 10x outline">10x</button><button id="imgDt" aria-pressed="false" title="Equivalent thickness change from the terrace (±1.5 nm): fine terraces (key 5)">Thickness change</button><button id="imgIr" aria-pressed="false" title="The IR camera's picture (stacking domains), laid over this 100x frame (key I)">IR domains</button><button id="imgMos" aria-pressed="false" hidden title="The whole terrace: the scan's mosaic of 100x pictures around this one, at the same scale (key M); zoom out with the mouse wheel or −, drag to move">Whole terrace</button>
+      <button id="imgNat" aria-pressed="true" title="Key 1">Natural</button><button id="imgSg" aria-pressed="false" title="Black and white: the green channel against the terrace, ±4 %, flattened (the scanner's _sg picture; key 2)">B/W green</button><button id="imgC8" aria-pressed="false" title="Colour, each channel against the terrace ±8 % (key 3)">High contrast</button><button id="imgTx10" aria-pressed="false" title="The flake in the chip's 10x scan, where the 10x analysis found it (key 4): scroll to zoom, drag to move, double-click to go back; O shows its 10x outline">10x</button><button id="imgTxOrig" aria-pressed="false" hidden title="The 10x scan as the 10x camera saw it (pressed), instead of in the colours of the 100x pictures (each 10x colour read as a thickness and shown in that thickness's 100x colour). The analysis always uses the original 10x data">Original 10x colours</button><button id="imgDt" aria-pressed="false" title="Equivalent thickness change from the terrace (±1.5 nm): fine terraces (key 5)">Thickness change</button><button id="imgIr" aria-pressed="false" title="The IR camera's picture (stacking domains), laid over this 100x frame (key I)">IR domains</button><button id="imgMos" aria-pressed="false" hidden title="The whole terrace: the scan's mosaic of 100x pictures around this one, at the same scale (key M); zoom out with the mouse wheel or −, drag to move">Whole terrace</button>
       <button id="imgFit" aria-pressed="true">Fit</button><button id="imgOne" aria-pressed="false">1:1</button><span id="imgZbar" class="row seg" hidden><button id="imgZo" title="Zoom out (mouse wheel)">−</button><button id="imgZi" title="Zoom in (mouse wheel)">+</button><button id="imgZw" title="The whole mosaic in the box">Whole</button><button id="imgZ1" title="Back to the 100x picture's scale and place">100 %</button></span>
       <button id="imgOut" aria-pressed="false">Outline</button><button id="imgWr" aria-pressed="false" title="Wrinkle / fold lines found by the 100x analysis (off by default; key W; remembered on this computer)">Wrinkles</button>
       <button id="imgDraw" aria-pressed="false" title="Draw a terrace by hand: click its corners, then click the first corner, double-click or press Enter (Backspace: undo a corner, Esc: cancel). Saved for everyone using this library, and as examples for the automatic terrace finding">Draw terrace</button>
@@ -1942,7 +1942,7 @@ $("imgWrap").addEventListener("wheel",e=>{if(IMG.mode!=="mos"||!IMG.f||!IMG.f.mo
   $("imgWrap").addEventListener("pointerup",end);$("imgWrap").addEventListener("pointercancel",end)}
 function showImg(){const f=IMG.f,t=IMG.t,F=f.frame;if(!$("imgCopyMenu").hidden&&$("imgCopyMenu").dataset.f!==f.id)copyClose();$("imgCopyMenu").dataset.f=f.id;if(IMG.mode==="mos"&&!(f.img_mos&&f.mos))IMG.mode="nat";if(f.img_mos&&f.mos)IMG.wantMos=IMG.mode==="mos";
   const ref=IMG.mode==="sg"?sgUrl(f):IMG.mode==="c8"?f.img_c8:IMG.mode==="dt"?f.img_dt:IMG.mode==="ir"?f.img_ir:IMG.mode==="mos"?(f.img_mos_look||f.img_mos):(f.img_look||f.img);$("imgMos").setAttribute("aria-pressed",String(IMG.mode==="mos"));const tok=IMG.tok=(IMG.tok||0)+1;
-  const tx=IMG.mode==="tenx";$("imgWrap").classList.toggle("tenx",tx);$("imgTx").hidden=!tx;$("imgTx10").setAttribute("aria-pressed",String(tx));
+  const tx=IMG.mode==="tenx";$("imgWrap").classList.toggle("tenx",tx);$("imgTx").hidden=!tx;$("imgTx10").setAttribute("aria-pressed",String(tx));tenxOrigSync();
   $("imgOpen").hidden=tx||typeof ref!=="string";if(typeof ref==="string")$("imgOpen").href=ref;
   if(!tx)showPic(ref,tok);loadDetail(f);if(typeof thkPrep==="function")thkPrep();imgHdrSync();
   $("imgTx").setAttribute("aria-label",`10x picture of flake ${f.rank} (the chip's 10x scan)`);
@@ -2260,14 +2260,19 @@ $("imgDlg").addEventListener("close",()=>thkTip(null,null));
 // on the share (/api/tenx: the pyramid and the flake's place and outline as the 10x analysis found them; /tenx/...: its
 // tiles), centred on the flake with its surroundings (≥ 420 µm across).  Same camera as the 100x pictures, so the same
 // orientation (and the view rotation applies).  Wheel / − +: zoom; drag: move; double-click: back; O: its 10x outline.
-const TX={info:{},infoV:{},tiles:new Map(),z:1,pan:[0,0],I:null,V:null,draw:0,msg:""};
+const TX={info:{},infoV:{},tiles:new Map(),z:1,pan:[0,0],I:null,V:null,draw:0,msg:"",orig:false};
+// (2026-11-23a) scans from Flake-Finder py-2026-11-23b on: the 10x scan in the colours of the 100x pictures (tiles/look),
+// its original colours too (I.orig: tiles/look_orig) behind "Original 10x colours" (off when the page opens)
+const tenxPyr=I=>TX.orig&&I.orig?I.orig:I.pyr;
+function tenxOrigSync(){const b=$("imgTxOrig"),I=TX.I;b.hidden=!(IMG.mode==="tenx"&&I&&I.orig);b.setAttribute("aria-pressed",String(!!TX.orig))}
+$("imgTxOrig").onclick=()=>{TX.orig=!TX.orig;tenxOrigSync();tenxDraw()};
 const tenxCan=f=>!!(f&&!f.manual&&f.rank!=null&&f.run&&f.scan);
 const tenxScan=f=>String(f.scan).split(":").pop();
 function tenxInfo(f){const k=`${f.run}|${f.scan}|${f.rank}`;
   if(!TX.info[k])TX.info[k]=fetch(`/api/tenx?run=${encodeURIComponent(f.run)}&scan=${encodeURIComponent(tenxScan(f))}&flake=${encodeURIComponent(f.rank)}`)
     .then(r=>r.json()).catch(e=>({error:String(e&&e.message||e)})).then(j=>{if(j.error)delete TX.info[k];else TX.infoV[k]=j;return j});   // (an error: asked again next time)
   return TX.info[k]}
-function tenxTile(f,I,lv,x,y){const u=`/tenx/${encodeURIComponent(f.run)}/${encodeURIComponent(tenxScan(f))}/${I.pyr}/${lv}/${x}_${y}.jpg`;let p=TX.tiles.get(u);
+function tenxTile(f,I,lv,x,y){const u=`/tenx/${encodeURIComponent(f.run)}/${encodeURIComponent(tenxScan(f))}/${tenxPyr(I)}/${lv}/${x}_${y}.jpg`;let p=TX.tiles.get(u);
   if(p){TX.tiles.delete(u);TX.tiles.set(u,p);return p}
   p=new Promise(ok=>{const im=new Image();im.onload=()=>ok(im);im.onerror=()=>{TX.tiles.delete(u);ok(null)};im.src=picRamUrl(u)});
   TX.tiles.set(u,p);while(TX.tiles.size>240)TX.tiles.delete(TX.tiles.keys().next().value);return p}
@@ -2285,11 +2290,11 @@ function tenxCanvasW(){return Math.round(Math.min(2000,Math.max(500,($("imgWrap"
 function tenxCaption(){const s=$("imgFrameInfo");if(!s||IMG.mode!=="tenx")return;
   s.innerHTML=TX.msg?escapeHtml(TX.msg):TX.V&&TX.I?`10x scan · ${Math.round(TX.V.w*TX.I.um_px)} µm across · scroll to zoom, drag to move, double-click: back · <kbd>O</kbd> its 10x outline`:""}
 function tenxMsg(m){TX.msg=m;tenxCaption();if(m)$("imgScale").hidden=true;const cv=$("imgTx");if(m&&cv.width){const g=cv.getContext("2d");g.fillStyle="#111";g.fillRect(0,0,cv.width,cv.height)}}
-async function tenxShow(){const f=IMG.f,tok=IMG.tok;TX.I=null;TX.V=null;
+async function tenxShow(){const f=IMG.f,tok=IMG.tok;TX.I=null;TX.V=null;tenxOrigSync();
   if(!tenxCan(f)){tenxMsg("No 10x picture: this flake was not found in a 10x scan.");return}
   tenxMsg("Loading the 10x picture…");const I=await tenxInfo(f);if(tok!==IMG.tok||IMG.mode!=="tenx"||IMG.f!==f)return;
   if(I.error){tenxMsg("No 10x picture: "+I.error);return}
-  TX.I=I;TX.msg="";tenxDraw()}
+  TX.I=I;TX.msg="";tenxOrigSync();tenxDraw()}
 function tenxDraw(){const f=IMG.f,I=TX.I,cv=$("imgTx");if(!I||IMG.mode!=="tenx")return;const F=f.frame||{w:4,h:3},id=++TX.draw;
   const W=tenxCanvasW(),H=Math.round(W*F.h/F.w);if(cv.width!==W)cv.width=W;if(cv.height!==H)cv.height=H;
   const V=TX.V=tenxView(I,F,TX.z,TX.pan),s=W/V.w,P=tenxTiles(I,V,W),g=cv.getContext("2d");

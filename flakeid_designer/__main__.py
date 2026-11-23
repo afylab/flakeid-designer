@@ -74,7 +74,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
 # decode byte 0xba" (2026-11-20, third_2poly_run_1).  The files this program reads itself name their encoding.
 os.environ.setdefault("PYTHONUTF8", "1")
 APP = "flakeid-designer"
-VERSION = "2026-11-21a"
+VERSION = "2026-11-23a"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -1488,7 +1488,10 @@ def tenx_viewer(store, run, scan):
         except (KeyError, TypeError, ValueError):
             continue
     s = dict(pyr=pyr, w=int(I["width"]), h=int(I["height"]), level=int(I["maxLevel"]), tile=int(I.get("tileSize") or 256),
-             um_px=float(D.get("pixel_um") or 1.0911), flakes=fl)
+             um_px=float(D.get("pixel_um") or 1.0911), flakes=fl,
+             # (2026-11-23a) scans from Flake-Finder py-2026-11-23b on: tiles/look in the colours of the 100x pictures,
+             # the 10x scan's original colours in tiles/look_orig (the 100x window's "Original 10x colours")
+             orig="look_orig" if pyr == "look" and info.get("look_orig") and (p / "tiles" / "look_orig").is_dir() else None)
     with _TENX_LOCK:
         _TENX[str(page)] = (sig, s)
         while len(_TENX) > 8:                           # (the last few chips: ~1 MB each)
@@ -1503,7 +1506,7 @@ def tenx_flake(store, run, scan, fid):
     f = s["flakes"].get(int(fid))
     if f is None:
         raise KeyError(f"flake {fid} is not in the viewer of {scan}")
-    return dict({k: s[k] for k in ("pyr", "w", "h", "level", "tile", "um_px")}, flake=f)
+    return dict({k: s.get(k) for k in ("pyr", "w", "h", "level", "tile", "um_px", "orig")}, flake=f)
 
 
 _H100 = {}                          # viewer page -> ((mtime_ns, size), its 100x pictures per flake: const H100)
@@ -1645,7 +1648,7 @@ def sg_picture(store, run, scan, fid, img=None):
 
 def tenx_tile(store, run, scan, pyr, level, name):
     """A tile of a piece's 10x pyramid: its file, or None."""
-    if pyr not in ("look", "image") or not re.fullmatch(r"\d{1,2}", level or "") or not re.fullmatch(r"\d{1,4}_\d{1,4}\.jpg", name or ""):
+    if pyr not in ("look", "look_orig", "image") or not re.fullmatch(r"\d{1,2}", level or "") or not re.fullmatch(r"\d{1,4}_\d{1,4}\.jpg", name or ""):
         return None
     p = _tenx_piece(store, run, scan)
     return p / "tiles" / pyr / level / name if p is not None else None
@@ -3614,7 +3617,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(403, b"outside the chip's folder", "text/plain")
             return self._file(f)
         if path.startswith("/tenx/"):
-            # /tenx/<run>/<piece>/<look|image>/<level>/<x>_<y>.jpg: a tile of that pyramid
+            # /tenx/<run>/<piece>/<look|look_orig|image>/<level>/<x>_<y>.jpg: a tile of that pyramid
             parts = path[len("/tenx/"):].split("/")
             p = tenx_tile(S.store, *parts) if len(parts) == 5 else None
             return self._file(p) if p is not None else self._send(404, b"not found", "text/plain")
