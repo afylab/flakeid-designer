@@ -1,17 +1,20 @@
 """People (2026-11-23): who is using the designer, and each person's list of runs.
 
-One file per person, in their home library's designer data on the share, so the list follows them to any computer:
+(2026-11-23e) One file per person, in their own folder on the share (Microscope Images/<Name>, chosen the first time
+they pick "New user…"), so the list follows them to any computer and is read again as it changes:
 
-    <home library>/_designer_data/people/<Name>.json
+    Microscope Images/<Name>/flakeid_designer_user.json
     {"kind": "flakeid-designer-person", "name": "Jordan",
      "aliases": ["jordan@Jordans-MacBook"],               (the computer logins this person's older decisions carry)
-     "runs": {"20261004_run_5": {"rel": "20261004_run_5", "path": "/Volumes/.../20261004_run_5", "on": true, "t": ms}},
-     "ticked": {"keys": ["20261004_run_5"], "t": ms}}     (the runs loaded: their flakes shown)
+     "runs": {"Exfoliation/BN/BN_17_auto/20261111_run_1": {"rel": "...", "path": "/Volumes/...", "on": true, "t": ms}},
+     "ticked": {"keys": ["Exfoliation/BN/BN_17_auto/20261111_run_1"], "t": ms},     (the runs loaded: their flakes shown)
+     "library": {"rel": "Exfoliation/BN/BN_17_auto", "path": "/Volumes/...", "t": ms}}  (the directory open last)
 
-A run is kept by its path relative to the home library (the same share is /Volumes/... on a Mac and \\\\NAS\\... or Z:\\
-on Windows), with the absolute path as it was added for a run that has no relative path (another drive).  A run taken
-off the list stays in the file with on: false and its time: two computers that changed the list at once are merged
-entry by entry, the later change winning, and a computer that was offline cannot bring back a run removed meanwhile.
+A run is kept by its path relative to the person's folder (the home: the same share is /Volumes/... on a Mac and
+\\\\NAS\\... or Z:\\ on Windows), with the absolute path as it was added for a run that has no relative path (another
+drive).  A run taken off the list stays in the file with on: false and its time: two computers that changed the list
+at once are merged entry by entry, the later change winning, and a computer that was offline cannot bring back a run
+removed meanwhile.
 Nothing here raises on a share that does not answer: the caller keeps its copy in the computer's settings.
 
 Python 3.8 (Windows 7 lab PCs): no newer syntax.
@@ -49,13 +52,42 @@ def key_of(name):
     return file_id(name).lower()
 
 
-def people_dir(data_dir):
-    return Path(data_dir) / "people" if data_dir else None
+PROFILE = "flakeid_designer_user.json"
+IMAGES_DIR = "microscope images"                     # (the lab share's folder of everyone's folders, compared lower case)
 
 
-def person_file(data_dir, name):
-    d = people_dir(data_dir)
-    return d / f"{file_id(name)}.json" if d is not None and file_id(name) else None
+def profile_file(home):
+    """The person's file in their folder (None: no folder)."""
+    return Path(home) / PROFILE if home else None
+
+
+def person_folder(picked, levels=4, mod=os.path):
+    """The person's folder from the folder chosen: the one just inside Microscope Images when the chosen folder is in it
+    (a run, or anything deeper, can be chosen), else the nearest folder (the chosen one or up to `levels` above it) with
+    a profile file, else the chosen folder."""
+    p = mod.normpath(str(picked))
+    parts, q = [], p
+    while True:
+        head, tail = mod.split(q)
+        if not tail:
+            parts.append(head)
+            break
+        parts.append(tail)
+        q = head
+    parts.reverse()                                  # (root first)
+    for i, x in enumerate(parts[:-1]):
+        if x.lower() == IMAGES_DIR:
+            return mod.join(*parts[:i + 2])
+    if mod is os.path:
+        q = p
+        for _ in range(levels + 1):
+            if Path(q, PROFILE).is_file():
+                return q
+            up = mod.dirname(q)
+            if up == q:
+                break
+            q = up
+    return p
 
 
 def rel_of(path, base, mod=os.path):
@@ -87,7 +119,7 @@ def entry_key(path, base, mod=os.path):
 
 def new_doc(name, aliases=()):
     return dict(kind=KIND, name=clean_name(name), aliases=sorted(set(a for a in aliases if a)), runs={},
-                ticked=None, updated=now_ms())
+                ticked=None, library=None, updated=now_ms())
 
 
 def valid(doc):
@@ -121,6 +153,8 @@ def merge(a, b):
     ta, tb = a.get("ticked"), b.get("ticked")
     cand = [t for t in (ta, tb) if isinstance(t, dict) and isinstance(t.get("keys"), list)]
     out["ticked"] = max(cand, key=lambda t: int(t.get("t") or 0)) if cand else None
+    cand = [x for x in (a.get("library"), b.get("library")) if isinstance(x, dict)]
+    out["library"] = max(cand, key=lambda x: int(x.get("t") or 0)) if cand else None
     out["updated"] = max(int(a.get("updated") or 0), int(b.get("updated") or 0))
     return out
 
@@ -228,15 +262,21 @@ def ticked_paths(doc, base, mod=os.path):
     return out
 
 
-def listed(data_dir):
-    """The people with a file in this library's designer data: [{name, file}] (one folder listed on the share)."""
-    d = people_dir(data_dir)
-    out = []
-    try:
-        for f in sorted(d.glob("*.json")) if d is not None and d.is_dir() else []:
-            doc = load(f)
-            if doc and doc.get("kind") == KIND and doc.get("name"):
-                out.append(dict(name=doc["name"], file=str(f)))
-    except OSError:
-        pass
-    return out
+def set_library(doc, path, base, t=None, mod=os.path):
+    """The directory the person has open (opened again when they are chosen on any computer)."""
+    old = doc.get("library") if isinstance(doc.get("library"), dict) else {}
+    if old and resolve(old, base, mod) == mod.normpath(str(path)):
+        return doc
+    doc["library"] = dict(rel=rel_of(path, base, mod), path=str(path), t=_later(t or now_ms(), old))
+    return doc
+
+
+def library_path(doc, base, mod=os.path):
+    """That directory on this computer, or None."""
+    lib = doc.get("library") if isinstance(doc, dict) else None
+    return resolve(lib, base, mod) or None if isinstance(lib, dict) else None
+
+
+def view(doc, base, mod=os.path):
+    """What the page shows of a person's file: the runs on the list and the ticked ones (to see a change)."""
+    return [run_paths(doc, base, mod), ticked_paths(doc, base, mod)] if valid(doc) else None

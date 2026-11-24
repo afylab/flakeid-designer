@@ -1,5 +1,6 @@
-"""People (2026-11-23, people.py): each person's run list and loaded runs in their own file on the share, switching
-person on a shared computer, and merging the lists of two computers.  python3 -m pytest tests/designer -q"""
+"""People (2026-11-23, people.py): each person's run list and loaded runs in their own file on the share
+(2026-11-23e: Microscope Images/<Name>/flakeid_designer_user.json), switching person on a shared computer, merging
+the lists of two computers and reading the file again as it changes.  python3 -m pytest tests/designer -q"""
 import json
 import ntpath
 import posixpath
@@ -33,7 +34,7 @@ def lab(tmp_path, monkeypatch):
     monkeypatch.setenv("FLAKEID_DESIGNER_CACHE", str(tmp_path / "cache"))
     monkeypatch.setattr(D, "CONFIG", tmp_path / "settings.json")
     monkeypatch.setattr(D, "legacy_user", lambda: "jpack@labpc")
-    share = tmp_path / "share"
+    share = tmp_path / "Documents" / "Microscope Images"
     jl, ll = share / "Jordan" / "scanresults", share / "Ludwig" / "exf"
     for base, run in ((jl, "20261004_run_5"), (jl, "20261005_run_1"), (ll, "CL_run_1")):
         make_run(base, run)
@@ -47,11 +48,12 @@ def lab(tmp_path, monkeypatch):
     srv = D.make_server(0, store)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     store.scan()
-    yield dict(url=f"http://127.0.0.1:{srv.server_address[1]}", store=store, jl=jl, ll=ll, runs=runs)
+    yield dict(url=f"http://127.0.0.1:{srv.server_address[1]}", store=store, jl=jl, ll=ll, runs=runs,
+               jh=share / "Jordan", lh=share / "Ludwig")
     wait_sync()
     srv.shutdown()
     srv.server_close()
-    D.PERSON.update(name=None, home=None, data=None, doc=None)
+    D.PERSON.update(name=None, home=None, doc=None)
 
 
 def post(url, body):
@@ -82,90 +84,164 @@ def test_removed_run_not_brought_back_by_an_old_copy():
     assert P.run_paths(P.merge(new, again), home) == ["/s/J/a", "/s/J/b"]
 
 
+def profile(home):
+    return json.loads((Path(home) / P.PROFILE).read_text(encoding="utf-8"))
+
+
+def forget_computer(store):
+    """Another computer: nobody chosen, no list."""
+    cfg = D.load_config()
+    cfg.pop("people", None), cfg.pop("person", None)
+    cfg["added_runs"] = []
+    D.save_config(cfg)
+    D.PERSON.update(name=None, home=None, doc=None)
+    store.added = []
+
+
+def test_person_folder():
+    assert P.person_folder("/Volumes/Documents/Microscope Images/Avram/Exfoliation/BN/BN_17_auto", mod=posixpath) == \
+        "/Volumes/Documents/Microscope Images/Avram"
+    assert P.person_folder(r"\\NAS\Documents\microscope images\Yifan\GR\0407-26", mod=ntpath) == \
+        r"\\NAS\Documents\microscope images\Yifan"
+    assert P.person_folder(r"Z:\Microscope Images\Yifan", mod=ntpath) == r"Z:\Microscope Images\Yifan"
+    assert P.person_folder("/elsewhere/me", mod=posixpath) == "/elsewhere/me"
+
+
 def test_first_person_takes_the_list_second_starts_empty(lab):
-    u, store, jl, ll = lab["url"], lab["store"], lab["jl"], lab["ll"]
-    st, r = post(u + "/api/people/use", dict(name="Jordan"))
-    assert st == 200 and r["person"] == "Jordan"
-    wait_sync()
-    f = jl / "_designer_data" / "people" / "Jordan.json"
-    doc = json.loads(f.read_text(encoding="utf-8"))
-    assert P.run_paths(doc, str(jl)) == lab["runs"] and doc["aliases"] == ["jpack@labpc"]
-    assert {e["rel"] for e in doc["runs"].values()} == {"20261004_run_5", "20261005_run_1"}
+    u, store, jl, ll, jh, lh = lab["url"], lab["store"], lab["jl"], lab["ll"], lab["jh"], lab["lh"]
+    st, r = post(u + "/api/people/new", dict(path=str(jl / "20261004_run_5"), ticked=[lab["runs"][1]]))
+    assert st == 200 and r["person"] == "Jordan" and r["made"] and r["home"] == str(jh)
+    doc = profile(jh)                                                # (written at once, in his own folder)
+    assert P.run_paths(doc, str(jh)) == lab["runs"] and doc["aliases"] == ["jpack@labpc"]
+    assert {e["rel"] for e in doc["runs"].values()} == {"scanresults/20261004_run_5", "scanresults/20261005_run_1"}
+    assert doc["ticked"]["keys"] == ["scanresults/20261005_run_1"] and doc["library"]["rel"] == "scanresults"
     assert D.by_name() == "Jordan" and D.user_name().startswith("Jordan@")
     cfg = D.load_config()
-    assert cfg["person"] == "jordan" and cfg["people"]["jordan"]["home"] == str(jl)
+    assert cfg["person"] == "jordan" and cfg["people"]["jordan"]["home"] == str(jh)
+    assert D.people_info(cfg)["ticked"] == [lab["runs"][1]]
 
-    st, r = post(u + "/api/people/use", dict(name="Ludwig"))       # (a second person, same directory)
-    assert st == 200 and store.added == []                           # (empty, never seeded from the ticked runs)
+    st, r = post(u + "/api/people/new", dict(path=str(lh)))         # (a second person: empty)
+    assert st == 200 and r["person"] == "Ludwig" and store.added == []
     st, r = post(u + "/api/runs/add", dict(path=str(ll / "CL_run_1")))
     assert st == 200 and store.added == [str(ll / "CL_run_1")]
     wait_sync()
-    lu = json.loads((jl / "_designer_data" / "people" / "Ludwig.json").read_text(encoding="utf-8"))
-    assert P.run_paths(lu, str(jl)) == [str(ll / "CL_run_1")] and lu["aliases"] == []
-    assert next(iter(lu["runs"].values()))["rel"] == "../../Ludwig/exf/CL_run_1"
+    lu = profile(lh)
+    assert P.run_paths(lu, str(lh)) == [str(ll / "CL_run_1")] and lu["aliases"] == []
+    assert next(iter(lu["runs"].values()))["rel"] == "exf/CL_run_1"
 
-    st, r = post(u + "/api/people/use", dict(name="jordan"))       # (names compared without case)
-    assert st == 200 and r["person"] == "Jordan" and store.added == lab["runs"]
+    st, r = post(u + "/api/people/use", dict(name="jordan"))       # (one used here: from his file)
+    assert st == 200 and r["person"] == "Jordan" and not r["made"] and store.added == lab["runs"]
     st, _, b = req(u + "/api/people")
     info = json.loads(b)
     assert [p["name"] for p in info["people"]][:2] == ["Jordan", "Ludwig"] and info["aliases"]["jpack@labpc"] == "Jordan"
+    st, r = post(u + "/api/people/use", dict(name="Nobody"))
+    assert st == 400 and "New user" in r["error"]
 
 
-def test_other_computer_changes_come_back(lab):
-    u, store, jl = lab["url"], lab["store"], lab["jl"]
-    post(u + "/api/people/use", dict(name="Jordan"))
+def test_other_computer_changes_come_back_at_once(lab):
+    u, store, jh = lab["url"], lab["store"], lab["jh"]
+    post(u + "/api/people/new", dict(path=str(jh)))
     wait_sync()
-    f = jl / "_designer_data" / "people" / "Jordan.json"
-    other = P.set_list(json.loads(f.read_text(encoding="utf-8")), [lab["runs"][0]], str(jl), P.now_ms() + 1000)
-    f.write_text(json.dumps(other), encoding="utf-8")                # (the lab PC took a run off the list)
-    D.person_sync_soon(store)
-    wait_sync()
-    assert store.added == [lab["runs"][0]]
-    assert D.load_config()["added_runs"] == [lab["runs"][0]]
+    rev0 = json.loads(req(u + "/api/people/state")[2])["person_rev"]
+    assert D.person_check(store) is False                           # (nothing new)
+    f = jh / P.PROFILE
+    other = P.set_list(profile(jh), [lab["runs"][0]], str(jh), P.now_ms() + 1000)
+    P.set_ticked(other, [lab["runs"][0]], str(jh), P.now_ms() + 1000)
+    time.sleep(0.05)
+    f.write_text(json.dumps(other), encoding="utf-8")                # (the lab PC took a run off and ticked one)
+    assert D.person_check(store) is True
+    assert store.added == [lab["runs"][0]] and D.load_config()["added_runs"] == [lab["runs"][0]]
+    st = json.loads(req(u + "/api/people/state")[2])
+    assert st["person_rev"] == rev0 + 1 and st["ticked"] == [lab["runs"][0]] and st["person"] == "Jordan"
+    assert D.person_check(store) is False
 
 
 def test_loaded_runs_follow_the_person(lab):
-    u, jl = lab["url"], lab["jl"]
-    post(u + "/api/people/use", dict(name="Jordan"))
+    u, jh = lab["url"], lab["jh"]
+    post(u + "/api/people/new", dict(path=str(jh)))
+    rev0 = json.loads(req(u + "/api/people/state")[2])["person_rev"]
     st, r = post(u + "/api/people/ticked", dict(paths=[lab["runs"][1]]))
     assert st == 200 and r["ok"]
     wait_sync()
-    doc = json.loads((jl / "_designer_data" / "people" / "Jordan.json").read_text(encoding="utf-8"))
-    assert doc["ticked"]["keys"] == ["20261005_run_1"]
+    assert profile(jh)["ticked"]["keys"] == ["scanresults/20261005_run_1"]
     assert D.people_info(D.load_config())["ticked"] == [lab["runs"][1]]
+    D.person_check(lab["store"])                                     # (its own change: not news for the page)
+    assert json.loads(req(u + "/api/people/state")[2])["person_rev"] == rev0
 
 
 def test_share_down_keeps_the_computer_copy(lab, monkeypatch):
     u, store = lab["url"], lab["store"]
-    post(u + "/api/people/use", dict(name="Jordan"))
+    post(u + "/api/people/new", dict(path=str(lab["jh"])))
     wait_sync()
     monkeypatch.setattr(P, "save", lambda f, doc, tries=5: None)    # (the share does not answer)
     st, r = post(u + "/api/runs/remove", dict(path=lab["runs"][0]))
     assert st == 200 and store.added == [lab["runs"][1]]
     wait_sync()
     cfg = D.load_config()
-    assert P.run_paths(cfg["people"]["jordan"]["doc"], str(lab["jl"])) == [lab["runs"][1]]
+    assert P.run_paths(cfg["people"]["jordan"]["doc"], str(lab["jh"])) == [lab["runs"][1]]
 
 
-def test_bad_names(lab):
-    st, r = post(lab["url"] + "/api/people/use", dict(name="  ../  "))
-    assert st == 400 and r["error"]
-
-
-def test_new_computer_finds_the_person_in_the_directory(lab):
-    u, store, jl = lab["url"], lab["store"], lab["jl"]
-    post(u + "/api/people/use", dict(name="Jordan"))
+def test_bad_folders(lab, monkeypatch):
+    st, r = post(lab["url"] + "/api/people/new", dict(path=str(lab["jh"].parent.parent / "gone")))
+    assert st == 400 and "not reachable" in r["error"]
+    st, r = post(lab["url"] + "/api/people/new", dict(path=str(lab["jh"] / "not_made_yet")))   # (in Microscope Images:
+    assert st == 200 and r["home"] == str(lab["jh"])                                          # the person's folder)
+    forget_computer(lab["store"])
     wait_sync()
-    cfg = D.load_config()                                            # (another computer: nobody chosen, no list)
-    cfg.pop("people"), cfg.pop("person")
-    cfg["added_runs"] = []
+    (lab["jh"] / P.PROFILE).write_text("{not json", encoding="utf-8")
+    st, r = post(lab["url"] + "/api/people/new", dict(path=str(lab["jh"])))
+    assert st == 400 and "could not be read" in r["error"]
+    (lab["jh"] / P.PROFILE).unlink()
+    monkeypatch.setattr(P, "save", lambda f, doc, tries=5: None)
+    st, r = post(lab["url"] + "/api/people/new", dict(path=str(lab["jh"])))
+    assert st == 400 and "could not be written" in r["error"] and D.PERSON["name"] is None
+
+
+def test_new_computer_opens_the_persons_file_and_directory(lab):
+    """A shared computer with Ludwig's directory open: New user…, a run of Jordan's chosen: his file, runs, loaded runs
+    and directory."""
+    u, store, jl, ll, jh = lab["url"], lab["store"], lab["jl"], lab["ll"], lab["jh"]
+    post(u + "/api/people/new", dict(path=str(jh)))
+    post(u + "/api/people/ticked", dict(paths=[lab["runs"][0]]))
+    wait_sync()
+    forget_computer(store)
+    post(u + "/api/library/use", dict(path=str(ll)))
+    assert store.library == str(ll)
+    st, r = post(u + "/api/people/new", dict(path=str(jl / "20261005_run_1"), ticked=[str(ll / "CL_run_1")]))
+    assert st == 200 and not r["made"] and r["home"] == str(jh)
+    assert store.library == str(jl) and store.added == lab["runs"]
+    assert D.people_info(D.load_config())["ticked"] == [lab["runs"][0]]   # (his, not the page's)
+
+
+def test_settings_from_before_carried_over(lab):
+    """A person chosen with the earlier version (file in a directory's _designer_data): not used as it is; New user…
+    makes the file in their folder with that list."""
+    u, store, jl, jh = lab["url"], lab["store"], lab["jl"], lab["jh"]
+    old = P.set_list(P.new_doc("Jordan", ["jpack@labpc"]), lab["runs"], str(jl), 5)
+    P.set_ticked(old, [lab["runs"][1]], str(jl), 6)
+    cfg = D.load_config()
+    cfg["people"] = {"jordan": dict(name="Jordan", home=str(jl), doc=old, used=1)}
+    cfg["person"] = "jordan"
     D.save_config(cfg)
-    D.PERSON.update(name=None, home=None, data=None, doc=None)
-    store.added = []
-    st, _, b = req(u + "/api/people")
-    assert [p["name"] for p in json.loads(b)["in_library"]] == ["Jordan"]
-    st, r = post(u + "/api/people/use", dict(name="Jordan", home=str(jl)))
-    assert st == 200 and store.added == lab["runs"]                  # (the list from the share)
+    assert D.apply_person(store, D.load_config(), "jordan") is False and D.PERSON["name"] is None
+    assert D.people_info(D.load_config())["people"] == []
+    st, r = post(u + "/api/people/new", dict(path=str(jh)))
+    assert st == 200 and r["made"]
+    doc = profile(jh)
+    assert P.run_paths(doc, str(jh)) == lab["runs"] and P.ticked_paths(doc, str(jh)) == [lab["runs"][1]]
+    assert doc["aliases"] == ["jpack@labpc"]
+
+
+def test_library_follows_the_person(lab):
+    u, store, jl, ll, jh = lab["url"], lab["store"], lab["jl"], lab["ll"], lab["jh"]
+    post(u + "/api/people/new", dict(path=str(jh)))
+    post(u + "/api/library/use", dict(path=str(ll)))
+    wait_sync()
+    assert profile(jh)["library"]["rel"] == "../Ludwig/exf"
+    forget_computer(store)                                           # (another computer, Jordan's directory open)
+    post(u + "/api/library/use", dict(path=str(jl)))
+    st, r = post(u + "/api/people/new", dict(path=str(jh)))
+    assert st == 200 and store.library == str(ll)                    # (the directory he had open)
 
 
 def test_list_saved_on_another_computer_is_left_alone():
@@ -189,23 +265,3 @@ def test_list_saved_on_another_computer_is_left_alone():
     assert d["ticked"]["keys"] == ["../../Ludwig/r2"]
     P.set_run(d, mac + "/r0", True, mac, 1, posixpath)             # (a clock behind: still later than the last change)
     assert d["runs"]["r0"]["on"] and d["runs"]["r0"]["t"] == 6
-
-
-def test_find_my_profile_from_another_directory(lab):
-    """A shared computer with Ludwig's directory open: Find my profile… (a run of Jordan's chosen) lists Jordan; opening
-    it brings his runs and his directory."""
-    u, store, jl, ll = lab["url"], lab["store"], lab["jl"], lab["ll"]
-    post(u + "/api/people/use", dict(name="Jordan"))
-    wait_sync()
-    cfg = D.load_config()
-    cfg.pop("people"), cfg.pop("person")
-    D.save_config(cfg)
-    D.PERSON.update(name=None, home=None, data=None, doc=None)
-    post(u + "/api/library/use", dict(path=str(ll)))
-    store.added = []
-    st, r = post(u + "/api/people/find", dict(path=str(jl / "20261005_run_1" / "designer")))
-    assert st == 200 and r["home"] == str(jl) and [p["name"] for p in r["people"]] == ["Jordan"]
-    st, r = post(u + "/api/people/find", dict(path=str(ll)))
-    assert st == 200 and "No profiles" in r["error"]
-    st, r = post(u + "/api/people/use", dict(name="Jordan", home=str(jl)))
-    assert st == 200 and store.library == str(jl) and store.added == lab["runs"]
