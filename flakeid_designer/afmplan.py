@@ -50,6 +50,8 @@ def make_plan(b, out_dir):
     corner of the block, or a flake), each site with its chip's chip -> stage rotation c2s (for the tip offset).
     frame "100x stage um" (a single chip, 2026-10-30): every reference and site has st (100x stage um), fitted from that
     (each site with its picture -> stage rotation c2s, for the tip offset)."""
+    if b.get("manual"):
+        return make_manual_plan(b, out_dir)
     from flakeid.targets import fit_transform
     refs = [r for r in b.get("refs") or [] if r.get("afm") and r["afm"][0] not in (None, "") and r["afm"][1] not in (None, "")]
     if len(refs) < 3:
@@ -116,6 +118,36 @@ def make_plan(b, out_dir):
                 transform=dict(A=A.round(8).tolist(), t=t.round(4).tolist(), scale=round(scale, 6), rotation_deg=round(rot, 3), mirror=mirror,
                                rms_um=None if rms is None else round(float(rms), 3), ref_residual_um=[round(v, 3) for v in res], z=zhow),
                 pgm=pgm.name, csv=f"{stem}_afm_sites.csv", folder=str(d), **keep)
+    (d / "plan.json").write_text(json.dumps(plan, indent=1), encoding="utf-8")
+    return plan
+
+
+def make_manual_plan(b, out_dir):
+    """(2026-11-23) Manual AFM: the flakes were (or will be) found on the AFM by hand, so the list has no reference
+    flakes, no microscope -> AFM fit and no point file; its AFM files are linked to its flakes one by one (AFM file
+    assignment).  b: as make_plan (sites, scan, run, by, scan_um, id?, name?, mount?).  Returns the plan."""
+    sites = [dict(s, n=i + 1) for i, s in enumerate(b.get("sites") or []) if s.get("flake")]
+    if not sites:
+        raise ValueError("no flakes in the list")
+    pid = b.get("id") or plan_id(b.get("scan") or "chip")
+    d = Path(out_dir) / pid
+    old = {}
+    try:
+        old = json.loads((d / "plan.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    keep = {k: old[k] for k in ("name", "from", "scanned", "afm_folder") if old.get(k) is not None}
+    if b.get("name"):
+        keep["name"] = str(b["name"])[:80]
+    keep.setdefault("name", "Manual AFM")
+    now = int(datetime.datetime.now().timestamp() * 1000)
+    plan = dict(id=pid, manual=True, scan=b.get("scan"), run=b.get("run"), by=b.get("by"), created=old.get("created") or now,
+                updated=now, scan_um=float(b.get("scan_um") or 20.0), frame=None, refs=[], sites=sites,
+                results=old.get("results") or {}, more=old.get("more"), tip=None, mount=b.get("mount") or old.get("mount"),
+                transform=None, pgm=None, csv=None, folder=str(d), **keep)
+    if plan["more"] is None:
+        plan.pop("more")
+    d.mkdir(parents=True, exist_ok=True)
     (d / "plan.json").write_text(json.dumps(plan, indent=1), encoding="utf-8")
     return plan
 
