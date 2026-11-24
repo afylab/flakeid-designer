@@ -80,7 +80,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
 # decode byte 0xba" (2026-11-20, third_2poly_run_1).  The files this program reads itself name their encoding.
 os.environ.setdefault("PYTHONUTF8", "1")
 APP = "flakeid-designer"
-VERSION = "2026-11-23c"
+VERSION = "2026-11-23d"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -426,6 +426,22 @@ def use_person(store, name, home=None):
         store.scan()
     person_sync_soon(store)
     return dict(person=PERSON["name"], home=home, reload=True), None
+
+
+def find_people(picked, levels=4):
+    """(2026-11-23d, Find my profile…) The directory holding people's files at the folder chosen or the few folders above
+    it (a run, or anything inside the directory, can be chosen): (directory, [names]) or (None, [])."""
+    try:
+        p = Path(picked)
+        for q in [p] + list(p.parents)[:levels]:
+            if q.name.lower() == "_designer_data":
+                continue
+            ppl = PP.listed(q / "_designer_data")
+            if ppl:
+                return str(q), [x["name"] for x in ppl]
+    except (OSError, ValueError):
+        pass
+    return None, []
 
 
 def set_ticked(store, paths):
@@ -4688,6 +4704,33 @@ class Handler(BaseHTTPRequestHandler):
                 cfg = load_config()
                 switch_library(cfg, S.store, p)
             return self._json(dict(picked=p, roots=S.store.roots, data_dir=str(S.store.data), **library_info(cfg, S.store)))
+        if path == "/api/people/find":
+            # (2026-11-23d) Find my profile…: a folder window (or {path}, JSON only); the people in that directory
+            if not (self.headers.get("Content-Type") or "").lower().startswith("application/json"):
+                return self._json(dict(error="JSON only"), 415)
+            try:
+                b = self._body()
+            except ValueError:
+                b = {}
+            p = str(b.get("path")) if isinstance(b, dict) and b.get("path") else None
+            if p is None:
+                if not PICKING.acquire(blocking=False):
+                    return self._json(dict(error="A folder window is already open (it can be behind the browser): choose "
+                                                 "the folder there, or cancel it first."), 409)
+                try:
+                    p = pick_folder("Your directory (your scan results folder, or a run in it)",
+                                    str(Path(S.store.library).parent) if S.store.library else None)
+                finally:
+                    PICKING.release()
+                if not p:
+                    return self._json(dict(picked=None))
+            if not Path(p).is_dir():
+                return self._json(dict(error=f"{p} is not reachable (is the share connected?)"), 400)
+            home, names = find_people(p)
+            if not home:
+                return self._json(dict(picked=p, error=f"No profiles in {p} or the folders above it: choose your scan "
+                                                       f"results folder (the one whose _designer_data has a people folder)."))
+            return self._json(dict(picked=p, home=home, people=[dict(name=n, home=home) for n in names]))
         if path in ("/api/people/use", "/api/people/ticked"):
             # (2026-11-23) use: switch to a person (made if new: {name, home}); ticked: the person's loaded runs {paths}
             if not (self.headers.get("Content-Type") or "").lower().startswith("application/json"):

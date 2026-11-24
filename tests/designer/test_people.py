@@ -189,3 +189,23 @@ def test_list_saved_on_another_computer_is_left_alone():
     assert d["ticked"]["keys"] == ["../../Ludwig/r2"]
     P.set_run(d, mac + "/r0", True, mac, 1, posixpath)             # (a clock behind: still later than the last change)
     assert d["runs"]["r0"]["on"] and d["runs"]["r0"]["t"] == 6
+
+
+def test_find_my_profile_from_another_directory(lab):
+    """A shared computer with Ludwig's directory open: Find my profile… (a run of Jordan's chosen) lists Jordan; opening
+    it brings his runs and his directory."""
+    u, store, jl, ll = lab["url"], lab["store"], lab["jl"], lab["ll"]
+    post(u + "/api/people/use", dict(name="Jordan"))
+    wait_sync()
+    cfg = D.load_config()
+    cfg.pop("people"), cfg.pop("person")
+    D.save_config(cfg)
+    D.PERSON.update(name=None, home=None, data=None, doc=None)
+    post(u + "/api/library/use", dict(path=str(ll)))
+    store.added = []
+    st, r = post(u + "/api/people/find", dict(path=str(jl / "20261005_run_1" / "designer")))
+    assert st == 200 and r["home"] == str(jl) and [p["name"] for p in r["people"]] == ["Jordan"]
+    st, r = post(u + "/api/people/find", dict(path=str(ll)))
+    assert st == 200 and "No profiles" in r["error"]
+    st, r = post(u + "/api/people/use", dict(name="Jordan", home=str(jl)))
+    assert st == 200 and store.library == str(jl) and store.added == lab["runs"]

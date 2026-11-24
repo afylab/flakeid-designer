@@ -5108,7 +5108,7 @@ function openDirMenu(){closeUserMenu();const m=$("dirMenu");const libs=(LOCAL.li
 // (2026-11-23) User ▾: switch person (people.py): their run list, loaded runs and name on decisions, from their file
 // on the share (<their directory>/_designer_data/people/<name>.json); a new name is made in the current directory
 function userBtn(){const b=$("bUser");b.hidden=false;b.textContent=LOCAL.person?`User: ${LOCAL.person} ▾`:"Who are you? ▾";b.classList.toggle("primary",!LOCAL.person)}
-async function switchUser(name,home){const m=$("userMenu"),st=m.querySelector(".msg");if(st)st.textContent="Switching to "+name+"…";
+async function switchUser(name,home){const m=$("userMenu"),st=$("umMsg");if(st)st.textContent="Switching to "+name+"…";
   const r=await fetch("/api/people/use",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(home?{name,home}:{name})}).then(r=>r.json()).catch(e=>({error:String(e)}));
   if(r&&r.person){try{saveLocal()}catch(e){}location.reload()}else if(st)st.textContent=(r&&r.error)||"Could not switch."}
 async function openUserMenu(){const m=$("userMenu");m.hidden=false;$("bUser").setAttribute("aria-expanded","true");
@@ -5116,12 +5116,23 @@ async function openUserMenu(){const m=$("userMenu");m.hidden=false;$("bUser").se
     const row=(p,sub,here)=>`<button role="menuitem" data-user="${escapeHtml(p.name)}"${here?` data-home="${escapeHtml(p.home||"")}"`:""} aria-current="${p.name===cur}" title="${escapeHtml(p.home||"")}"><span>${p.name===cur?"✓ ":""}${escapeHtml(p.name)}</span><span class="sub">${escapeHtml(sub)}</span></button>`;
     m.innerHTML=`<div class="dlab">Who is using the designer</div>${ppl.map(p=>row(p,p.home?"directory: "+(libName(p.home)||p.home):"",false)).join("")}${lib.map(p=>row(p,"in this directory",true)).join("")}${!ppl.length&&!lib.length?`<div class="msg">Nobody chosen on this computer yet.</div>`:""}${info?"":`<div class="msg">Looking for people in this directory…</div>`}<hr>
       <div style="display:flex;gap:6px;padding:4px 8px"><input id="umName" placeholder="${cur?"Another":"Your"} name" maxlength="40" style="flex:1;min-width:0" aria-label="Name"><button id="umAdd" class="primary" style="flex:0 0 auto;justify-content:center;background:var(--accent);color:var(--accent-ink)">${cur?"Add":"That's me"}</button></div>
-      <div class="msg">Your runs, the runs you load and your name on decisions follow you to any computer.${cur?"":" The runs listed now become yours."}</div>`;
+      <button role="menuitem" id="umFind"><span>Find my profile…</span><span class="sub">choose your directory</span></button>
+      <div class="msg" id="umMsg">Your runs, the runs you load and your name on decisions follow you to any computer.${cur?"":" The runs listed now become yours."}</div>`;
     m.querySelectorAll("[data-user]").forEach(b=>b.onclick=()=>{if(b.dataset.user===cur){closeUserMenu();return}switchUser(b.dataset.user,b.dataset.home||null)});
+    $("umFind").onclick=findProfile;
     const go=()=>{const v=$("umName").value.trim();if(v)switchUser(v,null)};$("umAdd").onclick=go;$("umName").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();go()}};
     m.style.left="0";m.style.right="auto";const rb=m.getBoundingClientRect();if(rb.right>innerWidth-8){m.style.left="auto";m.style.right="0"}};
   draw(null);(m.querySelector("button")||$("umName")).focus();
   const info=await fetch("/api/people",{cache:"no-store"}).then(r=>r.json()).catch(()=>null);if(!m.hidden&&info&&!$("umName").value)draw(info)}
+// (2026-11-23d) Find my profile…: on a computer that has another directory open (or none), choose your own directory (or
+// a run in it): the people with a file there are listed; clicking one opens that profile and its directory
+async function findProfile(){const m=$("userMenu"),st=$("umMsg");st.textContent="Choose your directory in the window that opened (it can be behind the browser)…";
+  const r=await fetch("/api/people/find",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(r=>r.json()).catch(e=>({error:String(e)}));
+  if(m.hidden)return;if(!r||(!r.picked&&!r.error)){st.textContent="No folder chosen.";return}if(r.error){st.textContent=r.error;return}
+  const old=m.querySelector("#umFound");if(old)old.remove();
+  m.querySelector("hr").insertAdjacentHTML("beforebegin",`<div id="umFound" style="display:flex;flex-direction:column;gap:2px"><div class="dlab">In ${escapeHtml(libName(r.home)||r.home)}</div>${r.people.map(p=>`<button role="menuitem" data-found="${escapeHtml(p.name)}" title="${escapeHtml(r.home)}"><span>${escapeHtml(p.name)}</span><span class="sub">open this profile</span></button>`).join("")}</div>`);
+  m.querySelectorAll("[data-found]").forEach(b=>b.onclick=()=>switchUser(b.dataset.found,r.home));
+  st.textContent="Click your name: your runs and your directory open.";(m.querySelector("[data-found]")||m).focus()}
 function closeUserMenu(){$("userMenu").hidden=true;$("bUser").setAttribute("aria-expanded","false")}
 document.addEventListener("click",e=>{if(!$("userMenu").hidden&&!e.target.closest(".dirwrap"))closeUserMenu()});
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("userMenu").hidden)closeUserMenu()});
