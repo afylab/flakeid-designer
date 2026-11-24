@@ -80,7 +80,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
 # decode byte 0xba" (2026-11-20, third_2poly_run_1).  The files this program reads itself name their encoding.
 os.environ.setdefault("PYTHONUTF8", "1")
 APP = "flakeid-designer"
-VERSION = "2026-11-23e"
+VERSION = "2026-11-24a"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -1602,6 +1602,76 @@ def afm_pgm_dir(store, run):
 
 
 AFM_PLAN_SUMMARY = ("id", "run", "scan", "name", "created", "updated", "scanned", "draft")
+
+
+def afm_add_scan(store, AP, b, data_dir):
+    """(2026-11-24) View's ＋ AFM scan: one AFM file (.spm) chosen by hand (the dialog opens in the run's
+    afm_scans folder) linked to a flake.  The flake already a point of an AFM list (b: id, site): one more file of that
+    point; else a point of the chip's "Added by hand" list (a manual list, afmplan.make_manual_plan, made when first
+    needed).  A flake can have any number of AFM files.  b: run, scan, flake, terrace, t_nm, px, chip, st, by, id?,
+    site?, file? (no dialog).  Returns {plan, site, result} or {cancelled} / {error}."""
+    run, scan, fid = b.get("run"), b.get("scan"), str(b.get("flake") or "")
+    if not fid:
+        return dict(error="no flake")
+    pl = None
+    if b.get("id"):
+        pl, _ = store.afm_plan(b.get("id"))
+        if pl is not None and not any(str(q.get("flake")) == fid for q in pl.get("sites") or []):
+            pl = None
+    if pl is None:
+        pl = next((q for q in store.afm_plans(scan) if q.get("byhand") and q.get("run") == run), None)
+    try:
+        rd = _run_dirs(store, run) if run else []
+    except Exception:
+        rd = []
+    start = next((str(Path(q) / "afm_scans") for q in rd if (Path(q) / "afm_scans").is_dir()), str(rd[0]) if rd else None)
+    f = b.get("file") or pick_file("AFM scan of this flake (.spm)", ["spm"], start)
+    if not f:
+        return dict(cancelled=True)
+    f = Path(str(f))
+    if not f.is_file():
+        return dict(error=f"{f}: not found")
+    site_b = {k: b.get(k) for k in ("terrace", "t_nm", "px", "chip", "st") if b.get(k) is not None}
+    site_b["flake"] = fid
+    out = None if pl is not None else (RUN_DATA.run_dir(store, run, "afm") or data_dir)   # (takes store.lock itself)
+    with store.lock:
+        if pl is None:
+            pl = AP.make_manual_plan(dict(manual=True, scan=scan, run=run, by=b.get("by"), name="Added by hand", sites=[site_b]), out)
+            pl["byhand"] = True
+            pf = Path(pl["folder"]) / "plan.json"
+            pf.write_text(json.dumps(pl, indent=1), encoding="utf-8")
+        pl, pf = store.afm_plan(pl["id"])
+        site = next((q for q in pl.get("sites") or [] if str(q.get("flake")) == fid
+                     and (b.get("site") is None or not b.get("id") or int(q["n"]) == int(b["site"]))), None)
+        if site is None:
+            site = dict(site_b, n=max([int(q["n"]) for q in pl.get("sites") or []] + [0]) + 1)
+            pl.setdefault("sites", []).append(site)
+            pl["updated"] = int(time.time() * 1000)
+            pf.write_text(json.dumps(pl, indent=1), encoding="utf-8")
+    n = int(site["n"])
+    png = pf.parent / f"{n:03d}_{re.sub(r'[^A-Za-z0-9_.-]+', '_', f.name)}.png"
+    for c in png.parent.glob(png.stem + ".full*.npz"):     # (a file scanned again under its name, as /api/afm/analyse)
+        try:
+            c.unlink()
+        except OSError:
+            pass
+    r = AP.analyse_file(f, png)
+    r.update(site=n, source=str(f), at=int(time.time() * 1000), byhand=True)
+    with store.lock:
+        pl, pf = store.afm_plan(pl["id"])
+        R = pl.setdefault("results", {})
+        cur = R.get(str(n))
+        if cur is None or cur.get("source") == str(f):
+            R[str(n)] = r
+        else:                                        # (another file of the same flake, after its first)
+            M = pl.setdefault("more", {}).setdefault(str(n), [])
+            i = next((j for j, q in enumerate(M) if q.get("source") == str(f)), None)
+            if i is None:
+                M.append(r)
+            else:
+                M[i] = r
+        pf.write_text(json.dumps(pl, indent=1), encoding="utf-8")
+    return dict(plan=pl, site=n, result=r)
 
 
 def afm_typed(store, key, data=None, write=False):
@@ -4253,6 +4323,8 @@ class Handler(BaseHTTPRequestHandler):
                         out, k = p1.parent / f"{stem}_{k}.pgm", k + 1
                     out.write_bytes(txt.encode("latin-1"))
                     return self._json(dict(saved=str(out), first=str(p1), second=str(p2), n1=n1, n2=n2, n=n1 + n2))
+                if path == "/api/afm/addscan":
+                    return self._json(afm_add_scan(S.store, AP, b, d))
                 pl, pf = S.store.afm_plan(b.get("id"))
                 if pl is None:
                     return self._json(dict(error="no such AFM list"), 404)
@@ -4277,6 +4349,9 @@ class Handler(BaseHTTPRequestHandler):
                                 pl["scanned_folder"] = str(b["folder"])
                         pf.write_text(json.dumps(pl, indent=1), encoding="utf-8")
                     return self._json(pl)
+                if pl.get("manual") and path in ("/api/afm/save", "/api/afm/tipoffset", "/api/afm/tip"):
+                    # (2026-11-23) a Manual AFM list: no point list and no microscope -> AFM fit
+                    return self._json(dict(error="a manual AFM list has no AFM point file"), 400)
                 if path == "/api/afm/save":
                     # a copy of the point list (and its csv) in a folder chosen on this computer (for the AFM PC)
                     # (2026-10-30) the dialog opens in the run's own folder (where its designer build is), else as before
