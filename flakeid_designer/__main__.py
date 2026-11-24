@@ -8,9 +8,9 @@ decisions kept in a shared folder.  Only Python 3.8+ is needed (no other package
 
 Runs: every <run>/designer/bundle.json up to a few folders below each root (add roots from the page: Scan results ->
 Add a folder).  Shared data (designs, decisions): --data, else <first root>/_designer_data.  Settings per computer:
-~/.flakeid_designer.json; each person (User ▾) keeps their runs and loaded runs in
-<their directory>/_designer_data/people/<name>.json (people.py).  The server stops by itself 15 minutes after the last
-designer tab is closed.
+~/.flakeid_designer.json; each person (User ▾) keeps their runs and loaded runs in their own folder, Microscope
+Images/<Name>/flakeid_designer_user.json (people.py).  The server stops by itself 15 minutes after the last designer
+tab is closed.
 
 "Export to KLayout..." runs marks_to_klayout.py (next to this file) with this Python as a separate process; that tool
 needs numpy, opencv-python and gdstk (python -m pip install numpy opencv-python gdstk).  Its choices are kept in the
@@ -80,7 +80,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
 # decode byte 0xba" (2026-11-20, third_2poly_run_1).  The files this program reads itself name their encoding.
 os.environ.setdefault("PYTHONUTF8", "1")
 APP = "flakeid-designer"
-VERSION = "2026-11-23d"
+VERSION = "2026-11-23e"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -234,8 +234,13 @@ def switch_library(cfg, store, path):
     store.data = Path(lib.get("data_dir") or Path(path) / "_designer_data")
     store.library = cfg["library"] = path
     remember_library(cfg, store)
+    with PERSON_LOCK:                               # (2026-11-23e: opened again when the person is chosen anywhere)
+        if PERSON["name"]:
+            PP.set_library(PERSON["doc"], path, PERSON["home"])
+    person_cache(cfg)
     save_config(cfg)
     store.scan()
+    person_sync_soon(store)
 
 
 def add_run_start(store):
@@ -275,32 +280,37 @@ def save_added(store):
 
 
 # ---- people (2026-11-23, people.py): who is using the designer on this computer, and their list of runs
-PERSON = dict(name=None, home=None, data=None, doc=None)    # the person chosen on this computer (None: as before)
-PERSON_LOCK = threading.Lock()                              # PERSON (never held around share I/O)
+# (2026-11-23e) each person's file is in their own folder on the share, Microscope Images/<Name>/
+# flakeid_designer_user.json: the folder is chosen the first time (User ▾ › New user…), the file is written after each
+# change (person_sync_soon) and read again whenever it changes on the share (person_watch: another computer's change)
+PERSON = dict(name=None, home=None, doc=None, rev=0)       # the person chosen on this computer (None: as before);
+PERSON_LOCK = threading.Lock()                              # rev: +1 at each change that came from the file
 _PSYNC = dict(lock=threading.Lock(), busy=False, again=False)
-
-
-def person_data_dir(cfg, home):
-    """The designer data of a person's home library (its own _designer_data, as the library is opened)."""
-    lib = (cfg.get("libraries") or {}).get(home) or {}
-    if lib.get("data_dir") and lib_owns(home, lib.get("roots"), lib.get("data_dir")):
-        return lib["data_dir"]
-    return str(Path(home) / "_designer_data")
+_PWATCH = dict(sig=None)                                    # the file as last read or written here (mtime, size)
+PERSON_POLL_S = 5                                           # how often the file is looked at (one stat on the share)
 
 
 def apply_person(store, cfg, key):
     """Make the person saved in the settings under `key` the current one, from the settings' copy (no share I/O): the
     store's run list becomes theirs.  -> False (no such person: none chosen, the list as before)."""
     e = (cfg.get("people") or {}).get(key) if key else None
-    if not isinstance(e, dict) or not e.get("name") or not e.get("home"):
+    if not person_ok(e):                            # (one from before 2026-11-23e: chosen again with New user…)
         with PERSON_LOCK:
-            PERSON.update(name=None, home=None, data=None, doc=None)
+            PERSON.update(name=None, home=None, doc=None)
         return False
     doc = e.get("doc") if PP.valid(e.get("doc")) else PP.new_doc(e["name"])
     with PERSON_LOCK:
-        PERSON.update(name=e["name"], home=e["home"], data=person_data_dir(cfg, e["home"]), doc=doc)
+        PERSON.update(name=e["name"], home=e["home"], doc=doc)
         store.added = PP.run_paths(doc, e["home"])          # (a list, even empty: never seeded from the ticked runs)
+    _PWATCH["sig"] = None
     return True
+
+
+PERSON_V = 2                                                # (settings entries of people with a file in their folder)
+
+
+def person_ok(e):
+    return isinstance(e, dict) and bool(e.get("name")) and bool(e.get("home")) and e.get("v") == PERSON_V
 
 
 def person_cache(cfg):
@@ -330,30 +340,60 @@ def person_sync_soon(store):
     threading.Thread(target=_person_sync, args=(store,), daemon=True).start()
 
 
+def _file_sig(f):
+    try:
+        st = Path(f).stat()
+        return (st.st_mtime_ns, st.st_size)
+    except (OSError, TypeError):
+        return None
+
+
+def _person_take(store, name, home, merged):
+    """A copy read from (or written to) the person's file merged into the current one: the run list follows (the runs
+    walked again), then the page is told (rev) when the runs or the loaded runs changed.  -> True when they did."""
+    changed = news = False
+    with PERSON_LOCK:
+        if merged is None or PERSON["name"] != name or PERSON["home"] != home:
+            return False
+        before = PP.view(PERSON["doc"], home)
+        PERSON["doc"] = PP.merge(PERSON["doc"], merged)
+        news = PP.view(PERSON["doc"], home) != before
+        new = PP.run_paths(PERSON["doc"], home)
+        if new != store.added:
+            store.added, changed = new, True
+    with LIBRARY_LOCK:
+        cfg = load_config()
+        person_cache(cfg)
+        save_config(cfg)
+    if changed:
+        store.scan()                                 # (before the page is told: a new run is listed when it asks)
+    if news:
+        with PERSON_LOCK:
+            PERSON["rev"] += 1
+    return news
+
+
 def _person_sync(store):
     while True:
         try:
             with PERSON_LOCK:
-                name, home, data = PERSON["name"], PERSON["home"], PERSON["data"]
+                name, home = PERSON["name"], PERSON["home"]
                 doc = json.loads(json.dumps(PERSON["doc"])) if name else None
             if name:
-                merged = PP.save(PP.person_file(data, name), doc)
+                f = PP.profile_file(home)
+                merged = PP.save(f, doc)
                 if merged is None:
-                    sys.stderr.write(f"{time.strftime('%H:%M:%S')} PEOPLE: {name}'s list not written to {data} "
+                    sys.stderr.write(f"{time.strftime('%H:%M:%S')} PEOPLE: {name}'s list not written to {f} "
                                      f"(kept on this computer, written when the share answers)\n")
-                changed = False
-                with PERSON_LOCK:
-                    if merged is not None and PERSON["name"] == name:
-                        PERSON["doc"] = PP.merge(PERSON["doc"], merged)
-                        new = PP.run_paths(PERSON["doc"], home)
-                        if new != store.added:
-                            store.added, changed = new, True
-                with LIBRARY_LOCK:
-                    cfg = load_config()
-                    person_cache(cfg)
-                    save_config(cfg)
-                if changed:
-                    store.scan()
+                else:
+                    _PWATCH["sig"] = _file_sig(f)
+                if merged is not None:
+                    _person_take(store, name, home, merged)
+                else:
+                    with LIBRARY_LOCK:
+                        cfg = load_config()
+                        person_cache(cfg)
+                        save_config(cfg)
         except Exception as e:                           # (never stops the designer)
             sys.stderr.write(f"{time.strftime('%H:%M:%S')} PEOPLE: sync failed: {e}\n")
         with _PSYNC["lock"]:
@@ -363,85 +403,134 @@ def _person_sync(store):
             _PSYNC["again"] = False
 
 
+def person_check(store):
+    """The person's file read again when it changed on the share (another computer added, removed or ticked a run):
+    -> True when something came from it."""
+    with PERSON_LOCK:
+        name, home = PERSON["name"], PERSON["home"]
+    if not name:
+        return False
+    f = PP.profile_file(home)
+    sig = _file_sig(f)
+    if sig is None or sig == _PWATCH["sig"]:
+        return False
+    doc = PP.load(f)
+    if doc is None:
+        return False
+    _PWATCH["sig"] = sig
+    return _person_take(store, name, home, doc)
+
+
+def person_watch(store):
+    """(2026-11-23e) Every PERSON_POLL_S: the person's file looked at (person_check)."""
+    while True:
+        time.sleep(PERSON_POLL_S)
+        try:
+            person_check(store)
+        except Exception as e:                           # (never stops the designer)
+            sys.stderr.write(f"{time.strftime('%H:%M:%S')} PEOPLE: reading the file failed: {e}\n")
+
+
 def people_info(cfg):
     """For the page: the person, the people used on this computer, the old computer logins each one's decisions carry
-    (aliases: shown with the person's name), and the person's loaded (ticked) runs."""
+    (aliases: shown with the person's name), the person's loaded (ticked) runs and rev (see PERSON)."""
     with PERSON_LOCK:
-        cur = PERSON["name"]
+        cur, rev = PERSON["name"], PERSON["rev"]
         ticked = PP.ticked_paths(PERSON["doc"], PERSON["home"]) if cur else None
     ppl = [dict(name=e.get("name"), home=e.get("home")) for k, e in sorted((cfg.get("people") or {}).items(),
-           key=lambda kv: -float(kv[1].get("used", 0) if isinstance(kv[1], dict) else 0)) if isinstance(e, dict) and e.get("name")]
+           key=lambda kv: -float(kv[1].get("used", 0) if isinstance(kv[1], dict) else 0)) if person_ok(e)]
     al = {}
     for e in (cfg.get("people") or {}).values():
         if isinstance(e, dict) and e.get("name"):
             for a in ((e.get("doc") or {}).get("aliases") or []):
                 al[a] = e["name"]
             al[f"{PP.file_id(e['name'])}@{_host()}"] = e["name"]
-    return dict(person=cur, people=ppl, aliases=al, ticked=ticked)
+    return dict(person=cur, people=ppl, aliases=al, ticked=ticked, person_rev=rev)
 
 
-def use_person(store, name, home=None):
-    """Switch to the person `name` (made on this computer if new: their home library is `home`, else the current
-    library).  Their file on the share is read first (outside the library lock); the first person made on a computer
-    takes over its run list and its login's decisions (aliases).  -> (dict for the page, error)."""
-    name = PP.clean_name(name)
+def images_folder(store):
+    """Where New user…'s folder window starts: the share's Microscope Images folder above the open directory, else the
+    folder above the current person's, else above the directory."""
+    for p in [store.library, PERSON.get("home")]:
+        try:
+            q = Path(p) if p else None
+            while q is not None and q.parent != q:
+                if q.name.lower() == PP.IMAGES_DIR:
+                    return str(q)
+                q = q.parent
+        except (OSError, ValueError):
+            pass
+    p = PERSON.get("home") or store.library
+    return str(Path(p).parent) if p else None
+
+
+def use_person(store, home, ticked=None):
+    """Switch to the person whose folder is `home` (Microscope Images/<Name>).  Their file there is read; the first
+    time it is made (their name: the folder's): with this computer's run list and loaded runs (`ticked`, from the page)
+    when nobody was chosen here yet, and this computer's login (its older decisions) when they are its first person;
+    a copy kept here from before 2026-11-23e (a profile in a directory's _designer_data) is carried over.  The directory
+    they had open is opened.  -> (dict for the page, error)."""
+    home = str(Path(str(home)))
+    f = PP.profile_file(home)
+    try:
+        if not Path(home).is_dir():
+            return None, f"{home} is not reachable (is the share connected?)"
+        exists = f.is_file()
+    except OSError as e:
+        return None, f"{home} could not be read ({e})"
+    shared = PP.load(f) if exists else None                   # (share I/O: before the lock)
+    if exists and shared is None:
+        return None, f"{f} could not be read (not a designer user file?)"
+    name = PP.clean_name((shared or {}).get("name") or Path(home).name)
     if not PP.file_id(name):
-        return None, "Type a name."
+        return None, "Choose your own folder in Microscope Images."
     key = PP.key_of(name)
-    cfg0 = load_config()
-    e0 = (cfg0.get("people") or {}).get(key)
-    if isinstance(e0, dict) and e0.get("home"):
-        home = e0["home"]
-    home = str(Path(home)) if home else (store.library or None)
-    if not home:
-        return None, "Add a run first (its folder's parent becomes the directory), then choose your name."
-    shared = PP.load(PP.person_file(person_data_dir(cfg0, home), name))      # (share I/O: before the lock)
-    home_ok = Path(home).is_dir()
+    lib = PP.library_path(shared, home) if shared else None
+    lib_ok = bool(lib) and Path(lib).is_dir()
     with LIBRARY_LOCK:
         cfg = load_config()
         remember_library(cfg, store)
         people = cfg.setdefault("people", {})
         e = people.get(key) if isinstance(people.get(key), dict) else None
-        if e is None:
-            first = not any(isinstance(v, dict) and v.get("name") for v in people.values())
+        made = shared is None
+        if made:
+            first = not any(isinstance(v, dict) and v.get("name") for v in people.values())   # (older entries count)
             doc = PP.new_doc(name, [legacy_user()] if first else [])
-            if first and store.added:
-                PP.set_list(doc, list(store.added), home)     # (this computer's list so far: its first person's)
-            if shared:
-                doc = PP.merge(shared, doc)
-                doc["name"] = shared.get("name") or name
-            e = people[key] = dict(name=doc["name"], home=home, doc=doc, used=time.time())
-        elif shared:
-            e["doc"] = PP.merge(shared, e.get("doc"))
+            with PERSON_LOCK:
+                nobody = not PERSON["name"]
+            if e and PP.valid(e.get("doc")) and e.get("home"):        # (this computer's copy of an older profile)
+                doc["aliases"] = sorted(set(doc["aliases"]) | set(e["doc"].get("aliases") or []))
+                PP.set_list(doc, PP.run_paths(e["doc"], e["home"]), home)
+                tk = PP.ticked_paths(e["doc"], e["home"])
+                if tk is not None:
+                    PP.set_ticked(doc, tk, home)
+            elif nobody and store.added:                              # (this computer's list so far: theirs)
+                PP.set_list(doc, list(store.added), home)
+                if isinstance(ticked, list):
+                    PP.set_ticked(doc, [str(Path(str(x))) for x in ticked if x], home)
+            if store.library:
+                PP.set_library(doc, store.library, home)
+            written = PP.save(f, doc)
+            if written is None:
+                return None, f"{f} could not be written (is the share connected, and is this your folder?)"
+            doc = written
+        else:
+            doc = PP.merge(shared, e.get("doc")) if e and e.get("home") == home and PP.valid(e.get("doc")) else shared
+        people[key] = dict(name=name, home=home, doc=doc, used=time.time(), v=PERSON_V)
         cfg["person"] = key
         apply_person(store, cfg, key)
+        _PWATCH["sig"] = _file_sig(f)
         person_cache(cfg)
         switched = False
-        if store.library != home and home_ok:
-            switch_library(cfg, store, home)                 # (saves the settings and walks the runs)
+        if lib_ok and lib != store.library:
+            switch_library(cfg, store, lib)                 # (saves the settings and walks the runs)
             switched = True
         else:
             save_config(cfg)
     if not switched:
         store.scan()
     person_sync_soon(store)
-    return dict(person=PERSON["name"], home=home, reload=True), None
-
-
-def find_people(picked, levels=4):
-    """(2026-11-23d, Find my profile…) The directory holding people's files at the folder chosen or the few folders above
-    it (a run, or anything inside the directory, can be chosen): (directory, [names]) or (None, [])."""
-    try:
-        p = Path(picked)
-        for q in [p] + list(p.parents)[:levels]:
-            if q.name.lower() == "_designer_data":
-                continue
-            ppl = PP.listed(q / "_designer_data")
-            if ppl:
-                return str(q), [x["name"] for x in ppl]
-    except (OSError, ValueError):
-        pass
-    return None, []
+    return dict(person=name, home=home, file=str(f), made=made, reload=True), None
 
 
 def set_ticked(store, paths):
@@ -3751,14 +3840,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/config":
             return self._json(dict(user=by_name(), roots=S.store.roots, data_dir=str(S.store.data) if S.store.data else None,
                                    scanned=S.store.scanned, **dict(library_info(load_config(), S.store), **people_info(load_config()))))
-        if path == "/api/people":
-            # (2026-11-23) the people used on this computer, and those with a file in the current library (its
-            # _designer_data/people: one folder listed on the share)
-            cfg = load_config()
-            info = people_info(cfg)
-            seen = {PP.key_of(x["name"]) for x in info["people"]}
-            info["in_library"] = [dict(name=x["name"], home=S.store.library) for x in PP.listed(S.store.data)
-                                  if PP.key_of(x["name"]) not in seen] if S.store.data and S.store.library else []
+        if path in ("/api/people", "/api/people/state"):
+            # (2026-11-23) the people used on this computer; (2026-11-23e) state: the person's loaded runs and rev, asked
+            # by the page every few seconds (a change made on another computer)
+            info = people_info(load_config())
+            if path.endswith("state"):
+                info = {k: info[k] for k in ("person", "person_rev", "ticked")}
             return self._json(info)
         if path == "/api/offline":
             return self._json(S.offline.status())
@@ -4704,48 +4791,44 @@ class Handler(BaseHTTPRequestHandler):
                 cfg = load_config()
                 switch_library(cfg, S.store, p)
             return self._json(dict(picked=p, roots=S.store.roots, data_dir=str(S.store.data), **library_info(cfg, S.store)))
-        if path == "/api/people/find":
-            # (2026-11-23d) Find my profile…: a folder window (or {path}, JSON only); the people in that directory
-            if not (self.headers.get("Content-Type") or "").lower().startswith("application/json"):
-                return self._json(dict(error="JSON only"), 415)
-            try:
-                b = self._body()
-            except ValueError:
-                b = {}
-            p = str(b.get("path")) if isinstance(b, dict) and b.get("path") else None
-            if p is None:
-                if not PICKING.acquire(blocking=False):
-                    return self._json(dict(error="A folder window is already open (it can be behind the browser): choose "
-                                                 "the folder there, or cancel it first."), 409)
-                try:
-                    p = pick_folder("Your directory (your scan results folder, or a run in it)",
-                                    str(Path(S.store.library).parent) if S.store.library else None)
-                finally:
-                    PICKING.release()
-                if not p:
-                    return self._json(dict(picked=None))
-            if not Path(p).is_dir():
-                return self._json(dict(error=f"{p} is not reachable (is the share connected?)"), 400)
-            home, names = find_people(p)
-            if not home:
-                return self._json(dict(picked=p, error=f"No profiles in {p} or the folders above it: choose your scan "
-                                                       f"results folder (the one whose _designer_data has a people folder)."))
-            return self._json(dict(picked=p, home=home, people=[dict(name=n, home=home) for n in names]))
-        if path in ("/api/people/use", "/api/people/ticked"):
-            # (2026-11-23) use: switch to a person (made if new: {name, home}); ticked: the person's loaded runs {paths}
+        if path in ("/api/people/new", "/api/people/use", "/api/people/ticked"):
+            # (2026-11-23e) new: User ▾ › New user…: a folder window (or {path}, JSON only) for the person's folder in
+            # Microscope Images, then that person (their file there, made if new; {ticked}: the page's loaded runs);
+            # use: a person used on this computer ({name} or {home}); ticked: the person's loaded runs {paths}
             if not (self.headers.get("Content-Type") or "").lower().startswith("application/json"):
                 return self._json(dict(error="JSON only"), 415)
             try:
                 b = self._body()
             except ValueError:
                 return self._json(dict(error="bad request"), 400)
+            if not isinstance(b, dict):
+                b = {}
             if path == "/api/people/ticked":
                 ok = set_ticked(S.store, b.get("paths") if isinstance(b.get("paths"), list) else [])
                 return self._json(dict(ok=ok))
-            home = b.get("home")
-            if home and not Path(str(home)).is_dir():
-                return self._json(dict(error=f"{home} is not reachable (is the share connected?)"), 400)
-            r, err = use_person(S.store, b.get("name"), str(home) if home else None)
+            ticked = b.get("ticked") if isinstance(b.get("ticked"), list) else None
+            if path == "/api/people/new":
+                p = str(b.get("path")) if b.get("path") else None
+                if p is None:
+                    if not PICKING.acquire(blocking=False):
+                        return self._json(dict(error="A folder window is already open (it can be behind the browser): "
+                                                     "choose the folder there, or cancel it first."), 409)
+                    try:
+                        p = pick_folder("Your folder in Microscope Images (Microscope Images/<your name>)",
+                                        images_folder(S.store))
+                    finally:
+                        PICKING.release()
+                    if not p:
+                        return self._json(dict(picked=None))
+                home = PP.person_folder(p)
+            else:
+                home = b.get("home")
+                if not home and b.get("name"):
+                    e = (load_config().get("people") or {}).get(PP.key_of(b.get("name")))
+                    home = e.get("home") if person_ok(e) else None
+                if not home:
+                    return self._json(dict(error="Not used on this computer yet: New user… (choose your folder)."), 400)
+            r, err = use_person(S.store, str(home), ticked)
             return self._json(dict(error=err), 400) if err else self._json(r)
         if path in ("/api/runs/remove", "/api/runs/seed"):
             # (2026-11-05j) remove: a run off the list (nothing on disk changes); seed: the first list on this computer
@@ -5134,6 +5217,7 @@ def main(argv=None):
     apply_person(store, cfg, cfg.get("person"))        # (2026-11-23: the person's runs, from this computer's copy)
     threading.Thread(target=store.scan, daemon=True).start()
     person_sync_soon(store)                           # (then their file on the share: changes from other computers)
+    threading.Thread(target=person_watch, args=(store,), daemon=True).start()   # (2026-11-23e: and again as it changes)
     srv = make_server(port, store)
     print(f"vdW Stack Designer: {url}  (roots: {', '.join(roots) or 'none yet'}; designs and decisions: {data or 'none yet'})")
     if not a.no_browser:

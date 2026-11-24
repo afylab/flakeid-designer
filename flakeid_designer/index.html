@@ -943,7 +943,7 @@ function localDb(){const subs={},tag={},last={},busy={},again={};
   const due=name=>name!=="designs"||!(LEGACY&&(LEGACY.migrated||!LEGACY.designs));
   setInterval(()=>{if(!document.hidden)Object.keys(subs).filter(due).forEach(poll)},20000);
   document.addEventListener("visibilitychange",()=>{if(!document.hidden)Object.keys(subs).filter(due).forEach(poll)});
-  return {collection:name=>({onSnapshot:(cb,err)=>{(subs[name]=subs[name]||[]).push(cb);if(last[name])cb(last[name]);poll(name);return ()=>{}},
+  return {refresh:name=>poll(name),collection:name=>({onSnapshot:(cb,err)=>{(subs[name]=subs[name]||[]).push(cb);if(last[name])cb(last[name]);poll(name);return ()=>{}},
     doc:id=>({set:async body=>{const r=await fetch(`/api/db/${name}/${encodeURIComponent(id)}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
         if(!r.ok)throw {code:"unavailable",message:(await r.json().catch(()=>({}))).error||("HTTP "+r.status)};poll(name)},
       delete:async()=>{await fetch(`/api/db/${name}/${encodeURIComponent(id)}`,{method:"DELETE"});poll(name)}})}),poll}}
@@ -5106,33 +5106,42 @@ function openDirMenu(){closeUserMenu();const m=$("dirMenu");const libs=(LOCAL.li
   $("dmRuns").onclick=()=>{closeDirMenu();if(VIEW!=="library")enterView("library");else renderRuns()};
   (m.querySelector("button")||m).focus()}
 // (2026-11-23) User ▾: switch person (people.py): their run list, loaded runs and name on decisions, from their file
-// on the share (<their directory>/_designer_data/people/<name>.json); a new name is made in the current directory
+// on the share.  (2026-11-23e) The file is in the person's own folder, Microscope Images/<Name>/
+// flakeid_designer_user.json: New user… asks for that folder (the file is made there the first time, with the runs
+// loaded now when nobody was chosen on this computer); the people used here are listed and open from their file
 function userBtn(){const b=$("bUser");b.hidden=false;b.textContent=LOCAL.person?`User: ${LOCAL.person} ▾`:"Who are you? ▾";b.classList.toggle("primary",!LOCAL.person)}
-async function switchUser(name,home){const m=$("userMenu"),st=$("umMsg");if(st)st.textContent="Switching to "+name+"…";
-  const r=await fetch("/api/people/use",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(home?{name,home}:{name})}).then(r=>r.json()).catch(e=>({error:String(e)}));
-  if(r&&r.person){try{saveLocal()}catch(e){}location.reload()}else if(st)st.textContent=(r&&r.error)||"Could not switch."}
+// the runs loaded now (their paths): a new person's file starts with them
+function tickedPaths(){if(!RUNSEL.on)return [];return [...new Set([...RUNSEL.on].map(k=>RUNS[k]&&RUNS[k].path).filter(Boolean))]}
+async function userPost(url,body,wait){const st=$("umMsg");if(st)st.textContent=wait;
+  const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(r=>r.json()).catch(e=>({error:String(e)}));
+  if(r&&r.person){try{saveLocal()}catch(e){}location.reload();return}
+  if(st)st.textContent=r&&r.error?r.error:r&&r.picked===null?"No folder chosen.":"Could not switch."}
+function switchUser(p){return userPost("/api/people/use",{home:p.home},"Opening "+p.name+"…")}
+function newUser(){return userPost("/api/people/new",{ticked:LOCAL.person?[]:tickedPaths()},"Choose your folder in Microscope Images in the window that opened (it can be behind the browser)…")}
 async function openUserMenu(){const m=$("userMenu");m.hidden=false;$("bUser").setAttribute("aria-expanded","true");
-  const draw=info=>{const cur=LOCAL.person,ppl=(info&&info.people)||LOCAL.people||[],lib=(info&&info.in_library)||[];
-    const row=(p,sub,here)=>`<button role="menuitem" data-user="${escapeHtml(p.name)}"${here?` data-home="${escapeHtml(p.home||"")}"`:""} aria-current="${p.name===cur}" title="${escapeHtml(p.home||"")}"><span>${p.name===cur?"✓ ":""}${escapeHtml(p.name)}</span><span class="sub">${escapeHtml(sub)}</span></button>`;
-    m.innerHTML=`<div class="dlab">Who is using the designer</div>${ppl.map(p=>row(p,p.home?"directory: "+(libName(p.home)||p.home):"",false)).join("")}${lib.map(p=>row(p,"in this directory",true)).join("")}${!ppl.length&&!lib.length?`<div class="msg">Nobody chosen on this computer yet.</div>`:""}${info?"":`<div class="msg">Looking for people in this directory…</div>`}<hr>
-      <div style="display:flex;gap:6px;padding:4px 8px"><input id="umName" placeholder="${cur?"Another":"Your"} name" maxlength="40" style="flex:1;min-width:0" aria-label="Name"><button id="umAdd" class="primary" style="flex:0 0 auto;justify-content:center;background:var(--accent);color:var(--accent-ink)">${cur?"Add":"That's me"}</button></div>
-      <button role="menuitem" id="umFind"><span>Find my profile…</span><span class="sub">choose your directory</span></button>
-      <div class="msg" id="umMsg">Your runs, the runs you load and your name on decisions follow you to any computer.${cur?"":" The runs listed now become yours."}</div>`;
-    m.querySelectorAll("[data-user]").forEach(b=>b.onclick=()=>{if(b.dataset.user===cur){closeUserMenu();return}switchUser(b.dataset.user,b.dataset.home||null)});
-    $("umFind").onclick=findProfile;
-    const go=()=>{const v=$("umName").value.trim();if(v)switchUser(v,null)};$("umAdd").onclick=go;$("umName").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();go()}};
+  const draw=info=>{const cur=LOCAL.person,ppl=(info&&info.people)||LOCAL.people||[];
+    m.innerHTML=`<div class="dlab">Who is using the designer</div>${ppl.map((p,i)=>`<button role="menuitem" data-ui="${i}" aria-current="${p.name===cur}" title="${escapeHtml(p.home||"")}"><span>${p.name===cur?"✓ ":""}${escapeHtml(p.name)}</span></button>`).join("")}${ppl.length?"":`<div class="msg">Nobody chosen on this computer yet.</div>`}<hr>
+      <button role="menuitem" id="umNew" title="Choose your own folder in Microscope Images (Microscope Images/your name): your file there keeps the runs you list and load, on any computer${cur?"":"; the first time, the runs loaded now become yours"}"><span>New user…</span><span class="sub">your folder</span></button>
+      <div class="msg" id="umMsg"></div>`;
+    m.querySelectorAll("[data-ui]").forEach(b=>b.onclick=()=>{const p=ppl[+b.dataset.ui];if(p.name===cur){closeUserMenu();return}switchUser(p)});
+    $("umNew").onclick=newUser;
     m.style.left="0";m.style.right="auto";const rb=m.getBoundingClientRect();if(rb.right>innerWidth-8){m.style.left="auto";m.style.right="0"}};
-  draw(null);(m.querySelector("button")||$("umName")).focus();
-  const info=await fetch("/api/people",{cache:"no-store"}).then(r=>r.json()).catch(()=>null);if(!m.hidden&&info&&!$("umName").value)draw(info)}
-// (2026-11-23d) Find my profile…: on a computer that has another directory open (or none), choose your own directory (or
-// a run in it): the people with a file there are listed; clicking one opens that profile and its directory
-async function findProfile(){const m=$("userMenu"),st=$("umMsg");st.textContent="Choose your directory in the window that opened (it can be behind the browser)…";
-  const r=await fetch("/api/people/find",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(r=>r.json()).catch(e=>({error:String(e)}));
-  if(m.hidden)return;if(!r||(!r.picked&&!r.error)){st.textContent="No folder chosen.";return}if(r.error){st.textContent=r.error;return}
-  const old=m.querySelector("#umFound");if(old)old.remove();
-  m.querySelector("hr").insertAdjacentHTML("beforebegin",`<div id="umFound" style="display:flex;flex-direction:column;gap:2px"><div class="dlab">In ${escapeHtml(libName(r.home)||r.home)}</div>${r.people.map(p=>`<button role="menuitem" data-found="${escapeHtml(p.name)}" title="${escapeHtml(r.home)}"><span>${escapeHtml(p.name)}</span><span class="sub">open this profile</span></button>`).join("")}</div>`);
-  m.querySelectorAll("[data-found]").forEach(b=>b.onclick=()=>switchUser(b.dataset.found,r.home));
-  st.textContent="Click your name: your runs and your directory open.";(m.querySelector("[data-found]")||m).focus()}
+  draw(null);(m.querySelector("button")||m).focus();
+  const info=await fetch("/api/people",{cache:"no-store"}).then(r=>r.json()).catch(()=>null);if(!m.hidden&&info&&!$("umMsg").textContent)draw(info)}
+// (2026-11-23e) the person's file changed on another computer (runs ticked or added there): its loaded runs here too,
+// asked every 5 s while the page is shown (the run list itself comes with the runs' own 20 s poll)
+const PSTATE={rev:LOCAL&&LOCAL.person_rev!=null?LOCAL.person_rev:null,busy:false};
+async function personPoll(){if(!LOCAL||!LOCAL.person||document.hidden||PSTATE.busy)return;PSTATE.busy=true;
+  try{const r=await fetch("/api/people/state",{cache:"no-store"}).then(r=>r.json()).catch(()=>null);
+    if(!r||r.person!==LOCAL.person||r.person_rev==null||r.person_rev===PSTATE.rev)return;PSTATE.rev=r.person_rev;
+    if(db&&db.refresh)await db.refresh("runs");      // (a run added there: listed now, not at the next 20 s poll)
+    if(!Array.isArray(r.ticked))return;const want=new Set(r.ticked.map(normP));TICK.set=new Set(want);
+    const on=new Set(Object.keys(RUNS).filter(k=>RUNS[k]&&RUNS[k].path&&want.has(normP(RUNS[k].path))));
+    const same=RUNSEL.on&&on.size===RUNSEL.on.size&&[...on].every(k=>RUNSEL.on.has(k));if(same)return;
+    RUNSEL.on=on;if(!RUNSEL.known)RUNSEL.known=new Set(Object.keys(RUNS));TICK.sent=JSON.stringify([...want].sort());
+    lsSet("runsel",JSON.stringify({on:[...RUNSEL.on],known:[...RUNSEL.known]}));loadRunBundles();maybeBuild();renderRuns()}
+  finally{PSTATE.busy=false}}
+if(LOCAL)setInterval(personPoll,5000);
 function closeUserMenu(){$("userMenu").hidden=true;$("bUser").setAttribute("aria-expanded","false")}
 document.addEventListener("click",e=>{if(!$("userMenu").hidden&&!e.target.closest(".dirwrap"))closeUserMenu()});
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("userMenu").hidden)closeUserMenu()});
