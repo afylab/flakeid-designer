@@ -10,7 +10,9 @@ HTML = (Path(M.__file__).parent / "index.html").read_text(encoding="utf-8")
 
 def test_card_button():
     assert 'data-cmap title="This flake on the chip\'s 10x scan (chip map)">Chip map</span>' in HTML
-    assert ".cinfo{display:grid;grid-template-columns:auto 1fr auto;" in HTML and ".cinfo .cmapb{grid-column:3;grid-row:1;justify-self:end" in HTML
+    # (2026-11-25) on the scores' line, right: a long thickness (142.9 nm) on the first line pushed it out of the card
+    assert ".cinfo{display:grid;grid-template-columns:auto minmax(0,1fr) auto;" in HTML and ".cinfo .cmapb{grid-column:3;grid-row:2;justify-self:end" in HTML
+    assert ".cinfo .ct{grid-column:2/-1;grid-row:1;" in HTML
     assert HTML.count("cmapWire(b,f,t);") == 2 and "fmapOpen(false,{f,t})" in HTML
 
 
