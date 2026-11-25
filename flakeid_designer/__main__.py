@@ -80,7 +80,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
 # decode byte 0xba" (2026-11-20, third_2poly_run_1).  The files this program reads itself name their encoding.
 os.environ.setdefault("PYTHONUTF8", "1")
 APP = "flakeid-designer"
-VERSION = "2026-11-25a"
+VERSION = "2026-11-25b"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -1283,8 +1283,10 @@ class Store:
                 for k, e in self._review.get(str(d / name), {}).get("latest", {}).items():
                     if k not in latest or e.get("updated", 0) >= latest[k].get("updated", 0):
                         latest[k] = e
-            out = [dict(id=k, data=e.get("body", {})) for k, e in latest.items()
-                   if any((e.get("body") or {}).get(k) for k in ("decision", "stars", "clean", "afmoff", "tchoice", "afmdec", "tset", "hist"))]   # ("<flake>.stars", ".clean", ".afmoff", ".tchoice", ".afmdec", "<terrace>.tset")
+            # (2026-11-25) "<flake>.note": a comment about the flake, with who wrote it
+            out = [dict(id=k, data=dict(e.get("body") or {}, by=e.get("by")) if k.endswith(".note") else e.get("body", {}))
+                   for k, e in latest.items()
+                   if any((e.get("body") or {}).get(k) for k in ("decision", "stars", "clean", "afmoff", "tchoice", "afmdec", "tset", "hist", "note"))]   # ("<flake>.stars", ".clean", ".afmoff", ".tchoice", ".afmdec", "<terrace>.tset")
             self._lists["review"] = (sig, out, latest)
             return sig, out, latest
 
