@@ -26,3 +26,8 @@ def test_close_is_x_and_search():
     assert '<input type="search" id="fmapFind" placeholder="e.g. 30"' in HTML
     assert '$("fmapFind").addEventListener("input",fmapFind)' in HTML
     assert 'e.key==="Escape"&&e.target.value){e.preventDefault();e.stopPropagation()' in HTML     # (Esc clears, the window stays)
+
+
+def test_close_button_room():
+    # (2026-11-25e) the floating ✕ had no room kept in the chip map's header: View ↻ ran up against it
+    assert "#fmapDlg .dhead,#afmFilesDlg .dhead{padding-right:64px}" in HTML
