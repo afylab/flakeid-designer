@@ -38,3 +38,9 @@ def test_page_field():
     assert 'db.collection("review").doc(f.id+".note").set(body)' in HTML
     assert 'if(d.id.endsWith(".note")){if(x.note)NOTES[' in HTML and "STARS={};NOTES={};" in HTML
     assert "function imgStarsSync(){noteSync();" in HTML
+
+
+def test_note_stamp():
+    # (2026-11-25c) shown after the date and time it was written; the text alone while typing
+    assert "const noteShown=n=>n&&n.note?" in HTML and "${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}" in HTML
+    assert "at:v?at:null" in HTML and 'addEventListener("focus"' in HTML
