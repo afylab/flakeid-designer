@@ -1800,9 +1800,14 @@ function setStars(f,n){if(!f||f.manual)return;const cur=STARS[f.id]||0;const v=c
 // (2026-11-25) a comment per flake, typed in the 100x window (above the picture's top right): saved with the decisions
 // (review collection, id "<flake>.note", body {note, flake, run}; shared in the library; an empty one clears it), as you type
 let NOTES={},NOTE_T=null,NOTE_F=null;
+// (2026-11-25c) each comment shown after the date and time it was written (saved: at), "11/25/26, 10:42:32 used for ASE17";
+// while the box is being typed in, the text alone
+const p2=v=>String(v).padStart(2,"0");
+const noteStamp=t=>{const d=new Date(t);return isNaN(d)?"":`${p2(d.getMonth()+1)}/${p2(d.getDate())}/${p2(d.getFullYear()%100)}, ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`};
+const noteShown=n=>n&&n.note?((n.at||n.updated)?noteStamp(n.at||n.updated)+" ":"")+n.note:"";
 function saveNote(f,v){if(!f)return;v=String(v||"").trim().slice(0,2000);if(((NOTES[f.id]||{}).note||"")===v)return;
-  if(v)NOTES[f.id]={note:v,by:null,updated:Date.now()};else delete NOTES[f.id];
-  const body={note:v||null,flake:f.id,run:f.run||null,updated:Date.now()};
+  const at=Date.now();if(v)NOTES[f.id]={note:v,by:null,updated:at,at};else delete NOTES[f.id];
+  const body={note:v||null,flake:f.id,run:f.run||null,at:v?at:null,updated:at};
   if(db)db.collection("review").doc(f.id+".note").set(body).catch(err=>status2("Could not save the comment: "+(err&&err.message||err)));
   else{try{localStorage.setItem("vdw:notes",JSON.stringify(NOTES))}catch(e){}}
   status2(v?`Flake ${f.rank??f.id}: comment saved.`:`Flake ${f.rank??f.id}: comment cleared.`);noteTitle()}
@@ -1810,9 +1815,11 @@ function noteFlush(){if(NOTE_T){clearTimeout(NOTE_T);NOTE_T=null}if(NOTE_F){cons
 function noteTitle(){const el=$("imgNote"),n=IMG.f&&NOTES[IMG.f.id];el.classList.toggle("has",!!(n&&n.note));
   el.title=n&&n.note?n.note+(n.by||n.updated?"\n— "+[n.by?whoName(n.by):"",n.updated?new Date(n.updated).toLocaleString():""].filter(Boolean).join(", "):""):"A comment about this flake, for everyone using this library (saved as you type)"}
 function noteSync(){const el=$("imgNote");if(!el||!IMG.f)return;if(NOTE_F&&NOTE_F!==IMG.f)noteFlush();
-  if(!(document.activeElement===el&&NOTE_F===IMG.f))el.value=(NOTES[IMG.f.id]||{}).note||"";noteTitle()}
+  if(document.activeElement!==el)el.value=noteShown(NOTES[IMG.f.id]);noteTitle()}
 $("imgNote").addEventListener("input",()=>{NOTE_F=IMG.f;if(NOTE_T)clearTimeout(NOTE_T);NOTE_T=setTimeout(noteFlush,800)});
-$("imgNote").addEventListener("blur",noteFlush);
+$("imgNote").addEventListener("blur",()=>{noteFlush();noteSync()});
+$("imgNote").addEventListener("focus",e=>{if(!IMG.f||NOTE_F===IMG.f)return;const el=e.target;el.value=(NOTES[IMG.f.id]||{}).note||"";
+  requestAnimationFrame(()=>{try{el.setSelectionRange(el.value.length,el.value.length)}catch(err){}})});
 $("imgNote").addEventListener("keydown",e=>{e.stopPropagation();if(e.key==="Enter"||e.key==="Escape"){e.preventDefault();e.target.blur()}});
 $("imgDlg").addEventListener("close",noteFlush);
 // the centre of a flake's clean region (2026-10-28): set in the 100x window / screening (Clean point, key P), saved with
@@ -5496,7 +5503,7 @@ let localDb_=null;
   checkLegacy();afmLoadAll();
   db.collection("terraces").onSnapshot(s=>{DRAWN={};s.docs.forEach(d=>{if(d.exists){const x=d.data();if(x&&x.flake&&Array.isArray(x.poly))DRAWN[d.id]=x}});applyDrawn(true)},()=>{});
   db.collection("seen").onSnapshot(s=>{s.docs.forEach(d=>{if(d.exists){SEEN.add(d.id);const x=d.data();if(x&&x.run)SEEN.add(x.run)}});SEEN_READY=true;offerScreening()},()=>{SEEN_READY=true;offerScreening()});
-  db.collection("review").onSnapshot(s=>{REVIEW={};PICKINFO={};STARS={};NOTES={};CLEANPT={};AFMOFF={};TCHOICE={};AFMDEC={};TSET={};s.docs.forEach(d=>{if(d.exists){const x=d.data(),v=x.decision;if(d.id.endsWith(".note")){if(x.note)NOTES[x.flake||d.id.slice(0,-5)]={note:String(x.note),by:x.by||null,updated:x.updated||null};return}if(d.id.endsWith(".stars")){if(x.stars)STARS[x.flake||d.id.slice(0,-6)]=+x.stars;return}
+  db.collection("review").onSnapshot(s=>{REVIEW={};PICKINFO={};STARS={};NOTES={};CLEANPT={};AFMOFF={};TCHOICE={};AFMDEC={};TSET={};s.docs.forEach(d=>{if(d.exists){const x=d.data(),v=x.decision;if(d.id.endsWith(".note")){if(x.note)NOTES[x.flake||d.id.slice(0,-5)]={note:String(x.note),by:x.by||null,updated:x.updated||null,at:x.at||x.updated||null};return}if(d.id.endsWith(".stars")){if(x.stars)STARS[x.flake||d.id.slice(0,-6)]=+x.stars;return}
       if(d.id.endsWith(".afmdec")){const fid=x.flake||d.id.slice(0,-7);if(x.afmdec==="keep"||x.afmdec==="discard")AFMDEC[fid]=x.afmdec;return}
       if(d.id.endsWith(".tset")){const tid=x.terrace||d.id.slice(0,-5);TSET[tid]={tset:x.tset>0?+x.tset:null,hist:Array.isArray(x.hist)?x.hist:[]};return}
       if(d.id.endsWith(".tchoice")){const tid=x.terrace||d.id.slice(0,-8);if(x.tchoice==="10x"||x.tchoice==="100x")TCHOICE[tid]=x.tchoice;return}
