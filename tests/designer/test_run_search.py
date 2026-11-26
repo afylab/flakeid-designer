@@ -9,3 +9,8 @@ def test_run_search():
     assert i < j < HTML.index('id="pgmMergeRow"')                     # (below + Add run)
     assert "if(RFQ)a=a.filter(runMatch);" in HTML and "arch=all.filter(k=>isArch(k)&&runMatch(k))" in HTML
     assert '$("runFind").hidden=false;' in HTML
+
+
+def test_run_search_half_width():
+    # (2026-11-25i) half the row's width, under + Add run
+    assert "#runFind{display:block;width:calc(50% - 4px);" in HTML
