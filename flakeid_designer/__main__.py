@@ -80,7 +80,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
 # decode byte 0xba" (2026-11-20, third_2poly_run_1).  The files this program reads itself name their encoding.
 os.environ.setdefault("PYTHONUTF8", "1")
 APP = "flakeid-designer"
-VERSION = "2026-11-25c"
+VERSION = "2026-11-25d"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -2030,6 +2030,33 @@ def tenx_tile(store, run, scan, pyr, level, name):
         return None
     p = _tenx_piece(store, run, scan)
     return p / "tiles" / pyr / level / name if p is not None else None
+
+
+def afm_used_centers(pl, latest, at):
+    """(2026-11-25d) A list marked AFM scan complete: each flake's AFM center (red cross) now, recorded with its AFM files
+    in the list (pl["used_centers"][flake] = {clean: cut-out px, or None: the 100x picture's center; rel, um; files; n;
+    at; scan_um}): the designer shows it in orange.  Marked complete again (after the mark was removed): a flake's earlier
+    record, when its center has moved since, is kept in "before".  latest: Store.review_state()[2]."""
+    R, M = pl.get("results") or {}, pl.get("more") or {}
+    U = pl.setdefault("used_centers", {})
+    for s in pl.get("sites") or []:
+        fl, n = s.get("flake"), str(s.get("n"))
+        files = [x.get("source") for x in [R.get(n)] + list(M.get(n) or []) if isinstance(x, dict) and x.get("source")]
+        if not fl or not files:
+            continue
+        body = ((latest.get(f"{fl}.clean") or {}).get("body") or {})
+        c = body.get("clean") if isinstance(body.get("clean"), list) else None
+        new = dict(clean=c, rel=body.get("rel") if c else None, um=body.get("um") if c else None, files=files,
+                   n=s.get("n"), at=at, scan_um=pl.get("scan_um"))
+        old = U.get(fl)
+        if old:
+            before = list(old.get("before") or [])
+            if old.get("clean") != c:
+                before.append({k: old.get(k) for k in ("clean", "rel", "um", "files", "n", "at", "scan_um")})
+            if before:
+                new["before"] = before
+        U[fl] = new
+    return U
 
 
 def _reset_review(store, run, afm=False):
@@ -4332,6 +4359,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(dict(error="no such AFM list"), 404)
                 if path in ("/api/afm/rename", "/api/afm/scanned"):
                     # (2026-11-03e) Library › AFM runs: a list's name; its "AFM scan complete" mark (when, the folder)
+                    latest = None
+                    if path == "/api/afm/scanned" and b.get("scanned") is not False:
+                        try:                                  # (the AFM centers now; outside the store lock: not re-entrant)
+                            latest = S.store.review_state()[2]
+                        except Exception:
+                            latest = None
                     with S.store.lock:
                         pl, pf = S.store.afm_plan(b.get("id"))
                         if path == "/api/afm/rename":
@@ -4349,6 +4382,8 @@ class Handler(BaseHTTPRequestHandler):
                             pl["scanned"] = int(time.time() * 1000)
                             if b.get("folder"):
                                 pl["scanned_folder"] = str(b["folder"])
+                            if latest is not None:
+                                afm_used_centers(pl, latest, pl["scanned"])
                         pf.write_text(json.dumps(pl, indent=1), encoding="utf-8")
                     return self._json(pl)
                 if pl.get("manual") and path in ("/api/afm/save", "/api/afm/tipoffset", "/api/afm/tip"):

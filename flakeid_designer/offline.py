@@ -996,7 +996,7 @@ class Offline:
         except OSError:
             sk = 0
         out = [dict(id=k, data=e.get("body") or {}) for k, e in latest.items()
-               if any((e.get("body") or {}).get(k) for k in ("decision", "stars", "clean"))]
+               if any((e.get("body") or {}).get(k) for k in ("decision", "stars", "clean", "note", "hist"))]   # (note, hist: 2026-11-25d)
         return self.D._sig(f"offline-review|{qk}|{sk}"), out
 
     @staticmethod
