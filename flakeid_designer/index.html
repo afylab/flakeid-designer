@@ -195,7 +195,7 @@ dialog::backdrop{background:rgba(10,14,16,.5)}
 #afmSplit{flex:0 0 8px;cursor:col-resize;background:#333d40;touch-action:none}#afmSplit:hover,#afmSplit.on{background:#4fe0e0}#afmSplit[hidden]{display:none}
 #afmSide.sized{flex:0 0 auto;border-left:0}#afmSide .afmimg{position:relative}
 #afmSide .afmgrip{position:absolute;right:-6px;bottom:28px;width:16px;height:16px;cursor:nwse-resize;touch-action:none;background:linear-gradient(135deg,transparent 45%,#e4ebec 45%,#e4ebec 55%,transparent 55%,transparent 70%,#e4ebec 70%,#e4ebec 80%,transparent 80%)}#afmSide .sub{color:#9fb0b4}#afmSide .row{flex-wrap:wrap;gap:8px;align-items:center}#afmSide canvas{position:static;inset:auto;display:block;image-rendering:pixelated;cursor:crosshair;touch-action:none}
-#afmSide .afmcv{position:relative;flex:0 0 auto;display:flex;gap:8px;align-items:flex-start}#afmSide svg.cbar{flex:0 0 70px;width:70px;overflow:visible;cursor:default}#afmSide .afmimg{display:flex;flex-direction:column;flex:0 0 auto}#afmSide svg.afmsb{display:block;overflow:visible}#afmSide .afmlow{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;flex:0 0 auto}#afmSide .afmlow>div{min-width:0;display:flex;flex-direction:column;gap:4px}#afmSide svg.hist{width:100%;height:110px;flex:0 0 auto;background:#11181a;border-radius:6px;cursor:ew-resize;touch-action:none}#afmSide svg.prof{width:100%;height:120px;flex:0 0 auto;background:#11181a;border-radius:6px}#afmSide input[type=number]{width:86px}
+#afmSide .afmcv{position:relative;flex:0 0 auto;display:flex;gap:8px;align-items:flex-start}#afmSide svg.cbar{flex:0 0 70px;width:70px;overflow:visible;cursor:default}#afmSide .afmimg{display:flex;flex-direction:column;flex:0 0 auto}#afmSide svg.afmsb{display:block;overflow:visible}.afmpngb{position:absolute;left:0;bottom:2px;display:flex;gap:6px}.afmpngb .iconb{width:30px;height:24px;padding:0;display:inline-grid;place-items:center}.afmpngb .iconb svg{display:block}#afmSide .afmlow{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;flex:0 0 auto}#afmSide .afmlow>div{min-width:0;display:flex;flex-direction:column;gap:4px}#afmSide svg.hist{width:100%;height:110px;flex:0 0 auto;background:#11181a;border-radius:6px;cursor:ew-resize;touch-action:none}#afmSide svg.prof{width:100%;height:120px;flex:0 0 auto;background:#11181a;border-radius:6px}#afmSide input[type=number]{width:86px}
 #afmsBar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}#afmsBar code{font-size:12px}
 .revb .u{border:1px solid var(--line);padding:3px 9px;border-radius:6px;cursor:pointer}.revb .u[aria-pressed="true"]{background:#6c5ce7;border-color:#6c5ce7;color:#fff}#tfBar{grid-column:1/-1;border:2px solid #f5a524;background:rgba(245,165,36,.12);border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;gap:8px}
 #tfBar .tfhead{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}#tfBar .tfhead b{font-size:17px}#tfBar .tfrow{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
@@ -2338,7 +2338,7 @@ function copyRows(f,L){if(!copyLook(f))return L.filter(x=>!/^look/.test(x.k)).co
   return order.filter(k=>by[k]).map(k=>lab[k]?{...by[k],label:lab[k]}:by[k]).concat(L.filter(x=>!order.includes(x.k)))}
 function copyUrl(f){return sgCan(f)?`/api/framefiles?run=${encodeURIComponent(f.run)}&scan=${encodeURIComponent(tenxScan(f))}&flake=${encodeURIComponent(f.rank)}${typeof f.img==="string"?"&img="+encodeURIComponent(f.img):""}`:null}
 function copyClose(){$("imgCopyMenu").hidden=true;$("imgCopy").setAttribute("aria-expanded","false")}
-function copyDone(b,ok){const t=b.textContent;b.textContent=ok?"✓":"✗";b.disabled=true;setTimeout(()=>{b.textContent=t;b.disabled=false},900)}
+function copyDone(b,ok){const t=b.innerHTML;b.textContent=ok?"✓":"✗";b.disabled=true;setTimeout(()=>{b.innerHTML=t;b.disabled=false},900)}   // (innerHTML: icon buttons keep their icon, 2026-11-25h)
 // the image turned by the view rotation, as the 100x window shows it
 async function copyImage(url){const blob=await fetch(url).then(r=>{if(!r.ok)throw new Error(r.statusText);return r.blob()});
   const bm=await createImageBitmap(blob),c=document.createElement("canvas"),R=vrFit(bm.width,bm.height);c.width=Math.round(R.W);c.height=Math.round(R.H);
@@ -2681,7 +2681,7 @@ function afmLevel3(D,pts){pts=pts.map(([x,y])=>[Math.round(x),Math.round(y)]);co
   D.lev=pts.map(p=>p.slice());afmStats(D);D.lo=D.lo0;D.hi=D.hi0;return ""}
 // (2026-11-18) AFM picture: scale bar under it (1, 2 or 5 × 10^n µm, about a quarter of the scan), and a PNG of the
 // picture as shown, its colour bar and scale bar, put on the clipboard
-const AFMSB_H=28;
+const AFMSB_H=28,AFM_FIT=1.15;
 function niceLen(x){if(!(x>0))return 0;const e=Math.pow(10,Math.floor(Math.log10(x))),m=x/e;return (m>=5?5:m>=2?2:1)*e}
 function fmtLen(um){return um>=1?`${+um.toPrecision(3)} µm`:`${Math.round(um*1000)} nm`}
 async function afmCopyPng(cv,bar,sb,side){const W=cv.clientWidth,H=cv.clientHeight,BW=+bar.getAttribute("width")||70,SH=AFMSB_H,P=10,G=8,k=Math.max(2,window.devicePixelRatio||1);
@@ -2692,7 +2692,8 @@ async function afmCopyPng(cv,bar,sb,side){const W=cv.clientWidth,H=cv.clientHeig
   const bg=getComputedStyle(side).backgroundColor;g.fillStyle=bg&&bg!=="rgba(0, 0, 0, 0)"?bg:"#1b2326";g.fillRect(0,0,P+W+G+BW+P,P+H+SH+P);
   g.imageSmoothingEnabled=false;g.drawImage(cv,P,P,W,H);g.imageSmoothingEnabled=true;
   g.drawImage(await svgImg(bar,BW,H),P+W+G,P,BW,H);g.drawImage(await svgImg(sb,W,SH),P,P+H,W,SH);
-  const png=await new Promise(res=>out.toBlob(res,"image/png"));await navigator.clipboard.write([new ClipboardItem({"image/png":png})]);return png}
+  const png=await new Promise(res=>out.toBlob(res,"image/png"));if(!afmCopyPng.noClip)await navigator.clipboard.write([new ClipboardItem({"image/png":png})]);return png}
+async function afmPngBlob(cv,bar,sb,side){afmCopyPng.noClip=true;try{return await afmCopyPng(cv,bar,sb,side)}finally{afmCopyPng.noClip=false}}
 // (2026-11-18c) Fix step: a jump of the scan between two lines (part of the picture all at another height, e.g. the
 // lower half 35 nm up): each line moved by the median of its differences with the line above (only a jump of the whole
 // line moves it: a flake edge is a few pixels of a line; a flake edge along a line for half the picture's width or
@@ -2744,8 +2745,8 @@ async function afmSideDraw(f,ctx){afmSideDraw.last=[f,ctx];const side=$("afmSide
       <button id="afmGwy" title="Open this .spm in Gwyddion on this computer (levelling, profiles, statistics, …)">Open in Gwyddion</button></div>
     <div class="row"><button id="afmL3" aria-pressed="false" title="3-point level: click three points of the same flat surface (e.g. the substrate) on the AFM picture; the plane through them is taken off">3-point level</button><button id="afmStep" title="Fix step: part of the picture at another height after a line (a jump of the scan, not the sample): the lines put back in line">Fix step</button><button id="afmL3r" hidden title="Back to the heights as read (no 3-point level, no step fix)">Undo level</button>
       <label class="sub"><select id="afmCm" aria-label="Colour scale" title="Colour scale">${Object.keys(CMAPS).map(k=>`<option${k===AFMS.cmap?" selected":""}>${k}</option>`).join("")}</select></label>
-      <button id="afmAuto" title="2–98 % of the heights">Auto range</button><button id="afmCopy" title="Copy the AFM picture as it looks here, with its colour bar and scale bar, as a PNG">Copy PNG</button><span class="sub" id="afmL3msg"></span></div>
-    <div class="afmcv"><div class="afmimg"><canvas id="afmCv"></canvas><span class="afmgrip" id="afmGrip" title="Drag: the AFM picture larger or smaller (double-click: fit the panel again)"></span><svg id="afmSb" class="afmsb" height="${AFMSB_H}" aria-label="Scale bar"></svg></div><svg id="afmBar" class="cbar" aria-label="Colour bar (nm)"></svg></div><div class="row"><span class="sub" id="afmHover">&nbsp;</span></div>
+      <button id="afmAuto" title="2–98 % of the heights">Auto range</button><span class="sub" id="afmL3msg"></span></div>
+    <div class="afmcv"><div class="afmimg"><canvas id="afmCv"></canvas><span class="afmgrip" id="afmGrip" title="Drag: the AFM picture larger or smaller (double-click: fit the panel again)"></span><svg id="afmSb" class="afmsb" height="${AFMSB_H}" aria-label="Scale bar"></svg><div class="afmpngb"><button id="afmCopy" class="iconb" title="Copy PNG: the AFM picture as it looks here, with its colour bar and scale bar" aria-label="Copy PNG"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/><path d="M10.5 5.5V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v6.5a1 1 0 0 0 1 1h2.5"/></svg></button><button id="afmSave" class="iconb" title="Save PNG: the AFM picture as it looks here, next to its .spm, with the same name (.png)" aria-label="Save PNG"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M2 3a1 1 0 0 1 1-1h8.6L14 4.4V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z"/><path d="M5 2v3.5h5.5V2"/><rect x="4.5" y="9" width="7" height="5"/></svg></button></div></div><svg id="afmBar" class="cbar" aria-label="Colour bar (nm)"></svg></div><div class="row"><span class="sub" id="afmHover">&nbsp;</span></div>
     <div class="afmlow"><div><div class="row" style="gap:6px"><b class="sub" style="color:#e4ebec" title="Drag across a peak (e.g. the flake's or the substrate's heights): its left end is black, its right end white; or drag the black / white handle">Histogram</b><label class="sub">black <input type="number" id="afmLo" step="0.1"></label><label class="sub">white <input type="number" id="afmHi" step="0.1"> nm</label><label class="sub"><input type="checkbox" id="afmLog"${AFMS.hlog?" checked":""}> log</label></div>
       <div class="row" style="gap:6px" title="The histogram's range (mouse wheel on the histogram: zoom in / out at the pointer)"><label class="sub">from <input type="number" id="afmHmin" step="0.1"></label><label class="sub">to <input type="number" id="afmHmax" step="0.1"> nm</label><button id="afmHfull" title="The histogram's whole range again (0.1–99.9 % of the heights)">Full</button></div>
       <svg class="hist" id="afmHist" aria-label="Histogram of the heights"></svg></div>
@@ -2760,7 +2761,7 @@ async function afmSideDraw(f,ctx){afmSideDraw.last=[f,ctx];const side=$("afmSide
     avW=Math.max(120,side.clientWidth-24-BW-8),avH=Math.max(200,side.clientHeight-used);
   // (2026-11-18l) the size chosen with the corner grip (px of the picture's longer side, this computer), else the panel's room;
   // never wider than the panel (drag the bar left of it for more), taller than the panel: it scrolls
-  const fitSc=px=>{const w=px?Math.max(120,side.clientWidth-24-BW-8):avW;return px?Math.min(w/D.w,Math.max(120,px)/Math.max(D.w,D.h)):Math.min(w/D.w,avH/D.h)};
+  const fitSc=px=>{const w=px?Math.max(120,side.clientWidth-24-BW-8):avW;return px?Math.min(w/D.w,Math.max(120,px)/Math.max(D.w,D.h)):Math.min(w/D.w,AFM_FIT*avH/D.h)};   // (AFM_FIT: 15 % over the room, 2026-11-25h: the panel scrolls)
   let sc=fitSc(AFMPX);
   const sizeTo=x=>{sc=x;cv.style.width=Math.round(D.w*sc)+"px";cv.style.height=Math.round(D.h*sc)+"px"};sizeTo(sc);
   const K=P.id+":"+s.n+":"+kk,pick={on:false,pts:[]},msg=t=>{$("afmL3msg").textContent=t};
@@ -2783,6 +2784,13 @@ async function afmSideDraw(f,ctx){afmSideDraw.last=[f,ctx];const side=$("afmSide
     gr.ondblclick=e=>{e.stopPropagation();AFMPX=0;try{localStorage.removeItem("fd_afmpx")}catch(err){}sizeTo(fitSc(0));cbar();sbar()}}
   $("afmCopy").onclick=async()=>{const b=$("afmCopy");try{await afmCopyPng(cv,bar,$("afmSb"),side);copyDone(b,true);status2("AFM picture copied.")}
     catch(e){copyDone(b,false);status2("Could not copy the AFM picture: "+(e&&e.message||e))}};
+  // (2026-11-25h) Save PNG: the same picture written next to the .spm, its name with .png (asked before replacing a file)
+  $("afmSave").onclick=async()=>{const b=$("afmSave");try{const blob=await afmPngBlob(cv,bar,$("afmSb"),side);
+      const png=await new Promise((ok,no)=>{const rd=new FileReader();rd.onload=()=>ok(String(rd.result).split(",")[1]||"");rd.onerror=()=>no(new Error("read"));rd.readAsDataURL(blob)});
+      let q=await afmPost("/api/afm/savepng",{id:P.id,site:s.n,k:kk,png});
+      if(q&&q.exists){if(!confirm(`${q.file.split(/[\\/]/).pop()} is already there.\n\nReplace it with this picture?`)){status2("Not saved.");return}q=await afmPost("/api/afm/savepng",{id:P.id,site:s.n,k:kk,png,overwrite:true})}
+      if(!q||q.error)throw new Error(q&&q.error||"no answer");copyDone(b,true);status2("AFM picture saved: "+q.file)}
+    catch(e){copyDone(b,false);status2("Could not save the AFM picture: "+(e&&e.message||e))}};
   // the colour bar: the colours from black (bottom) to white (top) with their heights
   const cbar=()=>{const H=Math.round(D.h*sc),n=24;bar.setAttribute("width",BW);bar.setAttribute("height",H);bar.style.height=H+"px";
     const stops=[...Array(n+1)].map((_,i)=>{const c=cmapAt(AFMS.cmap,i/n).map(Math.round);return `<stop offset="${(100*i/n).toFixed(1)}%" stop-color="rgb(${c})"/>`}).join("");
