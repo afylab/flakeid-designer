@@ -18,5 +18,13 @@ def test_png_path():
 def test_page():
     a = HTML.index('id="afmSb"')
     assert a < HTML.index('id="afmCopy" class="iconb"') < HTML.index('id="afmSave" class="iconb"') < HTML.index('id="afmBar"')
-    assert ">Copy PNG</button>" not in HTML and "AFM_FIT=1.15" in HTML and "Math.min(w/D.w,AFM_FIT*avH/D.h)" in HTML
+    assert ">Copy PNG</button>" not in HTML and "AFM_FIT=1;" in HTML and "Math.min(w/D.w,AFM_FIT*avH/D.h)" in HTML
     assert 'afmPost("/api/afm/savepng"' in HTML and "b.innerHTML=t" in HTML
+
+
+def test_compact_panel():
+    # (2026-11-26) the buttons right of the picture, the profile under the histogram
+    a = HTML.index('<svg id="afmBar" class="cbar"')
+    assert a < HTML.index('<div class="afmtools"><button id="afmGwy"') < HTML.index('id="afmL3"') < HTML.index('id="afmHover"')
+    assert HTML.index('<div class="afmhistb">') < HTML.index('<div class="afmprofb">')
+    assert "#afmSide .afmlow{display:grid;grid-template-columns:minmax(0,1fr);" in HTML
