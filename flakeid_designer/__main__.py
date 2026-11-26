@@ -80,7 +80,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
 # decode byte 0xba" (2026-11-20, third_2poly_run_1).  The files this program reads itself name their encoding.
 os.environ.setdefault("PYTHONUTF8", "1")
 APP = "flakeid-designer"
-VERSION = "2026-11-25g"
+VERSION = "2026-11-25h"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -2030,6 +2030,13 @@ def tenx_tile(store, run, scan, pyr, level, name):
         return None
     p = _tenx_piece(store, run, scan)
     return p / "tiles" / pyr / level / name if p is not None else None
+
+
+def afm_png_path(src):
+    """(2026-11-25h) Where Save PNG puts an AFM file's picture: beside it, the same name with .png (a numbered extension,
+    Nanoscope's scan.001, kept: scan.001.png, so scan.002 does not land on the same file)."""
+    src = Path(src)
+    return src.with_name(src.name + ".png") if re.fullmatch(r"\.\d+", src.suffix or "") else src.with_suffix(".png")
 
 
 def afm_used_centers(pl, latest, at):
@@ -4572,6 +4579,35 @@ class Handler(BaseHTTPRequestHandler):
                     import base64
                     return self._json(dict(w=int(z.shape[1]), h=int(z.shape[0]), pixel_nm=px_nm, full=full, file=r0.get("file"),
                                            source=r0.get("source"), z=base64.b64encode(z.astype("<f4").tobytes()).decode("ascii")))
+                if path == "/api/afm/savepng":
+                    # (2026-11-25h) the AFM picture as the page shows it (PNG) saved next to the point's .spm, with its
+                    # name: F.0_00001.spm -> F.0_00001.png (a numbered extension kept: scan.001 -> scan.001.png); a file
+                    # already there is replaced only when the page says so (overwrite, after asking)
+                    r0 = afm_result(pl, int(b.get("site") or 0), b.get("k"))
+                    src = Path(str((r0 or {}).get("source") or ""))
+                    if r0 is None or not src.is_file():
+                        return self._json(dict(error="the AFM file is not at " + str(src) if r0 else "no AFM image for this point"), 404)
+                    dst = afm_png_path(src)
+                    if dst.exists() and not b.get("overwrite"):
+                        return self._json(dict(exists=True, file=str(dst)))
+                    import base64
+                    try:
+                        data = base64.b64decode(str(b.get("png") or ""), validate=True)
+                    except ValueError:
+                        data = b""
+                    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+                        return self._json(dict(error="not a PNG picture"), 400)
+                    tmp = dst.with_name("." + dst.name + ".tmp")
+                    try:
+                        tmp.write_bytes(data)
+                        os.replace(tmp, dst)
+                    except OSError as e:
+                        try:
+                            tmp.unlink()
+                        except OSError:
+                            pass
+                        return self._json(dict(error=f"could not write {dst}: {e}"), 500)
+                    return self._json(dict(ok=True, file=str(dst), bytes=len(data)))
                 if path == "/api/afm/gwyddion":
                     # (2026-11-02k) the point's .spm opened in Gwyddion on this computer, to work on it there
                     r0 = afm_result(pl, int(b.get("site") or 0), b.get("k"))
