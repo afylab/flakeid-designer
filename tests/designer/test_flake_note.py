@@ -44,3 +44,10 @@ def test_note_stamp():
     # (2026-11-25c) shown after the date and time it was written; the text alone while typing
     assert "const noteShown=n=>n&&n.note?" in HTML and "${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}" in HTML
     assert "at:v?at:null" in HTML and 'addEventListener("focus"' in HTML
+
+
+def test_note_search_box():
+    # (2026-11-25g) Search comments, right of Show: every comment of the user's runs, whatever is shown
+    i, j = HTML.index('id="fRev"'), HTML.index('id="noteFind"')
+    assert i < j < HTML.index('<button id="dclose">')
+    assert "function noteFindList(q)" in HTML and "U.has(noteRun(fid,n))" in HTML and "function userRunKeys()" in HTML
