@@ -38,6 +38,8 @@ MAX_STUCK = 6                   # share calls still running past their limit bef
 SLOW_FOR_S = 60.0               # the share counts as slow this long after a call ran over its limit or timed out
 SLOW_MEDIAN_S = 1.0             # ... or while the median of the last calls takes longer than this
 RETRY_S = (2.0, 5.0, 10.0, 30.0, 60.0)   # the outbox's waits after failed uploads (the last one repeats)
+STUCK_AFTER = 3                 # failures of one save (the share fine) before it is set aside, shown with its error
+STUCK_RETRY_S = 600.0           # a save set aside is still tried again this often
 
 
 class ShareSlow(OSError):
@@ -351,6 +353,12 @@ class Outbox:
                 self.lock.wait(min(left, 0.5))
 
     def kick(self):
+        """Try now: everything, the saves set aside too."""
+        with self.lock:
+            self._ensure()
+            for r in self.items:
+                r.pop("next_at", None)
+                r.pop("stuck", None)
         self.fails = 0
         self.wake.set()
 
@@ -361,13 +369,48 @@ class Outbox:
             self.thread = threading.Thread(target=self._loop, daemon=True, name="outbox")
             self.thread.start()
 
+    def _next(self, now):
+        """The first save to upload now: not waiting for its own retry, and no earlier save of the same document still
+        waiting (an older version must not land after a newer one).  -> (record or None, seconds until one is due)."""
+        held, due = set(), None
+        for r in self.items:
+            k = (r.get("coll"), r.get("id"), r.get("data_dir"))
+            if k in held:
+                continue
+            held.add(k)
+            at = float(r.get("next_at") or 0)
+            if at <= now:
+                return r, 0.0
+            due = at - now if due is None else min(due, at - now)
+        return None, due
+
+    def _share_down(self, r, e):
+        """True when the failure is the share's (slow, or its folder not reachable), not this save's."""
+        if is_timeout(e):
+            return True
+        d = r.get("data_dir")
+        if not d:
+            return False
+        try:
+            ok = (self.gate.call(lambda: Path(d).parent.is_dir(), 10.0, "outbox check") if self.gate is not None
+                  else Path(d).parent.is_dir())
+        except Exception:
+            return True
+        return not ok
+
     def _loop(self):
+        """(2026-11-27c) One save that cannot be written no longer holds up the others (before: the lab PC's 130 saves
+        waited behind one whose file name Windows refused).  A failure because the share is slow or not reachable: wait
+        and try the same save again (all of them would fail).  A failure of this save only: it waits on its own
+        (RETRY_S) while the next ones go on; after STUCK_AFTER such failures it is set aside, shown with its error, and
+        tried again every STUCK_RETRY_S (or at once with Try now / kick)."""
         while True:
+            now = time.time()
             with self.lock:
                 self._ensure()
-                r = self.items[0] if self.items else None
+                r, due = self._next(now)
             if r is None:
-                self.wake.wait(30.0)
+                self.wake.wait(min(30.0, due) if due is not None else 30.0)
                 self.wake.clear()
                 continue
             t0 = time.time()
@@ -376,15 +419,34 @@ class Outbox:
                     raise OSError("no uploader")
                 self.upload(r)
             except Exception as e:
-                self.fails += 1
                 msg = f"{type(e).__name__}: {e}"
-                if self.err != msg or self.fails in (1, 5, 20) or self.fails % 100 == 0:
-                    _log(f"outbox: {r['coll']} {r['id']} not uploaded yet ({msg}); {self.count()} waiting, trying again")
-                self.err = msg
-                if self.gate is not None:
+                down = self._share_down(r, e)
+                if self.gate is not None and down:
                     self.gate.note(False, time.time() - t0, "upload", e)
-                self.wake.wait(RETRY_S[min(self.fails - 1, len(RETRY_S) - 1)])
-                self.wake.clear()
+                with self.lock:
+                    if down:
+                        self.fails += 1
+                        wait = RETRY_S[min(self.fails - 1, len(RETRY_S) - 1)]
+                    else:
+                        r["tries"] = int(r.get("tries") or 0) + 1
+                        r["err"] = msg
+                        if r["tries"] >= STUCK_AFTER:
+                            r["stuck"] = True
+                        r["next_at"] = time.time() + (STUCK_RETRY_S if r.get("stuck") else
+                                                      RETRY_S[min(r["tries"] - 1, len(RETRY_S) - 1)])
+                        wait = 0.0
+                        try:
+                            self._rewrite()                 # (its tries and error kept for the next start)
+                        except OSError:
+                            pass
+                    n_wait = len(self.items)
+                if self.err != msg or (down and (self.fails in (1, 5, 20) or self.fails % 100 == 0)) or (not down and r.get("tries") in (1, STUCK_AFTER)):
+                    _log(f"outbox: {r['coll']} {r['id']} not uploaded yet ({msg}){'' if down else ' (this save only: the others go on)'}"
+                         f"{'; set aside' if r.get('stuck') else ''}; {n_wait} waiting")
+                self.err = msg
+                if wait:
+                    self.wake.wait(wait)
+                    self.wake.clear()
                 continue
             if self.gate is not None:
                 self.gate.note(True, time.time() - t0, "upload")
@@ -394,15 +456,39 @@ class Outbox:
                     self._rewrite()
                 except OSError as e:                    # (uploaded again next start: harmless, same stamp)
                     _log(f"outbox: list not rewritten: {e}")
-                if self.fails:
-                    _log(f"outbox: uploading again ({len(self.items)} waiting)")
-                self.fails, self.err = 0, None
+                if self.fails or r.get("tries"):
+                    _log(f"outbox: {r['coll']} {r['id']} uploaded{' after ' + str(r['tries']) + ' tries' if r.get('tries') else ''} "
+                         f"({len(self.items)} waiting)")
+                self.fails = 0
+                if not any(x.get("err") for x in self.items):
+                    self.err = None
                 self.uploaded += 1
                 self.lock.notify_all()
+
+    def discard(self, n):
+        """A save set aside taken off the list (the person's choice): kept in outbox_discarded.jsonl beside it, never
+        just lost.  -> True when it was there."""
+        with self.lock:
+            self._ensure()
+            r = next((x for x in self.items if x.get("n") == n), None)
+            if r is None:
+                return False
+            p = self.path().with_name("outbox_discarded.jsonl")
+            with open(str(p), "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(dict(r, discarded_at=int(time.time() * 1000))) + "\n")
+            self.items = [x for x in self.items if x.get("n") != n]
+            self._rewrite()
+            self.lock.notify_all()
+            return True
 
     def brief(self):
         with self.lock:
             self._ensure()
             n = len(self.items)
             oldest = self.items[0]["t"] if self.items else None
-        return dict(pending=n, error=self.err if n else None, oldest=oldest)
+            bad = [x for x in self.items if x.get("err")]
+            stuck = [dict(n=x["n"], coll=x["coll"], id=x["id"], error=x.get("err"), tries=x.get("tries"), t=x.get("t"),
+                          data_dir=x.get("data_dir")) for x in bad if x.get("stuck")][:20]
+            err = self.err if n else None
+        return dict(pending=n, error=err, oldest=oldest, failing=len(bad), stuck=stuck,
+                    n_stuck=sum(1 for x in bad if x.get("stuck")))

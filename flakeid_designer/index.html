@@ -951,9 +951,13 @@ function localDb(){const subs={},tag={},last={},busy={},again={},PENDABLE=new Se
         (subs[name]||[]).forEach(cb=>{try{cb(last[name])}catch(e){console.error(e)}})}).catch(()=>{})
       .finally(()=>{busy[name]=null;if(again[name]){again[name]=false;poll(name)}});return busy[name]};
   let resending=false;
-  const resend=async()=>{if(resending||!npend())return;resending=true;let sent=0;
-    try{for(const name of Object.keys(PEND))for(const id of Object.keys(PEND[name]||{})){const x=PEND[name][id];
-      const r=await put(name,id,x.body).catch(()=>null);if(!r||!r.ok)return;
+  // (2026-11-27c) one save that fails no longer stops the others; one the designer refuses (4xx: it will not take it
+  // however often it is sent) is kept with its reason, shown in the banner, and sent again only with Try now
+  const resend=async force=>{if(resending||!npend())return;resending=true;let sent=0,down=false;
+    try{for(const name of Object.keys(PEND))for(const id of Object.keys(PEND[name]||{})){const x=PEND[name][id];if(down)break;if(x.rej&&!force)continue;
+      const r=await put(name,id,x.body).catch(()=>null);
+      if(!r){down=true;break}                          // (the designer itself not answering: all would fail)
+      if(!r.ok){if(r.status>=400&&r.status<500&&r.status!==408&&r.status!==429){x.rej=(await r.json().catch(()=>({}))).error||("HTTP "+r.status);savePend()}continue}
       if(PEND[name][id]===x){delete PEND[name][id];savePend()}sent++;tag[name]=null}}
     finally{resending=false;if(sent){Object.keys(PEND).forEach(n=>poll(n));if(typeof status2==="function")status2(`${sent} save${sent===1?"":"s"} kept in this window sent to the designer`+(npend()?` (${npend()} still waiting)`:"")+".")}if(typeof renderOffline==="function")renderOffline()}};
   setInterval(resend,10000);setTimeout(resend,1500);
@@ -968,7 +972,10 @@ function localDb(){const subs={},tag={},last={},busy={},again={},PENDABLE=new Se
           (PEND[name]=PEND[name]||{})[id]={body,t:Date.now()};savePend();if(typeof renderOffline==="function")renderOffline();
           throw {code:"unavailable",message:msg+" (kept in this window: sent again automatically)"}}
         if(PEND[name]&&PEND[name][id]){delete PEND[name][id];savePend()}poll(name)},
-      delete:async()=>{await fetch(`/api/db/${name}/${encodeURIComponent(id)}`,{method:"DELETE"});poll(name)}})}),poll,pending:npend,resend}}
+      delete:async()=>{await fetch(`/api/db/${name}/${encodeURIComponent(id)}`,{method:"DELETE"});poll(name)}})}),poll,pending:npend,resend,
+    rejected:()=>{const o=[];Object.keys(PEND).forEach(n=>Object.keys(PEND[n]||{}).forEach(id=>{if(PEND[n][id].rej)o.push({coll:n,id,error:PEND[n][id].rej})}));return o},
+    discard:(n,id)=>{const x=PEND[n]&&PEND[n][id];if(!x)return;try{const d=JSON.parse(lsGet("discardedPuts")||"[]");d.push({coll:n,id,body:x.body,error:x.rej||null,at:Date.now()});lsSet("discardedPuts",JSON.stringify(d.slice(-200)))}catch(e){}
+      delete PEND[n][id];savePend();poll(n)}}}
 // which runs are loaded (portable version: everything found on the share would be too much to load at once):
 // new runs are on; on the first visit the 10 newest
 const RUNSEL={on:null,known:null};
@@ -5619,20 +5626,34 @@ function renderOffline(){if(!LOCAL)return;const r=OFFST;$("bOffline").hidden=fal
   else if(r&&(r.pending||r.files_pending||r.decisions_pending)){const pn=r.stacks.find(x=>x.state==="pending"&&(x.note||x.error));
     h=`<span class="badge rev">not uploaded</span><span>${r.busy==="uploading"?"Uploading the changes made offline…":`Changes made offline not uploaded yet: ${r.pending} stack${r.pending===1?"":"s"}${r.files_pending?`, ${r.files_pending} file${r.files_pending===1?"":"s"}`:""}${r.decisions_pending?`, ${r.decisions_pending} decision${r.decisions_pending===1?"":"s"}`:""}.`}${pn?" "+escapeHtml(pn.note||pn.error):""}</span><button id="offUp">Upload now</button><button id="offOpen">Details…</button>`}
   else if(r&&((r.outbox&&r.outbox.pending)||pagePending())){const n=(r.outbox?r.outbox.pending:0)+pagePending(),sl=r.share&&r.share.state==="slow";
-    h=`<span class="badge rev">not uploaded</span><span>${n} save${n===1?"":"s"} kept on this computer, not on the share yet${sl?" (the share is answering slowly)":""}: uploaded automatically as soon as it answers.</span><button id="offUp">Try now</button>`}
+    // (2026-11-27c) the saves that fail on their own (the share fine): their reason, and Discard for those set aside
+    const ob=r.outbox||{},st=ob.stuck||[],rj=(localDb_&&localDb_.rejected)?localDb_.rejected():[],bad=(ob.failing||0)+rj.length;
+    const why=st.length?st[0].error:rj.length?rj[0].error:(ob.failing?ob.error:null);
+    h=`<span class="badge rev">not uploaded</span><span>${n} save${n===1?"":"s"} kept on this computer, not on the share yet${sl?" (the share is answering slowly)":""}: uploaded automatically${bad?"":" as soon as it answers"}.${bad?` <b>${bad} cannot be written</b>${why?` (${escapeHtml(String(why).slice(0,220))})`:""}; the others go on.`:""}</span><button id="offUp">Try now</button>${st.length||rj.length?`<button id="offStuck">Saves not written…</button>`:""}`}
   else if(r&&r.share&&r.share.state==="slow"){
     h=`<span class="badge rev">share slow</span><span>The share is answering slowly: the lists, runs and pictures already seen come from this computer's copy, and saves are kept here until the share takes them.</span>`}
   else if(r&&r.conflicts){const c=r.stacks.find(x=>x.state==="conflict");const k=c.conflict||{};
     h=`<span class="badge conf">conflict</span><span><b>${escapeHtml(c.name||c.id)}</b> was changed on the drive${k.drive_by?" by "+escapeHtml(k.drive_by):""} while you worked offline. Both versions are kept: yours is saved as <b>${escapeHtml(k.copy_name||"a copy")}</b>${k.where?` (<code>${escapeHtml(k.where)}</code>)`:""}.</span><button id="offOk" data-id="${escapeHtml(c.id)}">OK</button><button id="offOpen">Details…</button>`}
   b.hidden=!h;b.className=OFF.on?"on":"";if(h!==b.dataset.h){b.innerHTML=h;b.dataset.h=h;
-    if($("offOpen"))$("offOpen").onclick=offOpenDlg;if($("offUp"))$("offUp").onclick=offSyncNow;
+    if($("offOpen"))$("offOpen").onclick=offOpenDlg;if($("offUp"))$("offUp").onclick=offSyncNow;if($("offStuck"))$("offStuck").onclick=stuckDlg;
     if($("offOk"))$("offOk").onclick=async e=>{await offPost("/api/offline/dismiss",{id:e.target.dataset.id})}}
   const L=$("offLib");L.hidden=!OFF.on;if(OFF.on)L.innerHTML=`<b>Offline</b>: only the flakes of the ${OFF.n} stack${OFF.n===1?"":"s"} kept on this computer are here. Searching the whole library, adding other flakes, screening runs and keep / discard decisions on other flakes need the drive; decisions on these flakes are kept here and uploaded when it is back.`;
   if($("offDlg").open)renderOffDlg()}
 async function offPost(url,body){const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})}).then(r=>r.json()).catch(e=>({error:String(e)}));
   if(r&&Array.isArray(r.stacks)){OFFST=r;OFF.n=r.stacks.length;OFFSIG="";renderOffline();fillDesigns()}else if(r&&r.error)$("offStatus").textContent=r.error;
   clearTimeout(pollOffline.t);pollOffline.t=setTimeout(pollOffline,1500);return r}
-async function offSyncNow(){try{if(localDb_&&localDb_.resend)localDb_.resend()}catch(e){}$("offStatus").textContent=OFF.on?"The drive is not reachable yet: the changes are uploaded as soon as it is.":"Uploading…";await offPost("/api/offline/sync")}
+// (2026-11-27c) the saves that cannot be written: each with its reason; Discard (two clicks) keeps a copy (this
+// computer's outbox_discarded.jsonl, or this browser's storage) and takes it off the list
+function stuckDlg(){const r=OFFST||{},st=(r.outbox&&r.outbox.stuck)||[],rj=(localDb_&&localDb_.rejected)?localDb_.rejected():[];
+  let d=$("stuckDlg");if(!d){document.body.insertAdjacentHTML("beforeend",`<dialog id="stuckDlg" style="max-width:min(760px,calc(100vw - 32px))"><div id="stuckBody"></div><div class="row" style="justify-content:flex-end;margin-top:10px"><button id="stuckClose">Close</button></div></dialog>`);d=$("stuckDlg");$("stuckClose").onclick=()=>d.close()}
+  const row=(k,what,id,err,extra)=>`<div class="row" style="align-items:flex-start;gap:8px;padding:6px 0;border-top:1px solid var(--rule)"><div style="flex:1;min-width:0"><b>${escapeHtml(what)}</b> <code style="word-break:break-all">${escapeHtml(id)}</code><div class="sub" style="word-break:break-all">${escapeHtml(err||"")}${extra||""}</div></div><button data-stk="${escapeHtml(k)}">Discard</button></div>`;
+  $("stuckBody").innerHTML=`<h3 style="margin:0 0 6px">Saves that cannot be written</h3><div class="sub">They are kept on this computer and tried again by themselves (Try now: at once); the other saves go on. Discard only a save you do not need: a copy is kept.</div>`+
+    st.map(x=>row("o"+x.n,x.coll,x.id,x.error,` · ${x.tries||0} tries${x.data_dir?" · "+escapeHtml(x.data_dir):""}`)).join("")+rj.map((x,i)=>row("p"+i,x.coll,x.id,"refused by the designer: "+x.error,"")).join("")+(!st.length&&!rj.length?`<div class="sub" style="margin-top:8px">None now.</div>`:"");
+  $("stuckBody").querySelectorAll("[data-stk]").forEach(b=>b.onclick=async()=>{if(b.dataset.sure!=="1"){b.dataset.sure="1";b.textContent="Discard? Click again";return}
+    const k=b.dataset.stk;if(k[0]==="o")await offPost("/api/offline/outbox_discard",{n:+k.slice(1)});else{const x=rj[+k.slice(1)];if(x)localDb_.discard(x.coll,x.id)}
+    stuckDlg();renderOffline()});
+  if(!d.open)d.showModal()}
+async function offSyncNow(){try{if(localDb_&&localDb_.resend)localDb_.resend(true)}catch(e){}$("offStatus").textContent=OFF.on?"The drive is not reachable yet: the changes are uploaded as soon as it is.":"Uploading…";await offPost("/api/offline/sync")}
 function offOpenDlg(){renderOffDlg();if(!$("offDlg").open)$("offDlg").showModal();pollOffline()}
 function renderOffDlg(){const r=OFFST||{stacks:[],keep:{}};$("offAuto").checked=!!r.auto;$("offAuto").disabled=OFF.on;
   const rows=new Map();r.stacks.forEach(x=>rows.set(x.id,x));
