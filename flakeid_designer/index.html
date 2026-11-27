@@ -609,7 +609,7 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
       <span class="row seg" id="imgNavB" hidden><button id="imgPrev" title="The previous flake (key ←), e.g. to change a keep / discard you made by mistake">◀</button><button id="imgNext" title="The next flake (key → or Space)">▶</button></span>
       <button id="imgNat" aria-pressed="true" title="Key 1">Natural</button><button id="imgSg" aria-pressed="false" title="Black and white: the green channel against the terrace, ±4 %, flattened (the scanner's _sg picture; key 2)">B/W green</button><button id="imgC8" aria-pressed="false" title="Colour, each channel against the terrace ±8 % (key 3)">High contrast</button><button id="imgTx10" aria-pressed="false" title="The flake in the chip's 10x scan, where the 10x analysis found it (key 4): scroll to zoom, drag to move, double-click to go back; O shows its 10x outline">10x</button><button id="imgTxOrig" aria-pressed="false" hidden title="The 10x scan as the 10x camera saw it (pressed), instead of in the colours of the 100x pictures (each 10x colour read as a thickness and shown in that thickness's 100x colour). The analysis always uses the original 10x data">Original 10x colours</button><button id="imgDt" aria-pressed="false" title="Equivalent thickness change from the terrace (±1.5 nm): fine terraces (key 5)">Thickness change</button><button id="imgIr" aria-pressed="false" title="The IR camera's picture (stacking domains), laid over this 100x frame (key I)">IR domains</button><button id="imgMos" aria-pressed="false" hidden title="The whole terrace: the scan's mosaic of 100x pictures around this one, at the same scale (key M); zoom out with the mouse wheel or −, drag to move">Whole terrace</button>
       <button id="imgFit" aria-pressed="true">Fit</button><button id="imgOne" aria-pressed="false">1:1</button><span id="imgZbar" class="row seg" hidden><button id="imgZo" title="Zoom out (mouse wheel)">−</button><button id="imgZi" title="Zoom in (mouse wheel)">+</button><button id="imgZw" title="The whole mosaic in the box">Whole</button><button id="imgZ1" title="Back to the 100x picture's scale and place">100 %</button></span>
-      <button id="imgOut" aria-pressed="false">Outline</button><button id="imgWr" aria-pressed="false" title="Wrinkle / fold lines found by the 100x analysis (off by default; key W; remembered on this computer)">Wrinkles</button>
+      <button id="imgOut" aria-pressed="false">Outline</button><button id="imgOutEdit" aria-pressed="false" title="Correct the flake's outline (its whole edge): drag corners, add or remove them. Saved for everyone using this library; every stack, the flake's size and the exports use it">Edit outline</button><button id="imgWr" aria-pressed="false" title="Wrinkle / fold lines found by the 100x analysis (off by default; key W; remembered on this computer)">Wrinkles</button>
       <button id="imgDraw" aria-pressed="false" title="Draw a terrace by hand: click its corners, then click the first corner, double-click or press Enter (Backspace: undo a corner, Esc: cancel). Saved for everyone using this library, and as examples for the automatic terrace finding">Draw terrace</button>
       <span class="row seg" id="imgStars" title="Stars for this flake (keys 8, 9, 0: 1, 2, 3 stars; again to clear)"><button data-star="1" aria-pressed="false">★</button><button data-star="2" aria-pressed="false">★★</button><button data-star="3" aria-pressed="false">★★★</button></span>
       <label class="sub vrsel" title="Turn the view of every flake and stack together (clockwise), e.g. to see them as at the microscope (Olympus Stream camera: 180°). View only: saved positions, angles and exported designs stay in the scan camera's frame.">View ↻ <select data-vrsel aria-label="View rotation"></select></label>
@@ -1609,7 +1609,14 @@ function polyGeom(P,px){                       // area um2, inscribed diameter u
 function drawnTerrace(id,x){const f=FL[x.flake];if(!f)return null;const g=polyGeom(x.poly,f.px_um);const t=+x.t;
   return {id,t,tlo:t,thi:t,alt:"",layers:null,area:+g.area.toFixed(1),d:+g.d.toFixed(1),L:+g.L.toFixed(1),W:+g.W.toFixed(1),c:g.c,poly:x.poly,
     quality:"user_drawn",usable:true,score:null,tier:null,user:{by:x.by||"",created:x.created||null,note:x.note||""},fine:[],debris:[],steps:[],wrinkles:[]}}
-function applyDrawn(redraw){if(!CAT)return;
+// (2026-11-27) corrected outlines (100x window › Edit outline): one per flake, kept in the "terraces" collection as
+// {kind:"outline", flake, outline} (no poly: an older designer leaves them alone); the scan's outline stays in f.outline0
+let OUTL={};
+function applyOutlines(){if(!CAT)return;CAT.flakes.forEach(f=>{const x=OUTL[f.id],had=!!f.outline0;
+  if(x&&Array.isArray(x.outline)&&x.outline.length>=6){if(!had){f.outline0=f.outline;f.size0={area:f.area,L:f.L,W:f.W}}f.outline=x.outline;f.outlineBy={by:x.by||"",at:x.created||null};
+    const g=polyGeom(x.outline,f.px_um);f.area=+g.area.toFixed(1);f.L=+g.L.toFixed(1);f.W=+g.W.toFixed(1);CORNERS.delete(f)}
+  else if(had){f.outline=f.outline0;Object.assign(f,f.size0||{});delete f.outline0;delete f.size0;delete f.outlineBy;CORNERS.delete(f)}})}
+function applyDrawn(redraw){if(!CAT)return;applyOutlines();
   CAT.flakes.forEach(f=>{if(f.terraces.some(t=>t.user)){f.terraces.filter(t=>t.user).forEach(t=>{delete TR[t.id]});f.terraces=f.terraces.filter(t=>!t.user)}});
   Object.entries(DRAWN).forEach(([id,x])=>{const t=drawnTerrace(id,x);if(t){FL[x.flake].terraces.push(t);TR[id]={t,f:FL[x.flake]}}});
   if(redraw){renderAll();listRefresh();if($("imgDlg").open&&IMG.f)showImg()}}
@@ -2085,8 +2092,8 @@ function showImg(){const f=IMG.f,t=IMG.t,F=f.frame;if(!$("imgCopyMenu").hidden&&
   if(IMG.outline)$("imgSvg").insertAdjacentHTML("beforeend",f.terraces.filter(o=>o.user&&o.id!==t.id).map(o=>`<polygon points="${fp(o.poly)}" fill="none" stroke="#c77dff" stroke-width="2" stroke-dasharray="6 4"/>`).join(""));
   const AF=AFMRES[f.id];if(AF&&IMG.outline&&AF.site.px){const s=AF.site,side=(AF.r.scan_um||AF.plan.scan_um||20)/(f.px_um*F.k),cx=s.px[0]/F.k+F.x0,cy=s.px[1]/F.k+F.y0;
     $("imgSvg").insertAdjacentHTML("beforeend",`<rect x="${cx-side/2}" y="${cy-side/2}" width="${side}" height="${side}" fill="none" stroke="#4fe0e0" stroke-width="2.5"><title>AFM scan (${AF.r.scan_um} µm)</title></rect>`)}
-  mosLayout();drawRender();$("imgDraw").disabled=!f.frame||tx;if(tx)tenxShow();
-  if(t.user&&!DRAW.on)drawBarFor(t);else if(!DRAW.on&&!DRAW.form)$("drawBar").hidden=true;
+  mosLayout();drawRender();$("imgDraw").disabled=!f.frame||tx;$("imgOutEdit").hidden=!!f.manual;$("imgOutEdit").disabled=!f.frame||tx||!(f.outline||[]).length;if(tx&&OED.on)oedStop();if(tx)tenxShow();
+  if(OED.on&&OED.flake!==f.id)oedStop();if(OED.on)oedBar();else if(t.user&&!DRAW.on)drawBarFor(t);else if(!DRAW.on&&!DRAW.form)$("drawBar").hidden=true;
   $("imgWr").setAttribute("aria-pressed",String(IMG.wr));wrSync();$("imgWr").disabled=!(t.wrinkles&&t.wrinkles.length);
   // (2026-10-29: "#n  F045": the place in the list being looked at (Library selection or screening), then the flake)
   {const pos=SCREEN.list?SCREEN.i+1:IMG.nav?IMG.nav.i+1:null,fl=f.rank!=null?"F"+String(f.rank).padStart(3,"0"):(f.name||"");
@@ -2119,13 +2126,13 @@ function drawPt(e){const sv=$("imgSvg"),m=sv.getScreenCTM();if(!m)return null;co
 function drawSnap(q){const f=IMG.f,P=DRAW.pts;if(!DRAW.snap||f.crystal_deg==null||!P.length)return q;const p=P[P.length-1];const dx=q[0]-p[0],dy=q[1]-p[1],L=Math.hypot(dx,dy);if(L<3)return q;
   const a=Math.atan2(dy,dx)*180/Math.PI;let best=null;for(let n=-12;n<=12;n++){const c=f.crystal_deg+30*n;const d=((a-c+540)%360)-180;if(Math.abs(d)<=5&&(!best||Math.abs(d)<Math.abs(best[1])))best=[c,d]}
   if(!best)return q;const c=best[0]*Math.PI/180,u=dx*Math.cos(c)+dy*Math.sin(c);return [p[0]+u*Math.cos(c),p[1]+u*Math.sin(c)]}
-function drawRender(){const sv=$("imgSvg");sv.classList.toggle("drawing",DRAW.on);const old=sv.querySelector("#drawG");if(old)old.remove();if(!DRAW.on&&!DRAW.form)return;
+function drawRender(){oedRender();const sv=$("imgSvg");sv.classList.toggle("drawing",DRAW.on);const old=sv.querySelector("#drawG");if(old)old.remove();if(!DRAW.on&&!DRAW.form)return;
   const P=DRAW.pts,F=IMG.f.frame;const w=Math.max(F.w,F.h)/700;let h=`<g id="drawG" style="pointer-events:none">`;
   if(P.length){const pts=P.map(p=>p.join(",")).join(" ");h+=DRAW.form?`<polygon points="${pts}" fill="rgba(199,125,255,.18)" stroke="#c77dff" stroke-width="${2.5*w}"/>`:`<polyline points="${pts}" fill="none" stroke="#c77dff" stroke-width="${2.5*w}"/>`;
     if(DRAW.on&&DRAW.hover){const q=DRAW.hover;h+=`<line x1="${P[P.length-1][0]}" y1="${P[P.length-1][1]}" x2="${q[0]}" y2="${q[1]}" stroke="#c77dff" stroke-width="${1.5*w}" stroke-dasharray="${6*w} ${4*w}"/>`}
     P.forEach((p,i)=>{h+=`<circle cx="${p[0]}" cy="${p[1]}" r="${(i===0&&P.length>2&&DRAW.on?7:4)*w}" fill="${i===0?"#fff":"#c77dff"}" stroke="#c77dff" stroke-width="${1.5*w}"/>`})}
   sv.insertAdjacentHTML("beforeend",h+"</g>")}
-function drawStart(){if(!IMG.f||!IMG.f.frame||IMG.mode==="tenx")return;if(MEAS.on)measStop();DRAW.on=true;setTimeout(rimSync,0);DRAW.form=false;DRAW.pts=[];DRAW.hover=null;$("imgDraw").setAttribute("aria-pressed","true");
+function drawStart(){if(!IMG.f||!IMG.f.frame||IMG.mode==="tenx")return;if(MEAS.on)measStop();if(OED.on)oedStop();DRAW.on=true;setTimeout(rimSync,0);DRAW.form=false;DRAW.pts=[];DRAW.hover=null;$("imgDraw").setAttribute("aria-pressed","true");
   const can=IMG.f.crystal_deg!=null;const b=$("drawBar");b.hidden=false;
   b.innerHTML=`<span class="sub"><b>Drawing a terrace:</b> click its corners on the picture; click the first corner, double-click or press Enter to close it. Backspace removes the last corner, Esc cancels.</span>
     ${can?`<label class="sub"><input type="checkbox" id="drawSnap" ${DRAW.snap?"checked":""}> edges along the crystal directions (${IMG.f.crystal_deg.toFixed(1)}° + n×30°, within 5°; hold Alt for a free corner)</label>`:`<span class="sub">(no crystal directions known for this flake: edges are not snapped)</span>`}
@@ -2160,6 +2167,52 @@ function drawBarFor(t,offerUse){const b=$("drawBar");const L=layers[sel];const c
     delete DRAWN[t.id];if(db)db.collection("terraces").doc(t.id).delete().catch(()=>{});else{try{localStorage.setItem("vdw:drawn",JSON.stringify(DRAWN))}catch(err){}}
     const main=IMG.f.terraces.find(o=>!o.user)||IMG.f.terraces[0];IMG.t=main;b.hidden=true;applyDrawn(true);status2("Drawn terrace deleted.")}}
 $("imgDraw").onclick=()=>DRAW.on?drawStop():drawStart();
+// (2026-11-27) Edit outline (100x window): the flake's whole edge corrected by hand.  Corners in the picture's pixels
+// while editing (the svg's units), saved in the cut-out's pixels like f.outline; the scan's outline simplified to
+// corners every ~0.3 µm of deviation to start from (few enough to drag)
+const OED={on:false,pts:[],hist:[],drag:null,flake:null};
+const oedTol=()=>{const r=$("imgSvg").getBoundingClientRect(),F=IMG.f.frame;return 9*Math.max(F.w,F.h)/Math.max(r.width,r.height,1)};
+function oedStart(){const f=IMG.f;if(!f||!f.frame||f.manual||IMG.mode==="tenx"||!(f.outline||[]).length)return;if(DRAW.on||DRAW.form)drawStop();if(MEAS.on)measStop();
+  const F=f.frame,P=rdp(f.outline,0.3/f.px_um);OED.on=true;OED.flake=f.id;OED.hist=[];OED.drag=null;OED.pts=[];for(let i=0;i<P.length;i+=2)OED.pts.push([P[i]/F.k+F.x0,P[i+1]/F.k+F.y0]);
+  $("imgOutEdit").setAttribute("aria-pressed","true");$("imgSvg").classList.add("drawing");setTimeout(rimSync,0);oedBar();oedRender()}
+function oedStop(){OED.on=false;OED.pts=[];OED.drag=null;$("imgOutEdit").setAttribute("aria-pressed","false");$("imgSvg").classList.remove("drawing");$("drawBar").hidden=true;oedRender();setTimeout(rimSync,0)}
+function oedPoly(){const F=IMG.f.frame,o=[];OED.pts.forEach(p=>o.push(+((p[0]-F.x0)*F.k).toFixed(1),+((p[1]-F.y0)*F.k).toFixed(1)));return o}
+function oedBar(){const f=IMG.f,b=$("drawBar"),x=OUTL[f.id],g=OED.pts.length>=3?polyGeom(oedPoly(),f.px_um):null;b.hidden=false;
+  b.innerHTML=`<span class="sub"><b>Editing the flake's outline:</b> drag a corner; click an edge to add one; Shift+click or right-click a corner to remove it; ${navigator.platform.includes("Mac")?"⌘":"Ctrl"}+Z undoes, Esc cancels.${g?` · ${Math.round(g.area)} µm² · ${g.L.toFixed(0)} × ${g.W.toFixed(0)} µm`:""}${x?` · corrected by ${escapeHtml(whoName(x.by||"")||"?")}${x.created?" on "+new Date(x.created).toLocaleDateString():""}`:""}</span>
+    <button class="primary" id="oedSave">Save outline</button>${x?`<button id="oedReset" title="Delete the correction: the outline found by the scan again, for everyone">Back to the scan's outline</button>`:""}<button id="oedCancel">Cancel</button>`;
+  $("oedSave").onclick=oedSave;$("oedCancel").onclick=oedStop;if($("oedReset"))$("oedReset").onclick=e=>{if(e.target.dataset.sure!=="1"){e.target.dataset.sure="1";e.target.textContent="Click again: back to the scan's outline";return}oedReset()}}
+function oedRender(){const sv=$("imgSvg"),old=sv&&sv.querySelector("#oedG");if(old)old.remove();if(!OED.on||!IMG.f||IMG.f.id!==OED.flake)return;
+  const F=IMG.f.frame,w=Math.max(F.w,F.h)/700,P=OED.pts;
+  sv.insertAdjacentHTML("beforeend",`<g id="oedG" style="pointer-events:none"><polygon points="${P.map(p=>p.join(",")).join(" ")}" fill="rgba(63,163,224,.12)" stroke="#3fa3e0" stroke-width="${2.5*w}"/>${P.map(p=>`<circle cx="${p[0]}" cy="${p[1]}" r="${4.5*w}" fill="#fff" stroke="#3fa3e0" stroke-width="${1.5*w}"/>`).join("")}</g>`)}
+function oedHit(q){const tol=oedTol();let bk=-1,bd=tol;OED.pts.forEach((p,i)=>{const d=Math.hypot(p[0]-q[0],p[1]-q[1]);if(d<bd){bd=d;bk=i}});if(bk>=0)return {corner:bk};
+  let be=-1,ed=tol*0.8;const P=OED.pts;for(let i=0;i<P.length;i++){const a=P[i],c=P[(i+1)%P.length],d=segDist(q[0],q[1],a[0],a[1],c[0],c[1]);if(d<ed){ed=d;be=i}}return be>=0?{edge:be}:null}
+async function oedSave(){const f=IMG.f;if(OED.pts.length<3){status2("An outline needs at least three corners.");return}const F=f.frame,poly=oedPoly(),g=polyGeom(poly,f.px_um),old=OUTL[f.id];
+  const id=(old&&old._id)||`${f.id}.outline`.replace(/[^A-Za-z0-9_.~:@+-]/g,"_");
+  const doc={kind:"outline",flake:f.id,run:f.run||null,scan:f.scan,outline:poly,created:Date.now(),by:(LOCAL&&LOCAL.user)||null,px_um:f.px_um,
+    frame:{w:F.w,h:F.h,x0:F.x0,y0:F.y0,k:F.k},area_um2:+g.area.toFixed(1),scan_area_um2:f.outline0?(f.size0||{}).area??null:f.area??null};
+  OUTL[f.id]=Object.assign({_id:id},doc);applyDrawn(false);oedStop();
+  try{if(db)await db.collection("terraces").doc(id).set(doc);else localStorage.setItem("vdw:outl",JSON.stringify(OUTL))}
+  catch(e){if(old)OUTL[f.id]=old;else delete OUTL[f.id];applyDrawn(true);status2("Could not save the outline: "+(e.message||e.code));return}
+  applyDrawn(true);status2(`Outline saved (${Math.round(g.area)} µm²): every stack, the flake's size and the exports use it.`)}
+async function oedReset(){const f=IMG.f,x=OUTL[f.id];if(!x)return;delete OUTL[f.id];applyDrawn(false);oedStop();
+  try{if(db)await db.collection("terraces").doc(x._id||`${f.id}.outline`).delete();else localStorage.setItem("vdw:outl",JSON.stringify(OUTL))}catch(e){}
+  applyDrawn(true);status2("Back to the outline found by the scan.")}
+$("imgOutEdit").onclick=()=>OED.on?oedStop():oedStart();
+// (capture on the picture's box: while editing, no other tool (clean point, thickness, pan) gets the clicks)
+$("imgWrap").addEventListener("pointerdown",e=>{if(!OED.on)return;e.stopPropagation();e.preventDefault();const q=drawPt(e);if(!q)return;const h=oedHit(q);
+  if(e.button===2||(e.button===0&&e.shiftKey)){if(h&&h.corner!=null&&OED.pts.length>3){OED.hist.push(JSON.stringify(OED.pts));OED.pts.splice(h.corner,1);oedRender();oedBar()}return}
+  if(e.button!==0||!h)return;OED.hist.push(JSON.stringify(OED.pts));
+  if(h.edge!=null){OED.pts.splice(h.edge+1,0,q);OED.drag=h.edge+1}else OED.drag=h.corner;
+  $("imgWrap").setPointerCapture(e.pointerId);oedRender()},true);
+$("imgWrap").addEventListener("pointermove",e=>{if(!OED.on||OED.drag==null)return;e.stopPropagation();const q=drawPt(e);if(q){OED.pts[OED.drag]=q;oedRender()}},true);
+const oedUp=e=>{if(!OED.on)return;e.stopPropagation();if(OED.drag!=null){OED.drag=null;oedBar()}};
+$("imgWrap").addEventListener("pointerup",oedUp,true);$("imgWrap").addEventListener("pointercancel",oedUp,true);
+["click","dblclick"].forEach(t=>$("imgWrap").addEventListener(t,e=>{if(OED.on){e.stopPropagation();e.preventDefault()}},true));
+$("imgWrap").addEventListener("contextmenu",e=>{if(OED.on)e.preventDefault()},true);
+document.addEventListener("keydown",e=>{if(!OED.on||!$("imgDlg").open)return;if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName)&&e.key!=="Escape")return;
+  if(e.key==="Escape"){e.preventDefault();e.stopPropagation();oedStop()}
+  else if((e.ctrlKey||e.metaKey)&&(e.key==="z"||e.key==="Z")){e.preventDefault();e.stopPropagation();const h=OED.hist.pop();if(h){OED.pts=JSON.parse(h);oedRender();oedBar()}}},true);
+$("imgDlg").addEventListener("close",()=>{if(OED.on)oedStop()});
 // scale bar (bottom right of the picture) and the measure tool (2026-10-28): lengths from the picture's scale, f.px_um
 // x frame.k µm per picture pixel (the svg's units); screen pixels per picture pixel as the mosaic drag has them
 const umPerPx=()=>IMG.f.px_um*IMG.f.frame.k;
@@ -5602,7 +5655,7 @@ if(LOCAL){$("bOffline").onclick=offOpenDlg;$("offClose").onclick=()=>$("offDlg")
 // ------------------------------------------------------------------ start
 let localDb_=null;
 (async()=>{try{db=LOCAL?(localDb_=localDb()):window.claude&&window.claude.use?await window.claude.use("db"):null}catch(e){db=null}
-  if(!db){try{DRAWN=JSON.parse(localStorage.getItem("vdw:drawn")||"{}")}catch(e){DRAWN={}}runsReady=true;maybeBuild();try{STACKS=JSON.parse(localStorage.getItem("vdw:stacks")||"{}")}catch(e){STACKS={}}try{REVIEW=JSON.parse(localStorage.getItem("vdw:review")||"{}");PICKINFO=JSON.parse(localStorage.getItem("vdw:picked")||"{}")}catch(e){REVIEW={};PICKINFO={}}fillDesigns();return}
+  if(!db){try{DRAWN=JSON.parse(localStorage.getItem("vdw:drawn")||"{}")}catch(e){DRAWN={}}try{OUTL=JSON.parse(localStorage.getItem("vdw:outl")||"{}")||{}}catch(e){OUTL={}}runsReady=true;maybeBuild();try{STACKS=JSON.parse(localStorage.getItem("vdw:stacks")||"{}")}catch(e){STACKS={}}try{REVIEW=JSON.parse(localStorage.getItem("vdw:review")||"{}");PICKINFO=JSON.parse(localStorage.getItem("vdw:picked")||"{}")}catch(e){REVIEW={};PICKINFO={}}fillDesigns();return}
   $("bRuns").hidden=!!LOCAL;if(LOCAL){$("bOpen").hidden=false;loadRecent();pollOffline()}
   db.collection("runs").onSnapshot(s=>{const nx={};s.docs.forEach(d=>{if(d.exists)nx[d.id]=d.data()});RUNS=nx;if(LOCAL){addedSeed(nx);updateRunSel(nx)}
     Object.keys(RUNDATA).forEach(k=>{if(!nx[k])delete RUNDATA[k]});runsReady=true;loadRunBundles();renderRuns();maybeBuild()},()=>{runsReady=true;maybeBuild()});
@@ -5613,7 +5666,8 @@ let localDb_=null;
   db.collection("stacks").onSnapshot(s=>{STACKS={};s.docs.forEach(d=>{if(d.exists)STACKS[d.id]=d.data()});fillDesigns();updateArchNeed();
     if(curStackId&&STACKS[curStackId]&&STACK&&!STACK.legacy)STACK.legacy=STACKS[curStackId].legacy;fabFolderSteps()},()=>{});
   checkLegacy();afmLoadAll();
-  db.collection("terraces").onSnapshot(s=>{DRAWN={};s.docs.forEach(d=>{if(d.exists){const x=d.data();if(x&&x.flake&&Array.isArray(x.poly))DRAWN[d.id]=x}});applyDrawn(true)},()=>{});
+  db.collection("terraces").onSnapshot(s=>{DRAWN={};OUTL={};s.docs.forEach(d=>{if(d.exists){const x=d.data();if(x&&x.flake&&Array.isArray(x.poly))DRAWN[d.id]=x;
+    else if(x&&x.flake&&x.kind==="outline"&&Array.isArray(x.outline)&&(!OUTL[x.flake]||(x.created||0)>(OUTL[x.flake].created||0)))OUTL[x.flake]=Object.assign({_id:d.id},x)}});applyDrawn(true)},()=>{});
   db.collection("seen").onSnapshot(s=>{s.docs.forEach(d=>{if(d.exists){SEEN.add(d.id);const x=d.data();if(x&&x.run)SEEN.add(x.run)}});SEEN_READY=true;offerScreening()},()=>{SEEN_READY=true;offerScreening()});
   db.collection("review").onSnapshot(s=>{REVIEW={};PICKINFO={};STARS={};NOTES={};CLEANPT={};CLEANHIST={};AFMOFF={};TCHOICE={};AFMDEC={};TSET={};s.docs.forEach(d=>{if(d.exists){const x=d.data(),v=x.decision;if(d.id.endsWith(".note")){if(x.note)NOTES[x.flake||d.id.slice(0,-5)]={note:String(x.note),by:x.by||null,updated:x.updated||null,at:x.at||x.updated||null,run:x.run||null};return}if(d.id.endsWith(".stars")){if(x.stars)STARS[x.flake||d.id.slice(0,-6)]=+x.stars;return}
       if(d.id.endsWith(".afmdec")){const fid=x.flake||d.id.slice(0,-7);if(x.afmdec==="keep"||x.afmdec==="discard")AFMDEC[fid]=x.afmdec;return}
