@@ -96,7 +96,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
 # decode byte 0xba" (2026-11-20, third_2poly_run_1).  The files this program reads itself name their encoding.
 os.environ.setdefault("PYTHONUTF8", "1")
 APP = "flakeid-designer"
-VERSION = "2026-11-27b"
+VERSION = "2026-11-27c"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -105,6 +105,23 @@ SKIP = re.compile(r"(_viewer|_tiles|_100x|_domains|^tiles|^100x|^domains|^data|^
 # (^old_coords: coordinates saved before a remeasure, not a run: it was listed as "an older run without designer files")
 DEPTH = 5
 SAFE_ID = re.compile(r"[^A-Za-z0-9_.~:@+-]")
+
+
+def id_file(i):
+    """(2026-11-27c) A save's id as a file name any computer can write: ':' (flake ids, run:chip-flake) is not allowed in
+    Windows file names, so the lab PC could not write a corrected outline (bn_112126_run_5:bn_112126_5-f0016.outline:
+    FileNotFoundError) and its outbox stopped there.  '%' is never in an id (SAFE_ID), so '%3A' reads back unambiguously."""
+    return str(i).replace(":", "%3A")
+
+
+def file_id(name):
+    """The id of a file named by id_file (or, written by a Mac before, with ':' in its name)."""
+    return name.replace("%3A", ":")
+
+
+def id_paths(d, i):
+    """The file of save `i` in d (as named now), and the one a Mac may have written before (':' in its name)."""
+    return [d / f"{id_file(i)}.json"] + ([d / f"{i}.json"] if ":" in str(i) else [])
 # a run file named by its content (make_designer_bundle.hashed; with a letter: never an older build's number or date)
 HASHED = re.compile(r"_(?=[0-9]*[a-f])[0-9a-f]{10}\.[a-z]+$")
 
@@ -1054,15 +1071,16 @@ class Store:
         out, ids = [], set()
         for q, e in dirs:
             for name, mt, sz in e:
-                if name[:-5] in ids:
+                fid = file_id(name[:-5])                 # (2026-11-27c: ':' written as '%3A', id_file)
+                if fid in ids:
                     continue
                 j = self._read_json(q / name, (mt, sz))
                 if j is None:
                     continue
                 if sub == "stacks" and isinstance(j, dict):  # (the version the page opened: sent back with its next save)
                     j = dict(j, _sig=f"{j.get('rev', 0)}-{mt}-{sz}")
-                ids.add(name[:-5])
-                out.append(dict(id=name[:-5], data=j))
+                ids.add(fid)
+                out.append(dict(id=fid, data=j))
         self._lists[sub] = (sig, out)
         return sig, out
 
@@ -1074,9 +1092,9 @@ class Store:
         if d is None:
             raise OSError("no shared data folder")
         body = dict(body, by=body.get("by") or by_name())
-        tmp = d / f".{did}.tmp"
+        tmp = d / f".{id_file(did)}.tmp"
         tmp.write_text(json.dumps(body), encoding="utf-8")
-        os.replace(tmp, d / f"{did}.json")
+        os.replace(tmp, d / f"{id_file(did)}.json")
 
     # stacks: one file per stack (plan, stacking steps, final state, exports: docs/stack_workflow.md)
     def list_stacks(self):
@@ -1328,16 +1346,17 @@ class Store:
         if d is None:
             raise OSError("no shared data folder")
         body = dict(body, by=body.get("by") or by_name())
-        tmp = d / f".{mid}.tmp"
+        tmp = d / f".{id_file(mid)}.tmp"
         tmp.write_text(json.dumps(body), encoding="utf-8")
-        os.replace(tmp, d / f"{mid}.json")
+        os.replace(tmp, d / f"{id_file(mid)}.json")
 
     def delete_manual(self, mid):
         """Not deleted: moved to manual/_deleted/."""
         d = self._dir("manual")
-        if d and (d / f"{mid}.json").is_file():
-            (d / "_deleted").mkdir(exist_ok=True)
-            os.replace(d / f"{mid}.json", d / "_deleted" / f"{mid}_{time.strftime('%Y%m%d_%H%M%S')}.json")
+        for f in id_paths(d, mid) if d else []:
+            if f.is_file():
+                (d / "_deleted").mkdir(exist_ok=True)
+                os.replace(f, d / "_deleted" / f"{id_file(mid)}_{time.strftime('%Y%m%d_%H%M%S')}.json")
 
     def legacy_info(self):
         """Old design files and whether they were moved to stacks (the page offers the move)."""
@@ -1347,8 +1366,9 @@ class Store:
 
     def delete_design(self, did):
         d = self._dir("designs")
-        if d and (d / f"{did}.json").is_file():
-            (d / f"{did}.json").unlink()
+        for f in id_paths(d, did) if d else []:
+            if f.is_file():
+                f.unlink()
 
     # terraces drawn by hand in the designer (one file each: also data for the automatic terrace finding)
     def list_terraces(self):
@@ -1359,14 +1379,20 @@ class Store:
         if d is None:
             raise OSError("no shared data folder")
         body = dict(body, by=body.get("by") or by_name())
-        tmp = d / f".{tid}.tmp"
+        tmp = d / f".{id_file(tid)}.tmp"
         tmp.write_text(json.dumps(body, indent=1), encoding="utf-8")
-        os.replace(tmp, d / f"{tid}.json")
+        os.replace(tmp, d / f"{id_file(tid)}.json")
+        if ":" in str(tid):                              # (a Mac's older copy with ':' in its name: replaced by this one)
+            try:
+                (d / f"{tid}.json").unlink()
+            except OSError:
+                pass
 
     def delete_terrace(self, tid):
         d = self._dir("terraces")
-        if d and (d / f"{tid}.json").is_file():
-            (d / f"{tid}.json").unlink()
+        for f in id_paths(d, tid) if d else []:
+            if f.is_file():
+                f.unlink()
 
     def review_state(self):
         """Keep / discard decisions: every person appends to their own file; the latest decision per terrace wins.
@@ -4178,6 +4204,12 @@ class Handler(BaseHTTPRequestHandler):
             O.kick(pack=True)
         elif path == "/api/offline/dismiss":
             O.dismiss(str(b.get("id") or ""))
+        elif path == "/api/offline/outbox_discard":
+            # (2026-11-27c) a save set aside taken off the list (kept in outbox_discarded.jsonl, not lost)
+            try:
+                OUTBOX.discard(int(b.get("n")))
+            except (TypeError, ValueError):
+                return self._json(dict(error="bad request"), 400)
         else:
             return self._json(dict(error="unknown"), 404)
         return self._json(dict(O.status(), share=GATE.brief(), outbox=OUTBOX.brief()))
