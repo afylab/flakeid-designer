@@ -59,7 +59,7 @@ if exist "dist_app\%NAME%" rmdir /s /q "dist_app\%NAME%"
   --add-data "%CD%\flakeid_designer\index.html;flakeid_designer" ^
   --add-data "%CD%\flakeid_designer\static;flakeid_designer\static" ^
   --add-data "%CD%\flakeid_designer\README.txt;flakeid_designer" ^
-  --hidden-import flakeid_designer.__main__ --hidden-import flakeid_designer.stacks --hidden-import flakeid_designer.manual --hidden-import flakeid_designer.afmplan --hidden-import flakeid_designer.stackdir --hidden-import flakeid_designer.kept %EXTRA% %BUILDER% --paths "%CD%" ^
+  --hidden-import flakeid_designer.__main__ --hidden-import flakeid_designer.stacks --hidden-import flakeid_designer.manual --hidden-import flakeid_designer.afmplan --hidden-import flakeid_designer.stackdir --hidden-import flakeid_designer.kept --hidden-import flakeid_designer.sharegate %EXTRA% %BUILDER% --paths "%CD%" ^
   --workpath build_app --distpath dist_app --specpath build_app ^
   "%CD%\flakeid_designer\app.py" || goto :fail
 rem the libraries' test folders: never used, and their data has the longest paths ("path too long" when the zip is
