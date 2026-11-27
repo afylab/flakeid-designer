@@ -8,7 +8,7 @@ cd "$(dirname "$0")/../.."
 DEST=${1:-${FLAKEID_DESIGNER_SHARE:-}}
 [ -n "$DEST" ] || { echo "give the designer folder on the share (or set FLAKEID_DESIGNER_SHARE)"; exit 1; }
 [ -d "$DEST" ] || { echo "no folder $DEST (is the share mounted?)"; exit 1; }
-for f in index.html __main__.py __init__.py camera.py marks_to_klayout.py stacks.py manual.py afmplan.py stackdir.py offline.py kept.py app.py README.txt; do
+for f in index.html __main__.py __init__.py camera.py marks_to_klayout.py stacks.py manual.py afmplan.py stackdir.py offline.py sharegate.py kept.py app.py README.txt; do
   [ -f "flakeid_designer/$f" ] && rsync -t "flakeid_designer/$f" "$DEST/"     # (only what changed: the share is slow)
 done
 rsync -a --exclude __pycache__ flakeid_designer/static/ "$DEST/static/"

@@ -933,21 +933,42 @@ const runId=s=>String(s||"run").replace(/[^A-Za-z0-9_.~:@+-]/g,"_").replace(/^\.
 // Each collection is asked for every 20 s with the version the page has (ETag): the server answers 304 when nothing
 // changed, and then nothing is re-read or redrawn here (before: every collection re-read on the share and the
 // catalog rebuilt twice per poll, 2026-10-16).  One request per collection at a time; none while the page is hidden.
-function localDb(){const subs={},tag={},last={},busy={},again={};
+// (2026-11-27a) a save the designer did not take (no answer, or an error) is kept in this window and in the browser's
+// storage and sent again every 10 s; the lists show it meanwhile (before: the next poll dropped it, and with it the
+// decision, 2026-11-26).  Stacks are saved by putStack (their own version check), not here.
+function localDb(){const subs={},tag={},last={},busy={},again={},PENDABLE=new Set(["review","terraces","manual","seen","archived","designs"]);
+  let PEND={};try{PEND=JSON.parse(lsGet("pendingPuts")||"{}")||{}}catch(e){PEND={}}
+  const savePend=()=>lsSet("pendingPuts",JSON.stringify(PEND));
+  const npend=()=>Object.values(PEND).reduce((a,o)=>a+Object.keys(o||{}).length,0);
+  const withPend=(name,list)=>{const q=PEND[name];if(!q||!Object.keys(q).length)return list;const seen=new Set();
+    const out=list.map(x=>{if(q[x.id]){seen.add(x.id);return {id:x.id,data:q[x.id].body}}return x});
+    Object.keys(q).forEach(id=>{if(!seen.has(id))out.push({id,data:q[id].body})});return out};
+  const put=(name,id,body)=>fetch(`/api/db/${name}/${encodeURIComponent(id)}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
   const poll=name=>{if(busy[name]){again[name]=true;return busy[name]}
     busy[name]=fetch("/api/db/"+name,{cache:"no-store",headers:tag[name]?{"If-None-Match":tag[name]}:{}})
       .then(r=>{if(r.status===304)return null;if(!r.ok)throw new Error("HTTP "+r.status);tag[name]=r.headers.get("ETag");return r.json()})
-      .then(list=>{if(!list)return;const docs=list.map(x=>({id:x.id,exists:true,data:()=>x.data}));last[name]={docs,size:docs.length,empty:!docs.length};
+      .then(list=>{if(!list)return;list=withPend(name,list);const docs=list.map(x=>({id:x.id,exists:true,data:()=>x.data}));last[name]={docs,size:docs.length,empty:!docs.length};
         (subs[name]||[]).forEach(cb=>{try{cb(last[name])}catch(e){console.error(e)}})}).catch(()=>{})
       .finally(()=>{busy[name]=null;if(again[name]){again[name]=false;poll(name)}});return busy[name]};
+  let resending=false;
+  const resend=async()=>{if(resending||!npend())return;resending=true;let sent=0;
+    try{for(const name of Object.keys(PEND))for(const id of Object.keys(PEND[name]||{})){const x=PEND[name][id];
+      const r=await put(name,id,x.body).catch(()=>null);if(!r||!r.ok)return;
+      if(PEND[name][id]===x){delete PEND[name][id];savePend()}sent++;tag[name]=null}}
+    finally{resending=false;if(sent){Object.keys(PEND).forEach(n=>poll(n));if(typeof status2==="function")status2(`${sent} save${sent===1?"":"s"} kept in this window sent to the designer`+(npend()?` (${npend()} still waiting)`:"")+".")}if(typeof renderOffline==="function")renderOffline()}};
+  setInterval(resend,10000);setTimeout(resend,1500);
   // (the old design files: only until they are converted to stacks)
   const due=name=>name!=="designs"||!(LEGACY&&(LEGACY.migrated||!LEGACY.designs));
   setInterval(()=>{if(!document.hidden)Object.keys(subs).filter(due).forEach(poll)},20000);
   document.addEventListener("visibilitychange",()=>{if(!document.hidden)Object.keys(subs).filter(due).forEach(poll)});
   return {refresh:name=>poll(name),collection:name=>({onSnapshot:(cb,err)=>{(subs[name]=subs[name]||[]).push(cb);if(last[name])cb(last[name]);poll(name);return ()=>{}},
-    doc:id=>({set:async body=>{const r=await fetch(`/api/db/${name}/${encodeURIComponent(id)}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-        if(!r.ok)throw {code:"unavailable",message:(await r.json().catch(()=>({}))).error||("HTTP "+r.status)};poll(name)},
-      delete:async()=>{await fetch(`/api/db/${name}/${encodeURIComponent(id)}`,{method:"DELETE"});poll(name)}})}),poll}}
+    doc:id=>({set:async body=>{const r=await put(name,id,body).catch(()=>null);
+        if(!r||!r.ok){const msg=r?((await r.json().catch(()=>({}))).error||("HTTP "+r.status)):"the designer did not answer";
+          if(!PENDABLE.has(name))throw {code:"unavailable",message:msg};
+          (PEND[name]=PEND[name]||{})[id]={body,t:Date.now()};savePend();if(typeof renderOffline==="function")renderOffline();
+          throw {code:"unavailable",message:msg+" (kept in this window: sent again automatically)"}}
+        if(PEND[name]&&PEND[name][id]){delete PEND[name][id];savePend()}poll(name)},
+      delete:async()=>{await fetch(`/api/db/${name}/${encodeURIComponent(id)}`,{method:"DELETE"});poll(name)}})}),poll,pending:npend,resend}}
 // which runs are loaded (portable version: everything found on the share would be too much to load at once):
 // new runs are on; on the first visit the 10 newest
 const RUNSEL={on:null,known:null};
@@ -5532,10 +5553,11 @@ async function pollOffline(){if(!LOCAL)return;const r=await fetch("/api/offline"
   if(r&&Array.isArray(r.stacks)){const was=OFF.on;OFFST=r;OFF.on=!!r.offline;OFF.forced=!!r.forced;OFF.n=r.stacks.length;
     const sig=JSON.stringify([OFF.on,r.stacks.map(x=>[x.id,x.state])]);
     if(was!==OFF.on)offModeChanged();if(sig!==OFFSIG){OFFSIG=sig;fillDesigns()}renderOffline()}
-  clearTimeout(pollOffline.t);pollOffline.t=setTimeout(pollOffline,OFF.on||(OFFST&&(OFFST.busy||OFFST.pending||OFFST.files_pending))||$("offDlg").open?4000:15000)}
+  clearTimeout(pollOffline.t);pollOffline.t=setTimeout(pollOffline,OFF.on||(OFFST&&(OFFST.busy||OFFST.pending||OFFST.files_pending||(OFFST.outbox&&OFFST.outbox.pending)||(OFFST.share&&OFFST.share.state==="slow")))||$("offDlg").open?4000:15000)}
 function offModeChanged(){if(localDb_)["runs","stacks","review","terraces","manual","seen","archived"].forEach(n=>localDb_.poll(n));
   if(!OFF.on)loadRecent();
   status2(OFF.on?"The drive is not reachable: working offline on the stacks kept on this computer.":"The drive is reachable again: the changes made offline are uploaded.")}
+function pagePending(){try{return localDb_&&localDb_.pending?localDb_.pending():0}catch(e){return 0}}   // (saves kept in this window: localDb)
 function renderOffline(){if(!LOCAL)return;const r=OFFST;$("bOffline").hidden=false;const cur=offInfo(curStackId);
   $("bOffline").textContent=OFF.on?"Offline ▾":cur?"Offline ✓":"Offline…";$("bOffline").setAttribute("aria-pressed",String(!!cur));
   const b=$("offBanner");let h="";
@@ -5543,6 +5565,10 @@ function renderOffline(){if(!LOCAL)return;const r=OFFST;$("bOffline").hidden=fal
     h=`<span class="badge conf">offline</span><span><b>Offline: ${OFF.n} stack${OFF.n===1?"":"s"} on this computer</b>; changes are saved here and uploaded when the drive is back.${np?` ${np} with changes not uploaded yet.`:""}${OFF.forced?" (forced offline)":""}</span><button id="offOpen">Stacks on this computer…</button>`}
   else if(r&&(r.pending||r.files_pending||r.decisions_pending)){const pn=r.stacks.find(x=>x.state==="pending"&&(x.note||x.error));
     h=`<span class="badge rev">not uploaded</span><span>${r.busy==="uploading"?"Uploading the changes made offline…":`Changes made offline not uploaded yet: ${r.pending} stack${r.pending===1?"":"s"}${r.files_pending?`, ${r.files_pending} file${r.files_pending===1?"":"s"}`:""}${r.decisions_pending?`, ${r.decisions_pending} decision${r.decisions_pending===1?"":"s"}`:""}.`}${pn?" "+escapeHtml(pn.note||pn.error):""}</span><button id="offUp">Upload now</button><button id="offOpen">Details…</button>`}
+  else if(r&&((r.outbox&&r.outbox.pending)||pagePending())){const n=(r.outbox?r.outbox.pending:0)+pagePending(),sl=r.share&&r.share.state==="slow";
+    h=`<span class="badge rev">not uploaded</span><span>${n} save${n===1?"":"s"} kept on this computer, not on the share yet${sl?" (the share is answering slowly)":""}: uploaded automatically as soon as it answers.</span><button id="offUp">Try now</button>`}
+  else if(r&&r.share&&r.share.state==="slow"){
+    h=`<span class="badge rev">share slow</span><span>The share is answering slowly: the lists, runs and pictures already seen come from this computer's copy, and saves are kept here until the share takes them.</span>`}
   else if(r&&r.conflicts){const c=r.stacks.find(x=>x.state==="conflict");const k=c.conflict||{};
     h=`<span class="badge conf">conflict</span><span><b>${escapeHtml(c.name||c.id)}</b> was changed on the drive${k.drive_by?" by "+escapeHtml(k.drive_by):""} while you worked offline. Both versions are kept: yours is saved as <b>${escapeHtml(k.copy_name||"a copy")}</b>${k.where?` (<code>${escapeHtml(k.where)}</code>)`:""}.</span><button id="offOk" data-id="${escapeHtml(c.id)}">OK</button><button id="offOpen">Details…</button>`}
   b.hidden=!h;b.className=OFF.on?"on":"";if(h!==b.dataset.h){b.innerHTML=h;b.dataset.h=h;
@@ -5553,7 +5579,7 @@ function renderOffline(){if(!LOCAL)return;const r=OFFST;$("bOffline").hidden=fal
 async function offPost(url,body){const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})}).then(r=>r.json()).catch(e=>({error:String(e)}));
   if(r&&Array.isArray(r.stacks)){OFFST=r;OFF.n=r.stacks.length;OFFSIG="";renderOffline();fillDesigns()}else if(r&&r.error)$("offStatus").textContent=r.error;
   clearTimeout(pollOffline.t);pollOffline.t=setTimeout(pollOffline,1500);return r}
-async function offSyncNow(){$("offStatus").textContent=OFF.on?"The drive is not reachable yet: the changes are uploaded as soon as it is.":"Uploading…";await offPost("/api/offline/sync")}
+async function offSyncNow(){try{if(localDb_&&localDb_.resend)localDb_.resend()}catch(e){}$("offStatus").textContent=OFF.on?"The drive is not reachable yet: the changes are uploaded as soon as it is.":"Uploading…";await offPost("/api/offline/sync")}
 function offOpenDlg(){renderOffDlg();if(!$("offDlg").open)$("offDlg").showModal();pollOffline()}
 function renderOffDlg(){const r=OFFST||{stacks:[],keep:{}};$("offAuto").checked=!!r.auto;$("offAuto").disabled=OFF.on;
   const rows=new Map();r.stacks.forEach(x=>rows.set(x.id,x));

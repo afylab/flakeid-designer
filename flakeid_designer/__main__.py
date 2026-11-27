@@ -68,6 +68,22 @@ try:                                                 # updates from GitHub (upda
     from . import update as UPD
 except ImportError:
     import update as UPD                             # type: ignore
+try:                                                 # the share waited on only so long; saves here first (sharegate.py)
+    from . import sharegate as SG
+except ImportError:
+    import sharegate as SG                           # type: ignore
+
+# (2026-11-27a) working on a slow share (sharegate.py): share calls from the page's requests get a time limit, the lists
+# and the runs are answered from this computer's last copy when the share is slow, and saves go to the outbox
+GATE = SG.Gate()
+LISTS = SG.Lists()
+OUTBOX = SG.Outbox(gate=GATE)                      # (its upload: _outbox_upload, set below)
+LIST_WAIT_S = 1.5                                  # a list request waits this long for a fresh read of the share
+SAVE_WAIT_S = 2.0                                  # a save waits this long for its upload (then: kept here, uploaded later)
+STACK_SAVE_S = 20.0                                # a stack's save (version check on the share): then "not saved yet"
+FILE_STAT_S = 2.5                                  # a picture / bundle looked at on the share (then this computer's copy)
+FILE_READ_S = 20.0
+PERSON_READ_S = 4.0                                # a person's file read when switching user (then this computer's copy)
 
 HERE = Path(__file__).resolve().parent
 for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flakeid_designer` puts only this folder on the path:
@@ -80,7 +96,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
 # decode byte 0xba" (2026-11-20, third_2poly_run_1).  The files this program reads itself name their encoding.
 os.environ.setdefault("PYTHONUTF8", "1")
 APP = "flakeid-designer"
-VERSION = "2026-11-26a"
+VERSION = "2026-11-27a"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -239,7 +255,7 @@ def switch_library(cfg, store, path):
             PP.set_library(PERSON["doc"], path, PERSON["home"])
     person_cache(cfg)
     save_config(cfg)
-    store.scan()
+    store.refresh_runs()                            # (2026-11-27a: this computer's copy at once, the share walked behind)
     person_sync_soon(store)
 
 
@@ -366,6 +382,7 @@ def _person_take(store, name, home, merged):
         person_cache(cfg)
         save_config(cfg)
     if changed:
+        store.prime_runs()                           # (2026-11-27a: the runs known here at once)
         store.scan()                                 # (before the page is told: a new run is listed when it asks)
     if news:
         with PERSON_LOCK:
@@ -472,13 +489,25 @@ def use_person(store, home, ticked=None):
     they had open is opened.  -> (dict for the page, error)."""
     home = str(Path(str(home)))
     f = PP.profile_file(home)
-    try:
+
+    def read():
         if not Path(home).is_dir():
-            return None, f"{home} is not reachable (is the share connected?)"
-        exists = f.is_file()
+            return "nodir", None
+        ex = f.is_file()
+        return ex, (PP.load(f) if ex else None)
+    try:                                                      # (share I/O: before the lock, with a time limit)
+        exists, shared = GATE.call(read, PERSON_READ_S, "user file")
     except OSError as e:
-        return None, f"{home} could not be read ({e})"
-    shared = PP.load(f) if exists else None                   # (share I/O: before the lock)
+        # (2026-11-27a) the share slow or gone: this computer's copy of the person, if they were used here; their
+        # file is merged with it in the background (person_sync_soon) once the share answers
+        own = [v for v in (load_config().get("people") or {}).values()
+               if person_ok(v) and str(Path(str(v.get("home")))) == home and PP.valid(v.get("doc"))]
+        if not own:
+            return None, f"{home} could not be read ({e})"
+        exists, shared = True, own[0]["doc"]
+        sys.stderr.write(f"{time.strftime('%H:%M:%S')} PEOPLE: {home}: the share is slow ({e}): this computer's copy\n")
+    if exists == "nodir":
+        return None, f"{home} is not reachable (is the share connected?)"
     if exists and shared is None:
         return None, f"{f} could not be read (not a designer user file?)"
     name = PP.clean_name((shared or {}).get("name") or Path(home).name)
@@ -486,7 +515,12 @@ def use_person(store, home, ticked=None):
         return None, "Choose your own folder in Microscope Images."
     key = PP.key_of(name)
     lib = PP.library_path(shared, home) if shared else None
-    lib_ok = bool(lib) and Path(lib).is_dir()
+    try:
+        lib_ok = bool(lib) and bool(GATE.call(lambda: Path(lib).is_dir(), PERSON_READ_S, "user's directory"))
+    except SG.ShareSlow:
+        lib_ok = bool(lib)                                    # (the share slow: the directory they had open, as saved)
+    except OSError:
+        lib_ok = False
     with LIBRARY_LOCK:
         cfg = load_config()
         remember_library(cfg, store)
@@ -519,7 +553,10 @@ def use_person(store, home, ticked=None):
         people[key] = dict(name=name, home=home, doc=doc, used=time.time(), v=PERSON_V)
         cfg["person"] = key
         apply_person(store, cfg, key)
-        _PWATCH["sig"] = _file_sig(f)
+        try:
+            _PWATCH["sig"] = GATE.call(lambda: _file_sig(f), 2.0, "user file")
+        except OSError:
+            _PWATCH["sig"] = None                           # (read again by person_watch in the background)
         person_cache(cfg)
         switched = False
         if lib_ok and lib != store.library:
@@ -528,7 +565,7 @@ def use_person(store, home, ticked=None):
         else:
             save_config(cfg)
     if not switched:
-        store.scan()
+        store.refresh_runs()
     person_sync_soon(store)
     return dict(person=name, home=home, file=str(f), made=made, reload=True), None
 
@@ -637,6 +674,8 @@ class Store:
     def _scan(self):
         found = {}
         todo, unbuilt = [], []                       # (local: request threads and the builder scan too, 2026-10-16)
+        cache = self._runs_cache()
+        walks, docs = {}, {}
         for root in self.walked_roots():
             base = Path(root)
             try:
@@ -645,25 +684,23 @@ class Store:
                 # (an added run's own folder, 2026-11-05b: walked as a run, as one found inside a folder would be)
                 added = self.added is not None or (bool(self.library) and not in_folder(root, self.library))
                 dirs = list(self._walk(base, 1 if added else 0, todo, unbuilt))
-            except OSError as e:                         # (a share that does not answer: its runs are left out this time)
+            except OSError as e:                         # (a share that does not answer)
                 sys.stderr.write(f"runs in {root} not read: {e}\n")
+                # (2026-11-27a) its runs as last found, from this computer's copy (before: left out of the list
+                # until the next walk, and their flakes vanished from the page)
+                pairs = [(Path(dd), cache["docs"].get(dd)) for dd in cache["walks"].get(str(root), [])]
+                walks[str(root)] = [str(d) for d, doc in pairs if doc]
+                for d, doc in pairs:
+                    if doc:
+                        docs[str(d)] = doc
                 continue
+            walks[str(root)] = [str(d) for d in dirs]
             for d in dirs:
-                doc = self._summary(d)
-                if doc is None:
-                    continue
-                rid = SAFE_ID.sub("_", doc["run"])
-                k, n = rid, 2
-                while k in found and found[k]["dir"] != d:
-                    k, n = f"{rid}~{n}", n + 1
-                # (?v=: a rebuilt run keeps its file names; the browser keeps images for an hour, so a new version is a
-                # new address.  Not for names that end with their content's hash (builds from 2026-10-16): those stay
-                # in the browser across rebuilds)
-                v = int(doc.get("added") or 0) // 1000
-                doc = dict(doc, bundle=f"{k}/bundle.json", files={f: f"{k}/{f}" + ("" if HASHED.search(f) else f"?v={v}")
-                                                                  for f in doc.get("files_list", [])})
-                doc.pop("files_list", None)
-                found[k] = dict(dir=d, doc=doc)
+                doc = self._summary(d) or cache["docs"].get(str(d))     # (unreadable now: the copy from before)
+                if doc is not None:
+                    docs[str(d)] = doc
+        found = self._assemble([(Path(dd), docs[dd]) for r in walks.values() for dd in r if dd in docs])
+        self._put_runs_cache(walks, docs)
         sig = _sig(json.dumps(sorted((k, v["doc"]) for k, v in found.items()), sort_keys=True, default=str))
         with self.lock:
             self.runs, self.runs_sig, self.scanned = found, sig, time.time()
@@ -682,6 +719,102 @@ class Store:
         BUILDER.consider(self, todo if self.added is not None else [], unbuilt if self.added is not None else [])
         return found
 
+    @staticmethod
+    def _assemble(pairs):
+        """{run id: dict(dir, doc)} of (designer folder, summary) pairs, in order (ids made unique)."""
+        found = {}
+        for d, doc in pairs:
+            rid = SAFE_ID.sub("_", doc["run"])
+            k, n = rid, 2
+            while k in found and found[k]["dir"] != d:
+                k, n = f"{rid}~{n}", n + 1
+            # (?v=: a rebuilt run keeps its file names; the browser keeps images for an hour, so a new version is a
+            # new address.  Not for names that end with their content's hash (builds from 2026-10-16): those stay
+            # in the browser across rebuilds)
+            v = int(doc.get("added") or 0) // 1000
+            doc = dict(doc, bundle=f"{k}/bundle.json", files={f: f"{k}/{f}" + ("" if HASHED.search(f) else f"?v={v}")
+                                                              for f in doc.get("files_list", [])})
+            doc.pop("files_list", None)
+            found[k] = dict(dir=d, doc=doc)
+        return found
+
+    # (2026-11-27a) the runs as last found, on this computer (sharegate.local_root()/runs_cache.json): every folder
+    # walked -> its runs' designer folders, and each one's summary.  The run list is made from it at once (start, a
+    # user or run list change) while the share is walked in the background.
+    RUNS_CACHE_LOCK = threading.Lock()
+
+    @staticmethod
+    def _runs_cache_path():
+        return SG.local_root() / "runs_cache.json"
+
+    def _runs_cache(self):
+        try:
+            j = json.loads(self._runs_cache_path().read_text(encoding="utf-8"))
+            if isinstance(j, dict) and isinstance(j.get("walks"), dict) and isinstance(j.get("docs"), dict):
+                return j
+        except (OSError, ValueError):
+            pass
+        return dict(walks={}, docs={})
+
+    def _put_runs_cache(self, walks, docs):
+        with self.RUNS_CACHE_LOCK:
+            c = self._runs_cache()
+            changed = False
+            for r, dds in walks.items():
+                if c["walks"].get(r) != dds:
+                    c["walks"][r], changed = dds, True
+            for dd, doc in docs.items():
+                if c["docs"].get(dd) != doc:
+                    c["docs"][dd], changed = doc, True
+            if changed:
+                try:
+                    SG.write_atomic(self._runs_cache_path(), json.dumps(c, default=str).encode("utf-8"))
+                except OSError as e:
+                    sys.stderr.write(f"{time.strftime('%H:%M:%S')} runs not kept on this computer: {e}\n")
+
+    def prime_runs(self):
+        """The run list from this computer's copy, no share I/O (a run never found here yet comes with the next walk).
+        -> True when every folder of the list was known here."""
+        c = self._runs_cache()
+        roots = [str(r) for r in self.walked_roots()]
+        known = [r for r in roots if r in c["walks"]]
+        pairs = [(Path(dd), c["docs"][dd]) for r in known for dd in c["walks"][r] if dd in c["docs"]]
+        if not known and roots:
+            return False
+        found = self._assemble(pairs)
+        sig = _sig(json.dumps(sorted((k, v["doc"]) for k, v in found.items()), sort_keys=True, default=str))
+        with self.lock:
+            self.runs, self.runs_sig = found, sig
+        self.first_scan.set()
+        return len(known) == len(roots)
+
+    def refresh_runs(self, wait=3.0):
+        """(2026-11-27a) After the run list or the user changed: the list from this computer's copy at once, the share
+        walked in the background; waits up to `wait` s for that walk (a fast share: the walk's list, as before)."""
+        try:
+            self.prime_runs()
+        except Exception as e:                       # (never fails the request)
+            sys.stderr.write(f"{time.strftime('%H:%M:%S')} runs from this computer's copy: {e}\n")
+        with self.lock:
+            ev = getattr(self, "_scan_queued", None)
+            start = ev is None
+            if start:
+                ev = self._scan_queued = threading.Event()
+
+        def go():
+            try:
+                with self.scan_lock:
+                    with self.lock:
+                        self._scan_queued = None     # (a change from now on needs another walk)
+                    self._scan()
+            except Exception as e:
+                sys.stderr.write(f"{time.strftime('%H:%M:%S')} run search failed: {e}\n")
+            finally:
+                ev.set()
+        if start:
+            threading.Thread(target=go, daemon=True, name="run search (now)").start()
+        return ev.wait(wait)
+
     def walked_roots(self):
         """(2026-11-04g) Only the folders inside the library's own folder (Directory at the top): a library that also
         had another folder added (GR13'_auto + BN_16_auto) listed the other folder's runs too."""
@@ -693,8 +826,9 @@ class Store:
         # (2026-11-05b) and the runs added one by one from any folder (＋ Add run…): a run folder itself
         return (out or [self.library]) + [r for r in self.roots if not in_folder(r, self.library) and is_run_dir(r)]
 
-    def runs_list(self, wait_s=60):
-        """(signature, the runs) from the last walk; the first request waits for the first walk."""
+    def runs_list(self, wait_s=20):
+        """(signature, the runs) from the last walk (or this computer's copy: prime_runs); the first request waits for
+        the first walk when there is no copy."""
         if not self.first_scan.is_set():
             self.first_scan.wait(wait_s)
         with self.lock:
@@ -1379,12 +1513,32 @@ class Store:
         """One decision appended to this person's file.  Stamped later than the latest decision on that terrace this
         computer has seen (a hybrid clock: a decision made after seeing another one wins even when this computer's
         clock is behind, 2026-10-16)."""
+        self.review_state()                              # (direct callers: the share's latest first; the page's saves go
+        self.write_review(self.stamp_review(tid, body))  # through the outbox, stamped without reading the share)
+
+    def latest_review(self, tid):
+        """(2026-11-27a) The latest decision on a terrace known here, without reading the share: the last read's, or a
+        save of this computer's not uploaded yet (before: every decision file of the share read again at each save)."""
+        hit = self._lists.get("review")
+        prev = ((hit[2] if hit and len(hit) > 2 else {}).get(tid)) or {}
+        for r in OUTBOX.pending("review", self.data):
+            e = r.get("entry") or {}
+            if r.get("id") == tid and int(e.get("updated") or 0) >= int(prev.get("updated") or 0):
+                prev = e
+        return prev
+
+    def stamp_review(self, tid, body):
+        """The decision as written: stamped later than the latest one on that terrace seen here."""
+        prev = self.latest_review(tid)
+        upd = max(int(time.time() * 1000), int(prev.get("updated") or 0) + 1)
+        return dict(id=tid, updated=upd, by=by_name(), body=dict(body, updated=upd))
+
+    def write_review(self, e):
+        """A stamped decision appended to this person's file on the share (and the run's copy, the kept pictures)."""
         d = self._dir("review")
         if d is None:
             raise OSError("no shared data folder")
-        prev = self.review_state()[2].get(tid) or {}
-        upd = max(int(time.time() * 1000), int(prev.get("updated") or 0) + 1)
-        e = dict(id=tid, updated=upd, by=by_name(), body=dict(body, updated=upd))
+        tid, body = e["id"], e.get("body") or {}
         with self.review_lock, open(d / f"{user_name()}.jsonl", "a", encoding="utf-8") as fh:
             fh.write(json.dumps(e) + "\n")
         RUN_DATA.mirror(self, [e])                       # (also in the run's own folder: seen by any computer that adds it)
@@ -3353,6 +3507,34 @@ class DiskCache:
             pass
         return b
 
+    def latest(self, p):
+        """(2026-11-27a) The newest copy of file p kept here, whatever its version, without looking at the share:
+        (bytes, size, mtime_ns) or None.  For a share that does not answer (and names that carry their content's hash,
+        which never change)."""
+        if self.root is None:
+            return None
+        pre = f"{_sig(str(p))}_"
+        best = None
+        try:
+            with os.scandir(self.root) as it:
+                for e in it:
+                    if e.name.startswith(pre):
+                        try:
+                            size, mt = (int(x) for x in e.name[len(pre):].split("_", 1))
+                        except ValueError:
+                            continue
+                        if best is None or mt > best[2]:
+                            best = (e.path, size, mt)
+        except OSError:
+            return None
+        if best is None:
+            return None
+        try:
+            b = Path(best[0]).read_bytes()
+        except OSError:
+            return None
+        return (b, best[1], best[2]) if len(b) == best[1] else None
+
     def file(self, p):
         """(2026-11-05v) The path of the copy of file p kept here, made now if there is none or p changed; None: no copy."""
         if self.root is None:
@@ -3547,6 +3729,80 @@ def afm_copy_list(store, AP, pid):
     threading.Thread(target=run, daemon=True).start()
 
 
+# ---- (2026-11-27a) the lists and saves of the page through sharegate.py (a slow share is never waited on long)
+REVIEW_KEYS = ("decision", "stars", "clean", "afmoff", "tchoice", "afmdec", "tset", "hist", "note")
+OUTBOXED = ("review", "seen", "archived", "terraces", "manual", "designs")   # saved here first (stacks: see do_PUT)
+LIVE = dict(store=None)                             # the server's store (the outbox uploads to its data folder)
+_OTHER_STORES = {}
+
+
+def _listing_fn(store, coll):
+    return {"review": lambda: store.review_state()[:2], "seen": store.seen_state, "archived": store.archived_state,
+            "terraces": lambda: store.collection("terraces"), "designs": lambda: store.collection("designs"),
+            "manual": lambda: store.collection("manual"), "stacks": store.stacks_listing}[coll]
+
+
+def db_listing(store, coll):
+    """(signature, items) of a collection for the page: a fresh read of the share when it comes within LIST_WAIT_S,
+    else the last one (this computer's copy), with this computer's saves not uploaded yet laid over it."""
+    sig, items = LISTS.get(f"{coll}|{store.data}", _listing_fn(store, coll), wait=LIST_WAIT_S)
+    return _overlay(store, coll, sig, items)
+
+
+def _overlay(store, coll, sig, items):
+    pend = OUTBOX.pending(coll, store.data) if coll in OUTBOXED and store.data is not None else []
+    if not pend:
+        return sig, items
+    order, cur = [x["id"] for x in items], {x["id"]: x for x in items}
+    for r in pend:
+        k, b = r["id"], r.get("body") or {}
+        if coll == "review":
+            e = r.get("entry") or {}
+            old = cur.get(k)
+            if old is not None and int((old.get("data") or {}).get("updated") or 0) > int(e.get("updated") or 0):
+                continue                                 # (a later decision from elsewhere)
+            body = e.get("body") or {}
+            if not any(body.get(q) for q in REVIEW_KEYS):
+                cur.pop(k, None)                         # (cleared)
+                continue
+            data = dict(body, by=e.get("by")) if k.endswith(".note") else body
+        elif coll == "seen":
+            data = dict(by=by_name(), at=b.get("at") or r.get("t"))
+        elif coll == "archived":
+            data = dict(run=str(b.get("run") or k), archived=bool(b.get("archived")), by=by_name(), at=b.get("at") or r.get("t"))
+        else:
+            data = dict(b, by=b.get("by") or by_name())
+        if k not in cur:
+            order.append(k)
+        cur[k] = dict(id=k, data=data)
+    return _sig(f"{sig}|outbox:" + ",".join(str(r["n"]) for r in pend)), [cur[k] for k in order if k in cur]
+
+
+def _store_for(data_dir):
+    """The store whose data folder is data_dir: the server's, or (a save made before a switch of directory) one for it."""
+    st = LIVE.get("store")
+    if st is not None and str(st.data) == str(data_dir):
+        return st
+    if not data_dir:
+        raise OSError("no shared data folder")
+    if data_dir not in _OTHER_STORES:
+        _OTHER_STORES[data_dir] = Store([], data_dir)
+    return _OTHER_STORES[data_dir]
+
+
+def _outbox_upload(r):
+    """One save of the outbox written to the share (in the outbox's thread)."""
+    st, coll = _store_for(r.get("data_dir")), r["coll"]
+    if coll == "review":
+        st.write_review(r["entry"])
+    else:
+        dict(designs=st.put_design, seen=st.put_seen, archived=st.put_archived, terraces=st.put_terrace,
+             manual=st.put_manual)[coll](r["id"], r.get("body") or {})
+
+
+OUTBOX.upload = _outbox_upload
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = f"{APP}/{VERSION}"
 
@@ -3599,7 +3855,23 @@ class Handler(BaseHTTPRequestHandler):
     def _file(self, p, extra=None, cached=False, alt=None):
         """A file with ETag / Last-Modified: 304 when the browser has it (only a stat of the file), HEAD without reading
         it; cached: a copy kept on this computer (DISK) serves it when the share's file is unchanged (2026-10-16).
-        alt: where else it may be when not there (a stack's file added offline and not uploaded yet: offline.py)."""
+        alt: where else it may be when not there (a stack's file added offline and not uploaded yet: offline.py).
+        (2026-11-27a) cached files: a name that carries its content's hash is served from this computer's copy without
+        looking at the share; others when the share does not answer within FILE_STAT_S."""
+        if cached is True and p is not None:
+            if HASHED.search(p.name):
+                got = DISK.latest(p)
+                if got is not None:
+                    return self._send_copy(p, got, extra)
+            try:
+                GATE.call(p.stat, FILE_STAT_S, "picture")
+            except SG.ShareSlow:
+                got = DISK.latest(p)
+                if got is not None:
+                    return self._send_copy(p, got, extra)
+                return self._send(503, b"the share is not answering (no copy of this file on this computer yet)", "text/plain")
+            except OSError:
+                pass                                     # (not there: as before, below)
         try:
             if p is None:
                 raise OSError("no file")
@@ -3642,10 +3914,37 @@ class Handler(BaseHTTPRequestHandler):
         store = cached if isinstance(cached, DiskCache) else DISK     # (cached: True, or which copies: AFM_DISK)
         data = (KEPT_DISK.get(p, st) if cached is True else None) or (store.get(p, st) if cached else None)
         if data is None:
-            data = p.read_bytes()
+            if cached is True:
+                try:
+                    data = GATE.call(p.read_bytes, FILE_READ_S, "picture")
+                except SG.ShareSlow:
+                    got = DISK.latest(p)
+                    if got is None:
+                        return self._send(503, b"the share is not answering", "text/plain")
+                    return self._send_copy(p, got, extra)
+            else:
+                data = p.read_bytes()
             if cached:
                 store.put(p, st, data)
         self._send(200, data, ctype, hd)
+
+    def _send_copy(self, p, got, extra=None):
+        """This computer's copy of a share file (DiskCache.latest), with the headers the share's file would have."""
+        data, size, mt = got
+        ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+        if p.suffix.lower() == ".webp":
+            ctype = "image/webp"
+        etag = f'"{size:x}-{mt:x}"'
+        hd = dict(extra or {}, ETag=etag, **{"Last-Modified": email.utils.formatdate(mt / 1e9, usegmt=True)})
+        if HASHED.search(p.name):
+            hd["_cache"] = "max-age=604800, immutable"
+        elif ctype == "application/json" or ctype.startswith("text/"):
+            hd["_cache"] = "no-cache"
+        if self._etag_ok(etag):
+            return self._send(304, b"", ctype, hd)
+        if self.command == "HEAD":
+            return self._send(200, b"", ctype, dict(hd, _length=size))
+        return self._send(200, data, ctype, hd)
 
     # ---- export to KLayout
     def _stackfile_path(self, u):
@@ -3874,13 +4173,14 @@ class Handler(BaseHTTPRequestHandler):
             O.set_keep(sid, None if k is None else bool(k))
         elif path == "/api/offline/sync":
             O.kick(sync=True, pack=True)
+            OUTBOX.kick()                                # (2026-11-27a: and the saves kept here, at once)
         elif path == "/api/offline/refresh":
             O.kick(pack=True)
         elif path == "/api/offline/dismiss":
             O.dismiss(str(b.get("id") or ""))
         else:
             return self._json(dict(error="unknown"), 404)
-        return self._json(O.status())
+        return self._json(dict(O.status(), share=GATE.brief(), outbox=OUTBOX.brief()))
 
     # ---- routes
     def do_HEAD(self):
@@ -3953,8 +4253,8 @@ class Handler(BaseHTTPRequestHandler):
             if path.endswith("state"):
                 info = {k: info[k] for k in ("person", "person_rev", "ticked")}
             return self._json(info)
-        if path == "/api/offline":
-            return self._json(S.offline.status())
+        if path == "/api/offline":                       # (2026-11-27a: and the share's state, the saves not uploaded)
+            return self._json(dict(S.offline.status(), share=GATE.brief(), outbox=OUTBOX.brief()))
         if S.offline.offline and self._offline_get(path):
             return
         if path == "/api/db/runs":                      # (the last walk of the share: Store.start_scanner, /api/rescan)
@@ -4047,11 +4347,11 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._json(dict(error=str(e), centers={}), 500)
         if path == "/api/db/designs":
-            return self._list(*S.store.collection("designs"))
+            return self._list(*db_listing(S.store, "designs"))
         if path == "/api/db/stacks":
-            return self._list(*S.store.stacks_listing())
+            return self._list(*db_listing(S.store, "stacks"))
         if path == "/api/db/manual":
-            return self._list(*S.store.collection("manual"))
+            return self._list(*db_listing(S.store, "manual"))
         if path == "/api/afm/lasttip":
             return self._json(load_config().get("afm_tip") or {})
         if path == "/api/afm/plans":
@@ -4107,14 +4407,8 @@ class Handler(BaseHTTPRequestHandler):
             if d is None or not re.match(r"^[A-Za-z0-9_.~@+-]{1,200}$", sid):
                 return self._json(dict(error="no such stack"), 400)
             return self._json(dict(path=str(d / sid / "final")))
-        if path == "/api/db/review":
-            return self._list(*S.store.review_state()[:2])
-        if path == "/api/db/seen":
-            return self._list(*S.store.seen_state())
-        if path == "/api/db/archived":
-            return self._list(*S.store.archived_state())
-        if path == "/api/db/terraces":
-            return self._list(*S.store.collection("terraces"))
+        if path in ("/api/db/review", "/api/db/seen", "/api/db/archived", "/api/db/terraces"):
+            return self._list(*db_listing(S.store, path[len("/api/db/"):]))
         if path.startswith("/api/klayout/"):
             return self._klayout_get(path, urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query))
         if path == "/api/fabalign/job":
@@ -4188,9 +4482,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(dict(error=str(e)), 503)
         try:
             body = self._body()
-            r = dict(designs=S.store.put_design, review=S.store.put_review, seen=S.store.put_seen,
-                     archived=S.store.put_archived,
-                     terraces=S.store.put_terrace, stacks=S.store.put_stack, manual=S.store.put_manual)[m.group(1)](m.group(2), body)
+            coll, id_ = m.group(1), m.group(2)
+            if coll in OUTBOXED:
+                # (2026-11-27a) saved on this computer first, then uploaded (sharegate.Outbox): a fast share has it
+                # before the answer, as before; a slow one gets it from the outbox's thread, never lost meanwhile
+                if S.store.data is None:
+                    raise OSError("no shared data folder")
+                entry = S.store.stamp_review(id_, body) if coll == "review" else None
+                n = OUTBOX.add(coll, id_, S.store.data, body, entry=entry)
+                up = OUTBOX.wait(n, SAVE_WAIT_S)
+                return self._json(dict(ok=True, uploaded=up, pending=not up))
+            # stacks: the version check needs the share's copy: with a time limit (the save may still land; the page
+            # keeps the stack open and saves it again)
+            r = GATE.call(lambda: S.store.put_stack(id_, body), STACK_SAVE_S, "stack save")
             if m.group(1) == "stacks":
                 try:
                     S.offline.after_online_save(m.group(2), body)
@@ -4894,7 +5198,7 @@ class Handler(BaseHTTPRequestHandler):
                     switch_library(load_config(), S.store, str(Path(p).parent))
                 S.store.added = [r for r in (S.store.added or []) if r != p] + [p]     # (only this run: not its folder's)
                 save_added(S.store)
-                S.store.scan()
+                S.store.refresh_runs()
                 return self._json(dict(picked=p, inside=True, reload=True, roots=S.store.roots, added=S.store.added))
             if S.store.added is None and S.store.library:
                 S.store.added = []                      # (no list yet: it starts with this run)
@@ -4902,7 +5206,7 @@ class Handler(BaseHTTPRequestHandler):
                 if p not in S.store.added:
                     S.store.added.append(p)
                     save_added(S.store)
-                S.store.scan()
+                S.store.refresh_runs()
                 return self._json(dict(picked=p, inside=True, added=S.store.added, roots=S.store.roots))
             inside = in_folder(p, S.store.library)
             if not inside:
@@ -4912,7 +5216,7 @@ class Handler(BaseHTTPRequestHandler):
                         S.store.roots.append(p)
                         remember_library(cfg, S.store)
                         save_config(cfg)
-            S.store.scan()
+            S.store.refresh_runs()
             return self._json(dict(picked=p, inside=inside, roots=S.store.roots))
         if path == "/api/roots/pick":
             with LIBRARY_LOCK:
@@ -4926,7 +5230,7 @@ class Handler(BaseHTTPRequestHandler):
                     remember_library(cfg, S.store)
                     save_config(cfg)
             if p:
-                S.store.scan()
+                S.store.refresh_runs()
             return self._json(dict(roots=S.store.roots, picked=p, data_dir=str(S.store.data) if S.store.data else None))
         if path in ("/api/library/pick", "/api/library/use"):
             if path.endswith("use"):
@@ -4991,14 +5295,14 @@ class Handler(BaseHTTPRequestHandler):
                 if S.store.added is None:
                     S.store.added = list(dict.fromkeys(str(Path(x)) for x in (b.get("paths") or []) if isinstance(x, str) and x))
                     save_added(S.store)
-                    S.store.scan()
+                    S.store.refresh_runs()
                 return self._json(dict(added=S.store.added))
             p = str(Path(str(b.get("path") or "")))
             if S.store.added is None:
                 return self._json(dict(error="no list of runs yet"), 409)
             S.store.added = [r for r in S.store.added if r != p]
             save_added(S.store)
-            S.store.scan()
+            S.store.refresh_runs()
             return self._json(dict(added=S.store.added))
         if path == "/api/roots/remove":
             p = self._body().get("path")
@@ -5009,7 +5313,7 @@ class Handler(BaseHTTPRequestHandler):
                 S.store.roots = [r for r in S.store.roots if r != p]
                 remember_library(cfg, S.store)
                 save_config(cfg)
-            S.store.scan()
+            S.store.refresh_runs()
             return self._json(dict(roots=S.store.roots))
         cfg = load_config()
         if path.startswith("/api/camera/") and CAM is not None:
@@ -5107,7 +5411,7 @@ class Handler(BaseHTTPRequestHandler):
             KEPT_COPY.want(S.store, json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode("utf-8") or "{}").get("run"))
             return self._json(dict(ok=True))
         if path == "/api/rescan":
-            S.store.scan()
+            S.store.refresh_runs(wait=15.0)             # (Refresh: the walk's list when it ends within 15 s)
             return self._json(dict(n=len(S.store.runs)))
         self._json(dict(error="unknown"), 404)
 
@@ -5292,6 +5596,8 @@ def make_server(port, store):
     the KLayout export's, 2026-10-14)."""
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     srv.store, srv.last = store, time.time()
+    LIVE["store"] = store
+    OUTBOX.start()                                       # (saves left from before: uploaded now)
     srv.kl_jobs, srv.kl_folders = {}, set()
     DISK.root = cache_dir()
     AFM_DISK.root = DISK.root / "afm" if DISK.root else None
@@ -5363,6 +5669,10 @@ def main(argv=None):
         return 0
     store = Store(roots, data, library, added=cfg.get("added_runs"))
     apply_person(store, cfg, cfg.get("person"))        # (2026-11-23: the person's runs, from this computer's copy)
+    try:                                               # (2026-11-27a: and their summaries: the page has its runs at once)
+        store.prime_runs()
+    except Exception as e:
+        sys.stderr.write(f"runs from this computer's copy: {e}\n")
     threading.Thread(target=store.scan, daemon=True).start()
     person_sync_soon(store)                           # (then their file on the share: changes from other computers)
     threading.Thread(target=person_watch, args=(store,), daemon=True).start()   # (2026-11-23e: and again as it changes)

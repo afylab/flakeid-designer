@@ -24,7 +24,7 @@ OWN_TOOLS = {p.stem for p in (ROOT / "tools").glob("*.py")}
 
 hidden = ["flakeid_designer.__main__", "flakeid_designer.stacks", "flakeid_designer.manual", "flakeid_designer.afmplan",
           "flakeid_designer.stackdir", "flakeid_designer.kept", "flakeid_designer.camera", "flakeid_designer.marks_to_klayout",
-          "flakeid_designer.update", "flakeid_designer.offline", "flakeid_designer.app", "gdstk",
+          "flakeid_designer.update", "flakeid_designer.offline", "flakeid_designer.sharegate", "flakeid_designer.app", "gdstk",
           "flakeid.background", "flakeid.branch", "flakeid.flakes", "flakeid.graphite", "flakeid.hundred", "flakeid.io",
           "flakeid.mm", "flakeid.optics", "flakeid.outline", "flakeid.pipeline", "flakeid.scorer", "flakeid.segment",
           "flakeid.targets", "flakeid.thickness", "flakeid.screen100", "flakeid.progress", "flakeid.afm",
