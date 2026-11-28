@@ -96,7 +96,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
 # decode byte 0xba" (2026-11-20, third_2poly_run_1).  The files this program reads itself name their encoding.
 os.environ.setdefault("PYTHONUTF8", "1")
 APP = "flakeid-designer"
-VERSION = "2026-11-27h"
+VERSION = "2026-11-27i"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -2653,13 +2653,11 @@ class StackConflict(Exception):
 
 
 def build_here():
-    """Does this computer build new runs' designer files by itself?  Setting "build_here" (the builds list); default
-    off in the Stacker version (the stacking PC with the camera: a build there froze its window on Windows, 2026-10-20),
-    on elsewhere.  Builds asked for by hand go ahead either way."""
-    v = load_config().get("build_here")
-    if v is None:
-        return "stacker" not in Path(sys.executable).name.lower()
-    return bool(v)
+    """Does this computer build runs' designer files by itself?  Always (2026-11-27i: the files are the same whichever
+    computer builds them; the Build buttons and the "build here" setting are gone).  Before: setting "build_here",
+    off by default in the Stacker version (a build froze its window on Windows, 2026-10-20, when the builder's
+    libraries were still imported into the designer's own process; builds run in their own process since)."""
+    return True
 
 
 def free_memory_gb():

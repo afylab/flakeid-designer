@@ -36,12 +36,9 @@ def test_older_runs_built(monkeypatch, tmp_path):
     assert sorted(b.built) == ["new_run", "old_run"]
 
 
-def test_not_on_a_computer_set_not_to_build(monkeypatch, tmp_path):
-    monkeypatch.setattr(D, "build_here", lambda: False)
-    b = B()
-    b.consider(None, [tmp_path / "new_run"], [tmp_path / "old_run"])
-    settle(b)
-    assert b.built == [] and {v["state"] for v in b.state.values()} == {"off", "unbuilt"}
+def test_every_computer_builds():
+    # (2026-11-27i) no setting any more: the Stacker version builds too
+    assert D.build_here() is True
 
 
 def test_slow_share_waits_then_builds(monkeypatch, tmp_path):
@@ -61,9 +58,10 @@ def test_slow_share_waits_then_builds(monkeypatch, tmp_path):
     assert b.built == ["run_x"]
 
 
-def test_slow_message_and_banner():
+def test_slow_message_and_no_build_buttons():
     src = (ROOT / "flakeid_designer" / "__main__.py").read_text(encoding="utf-8")
     assert 'f"{self.SLOW_WAIT_S // 60} min to a computer on the lab network (minutes there), then built here")' in src
     assert D.Builder.SLOW_WAIT_S == 900
     html = (ROOT / "flakeid_designer" / "index.html").read_text(encoding="utf-8")
-    assert ">Not here</button>" not in html and '<button data-slowskip="${escapeHtml(b.dir)}" title="Hide this message' in html
+    for gone in ("data-build=", "data-slowbuild", "Build here anyway", 'id="buildHere"', '"Build again"', "/api/buildhere"):
+        assert gone not in html, gone
