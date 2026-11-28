@@ -5105,8 +5105,8 @@ if(LOCAL){$("tChat").textContent="Design with Claude";
 const TYPES={webp:"image/webp",jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",json:"application/json"};
 let armed=null,lastFiles=null;
 // runs' designer files, built on this computer from the runs on the share (the scan program leaves that to the designer)
-let BUILDS=[],BUILDHERE=true;const SLOWSEEN=new Set();
-fetch("/api/buildhere").then(r=>r.json()).then(j=>{BUILDHERE=!!j.on;renderBuilds()}).catch(()=>{});const BUILD_LABEL={queued:["waiting to build","rev"],building:["building…","rev"],done:["built","kept"],failed:["build failed","disc"],
+let BUILDS=[];const SLOWSEEN=new Set();
+const BUILD_LABEL={queued:["waiting to build","rev"],building:["building…","rev"],done:["built","kept"],failed:["build failed","disc"],
   elsewhere:["another computer is building it",""],unbuilt:["not built",""],slow:["share slow from here","rev"],off:["not built here",""]};
 async function pollBuilds(){if(!LOCAL)return;const r=await fetch("/api/builds").then(r=>r.json()).catch(()=>null);if(!Array.isArray(r))return;
   const wasActive=BUILDS.some(b=>b.state==="building"||b.state==="queued"),done=r.filter(b=>b.state==="done"&&!(BUILDS.find(x=>x.dir===b.dir&&x.state==="done")));
@@ -5116,8 +5116,7 @@ async function pollBuilds(){if(!LOCAL)return;const r=await fetch("/api/builds").
     el.innerHTML=`<span class="badge rev">building</span><span style="flex:1;min-width:0">Designer files of <b>${escapeHtml(b.run)}</b>${active.length>1?` · ${active.length-1} more waiting`:""}${buildBar(b)}</span>`}
   else if(slow.length){const b=slow[0];
     // (asked, not built: building the designer files over a slow connection takes long; a lab computer does it in minutes)
-    el.innerHTML=`<span class="badge rev" style="white-space:nowrap">new run</span><span><b>${escapeHtml(b.run)}</b>: ${escapeHtml(b.msg||"")}${slow.length>1?` (${slow.length-1} more run${slow.length>2?"s":""} too)`:""}</span><span style="display:flex;gap:6px;white-space:nowrap;flex:none"><button data-slowbuild="${escapeHtml(b.dir)}">Build here anyway</button><button data-slowskip="${escapeHtml(b.dir)}" title="Hide this message (the run is still built here if no other computer has done it by then)">Hide</button></span>`;
-    el.querySelector("[data-slowbuild]").onclick=async e=>{e.target.disabled=true;await fetch("/api/build",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({dir:b.dir})}).catch(()=>null);pollBuilds()};
+    el.innerHTML=`<span class="badge rev" style="white-space:nowrap">new run</span><span><b>${escapeHtml(b.run)}</b>: ${escapeHtml(b.msg||"")}${slow.length>1?` (${slow.length-1} more run${slow.length>2?"s":""} too)`:""}</span><span style="display:flex;gap:6px;white-space:nowrap;flex:none"><button data-slowskip="${escapeHtml(b.dir)}" title="Hide this message (the run is still built here if no other computer has done it by then)">Hide</button></span>`;
     el.querySelector("[data-slowskip]").onclick=()=>{SLOWSEEN.add(b.dir);pollBuilds()}}
   if(done.length&&wasActive&&typeof localDb_!=="undefined")localDb_.poll("runs");
   clearTimeout(pollBuilds.t);pollBuilds.t=setTimeout(pollBuilds,active.length||$("runDlg").open?3000:20000)}
@@ -5132,23 +5131,21 @@ function hideBLoad(){try{HIDEB=new Set(JSON.parse(lsGet("hiddenBuilds")||"[]"))}
 function hideBSet(dir,on){if(on)HIDEB.add(dir);else HIDEB.delete(dir);lsSet("hiddenBuilds",JSON.stringify([...HIDEB]));renderBuilds()}
 function renderBuilds(){const el=$("buildList");if(!el)return;const now=Date.now()/1000;hideBLoad();
   const all=BUILDS.filter(b=>b.state!=="done"||now-b.t<900),isH=b=>HIDEB.has(b.dir)&&b.state!=="building",show=all.filter(b=>!isH(b)),hid=all.filter(isH);
-  const here=`<label class="sub" style="display:block;margin:2px 0 6px" title="Off: new runs are not built here by themselves (a computer next to the data, or Build, does it). Off by default on the stacking PC."><input type="checkbox" id="buildHere"${BUILDHERE?" checked":""}> Build new runs' designer files on this computer</label>`;
+  const here="";   // (2026-11-27i: runs always build by themselves; the "build on this computer" setting is gone)
   // (2026-11-19) a build as a run card: the coloured bar (person, run, material) on the left, its progress on the right
   const row=b=>{const L=BUILD_LABEL[b.state]||[b.state,""],R={path:b.dir,pieces:b.pieces||[]},who=runPerson(b.dir),mat=runKind(R,"mat");
     return `<div class="runrow runcard buildcard ${runKind(R,"cls")}"><div class="runbar" title="${escapeHtml(b.run+"\n"+b.dir)}">${who?`<span class="rbwho">${escapeHtml(who)}</span>`:""}<span class="rbname">${escapeHtml(b.run).replace("_","_<wbr>")}</span>${mat?`<span class="rbmat">${escapeHtml(mat)}</span>`:"<span></span>"}</div><div class="runmain"><div style="min-width:0"><div class="bchead"><span class="badge ${L[1]}">${L[0]}</span>${b.started?`<span class="rundate" title="Started ${escapeHtml(fmtStarted(b.started))}">${escapeHtml(fmtDay(b.started))}</span>`:""}</div><div class="sub mid">${runKind(R,"ox")?runKind(R,"ox")+" · ":""}<span title="${escapeHtml(b.dir)}">${escapeHtml(runParents(b.dir))}</span></div>${b.state==="building"?buildBar(b):`<div class="sub">${escapeHtml(b.msg||"")}</div>`}${b.state==="failed"&&(b.detail||b.log)?`<details class="builderr"${BUILDERR_OPEN.has(b.dir)?" open":""} data-errdir="${escapeHtml(b.dir)}"><summary class="sub" style="cursor:pointer">Show full error</summary>${b.detail?`<pre style="max-height:320px;overflow:auto;white-space:pre-wrap;font:11.5px/1.35 var(--mono,ui-monospace,monospace);background:#16191d;color:#e8e8e8;border:1px solid #444;border-radius:6px;padding:8px;margin:6px 0">${escapeHtml(b.detail)}</pre><button data-copyerr="${escapeHtml(b.dir)}">Copy error</button> `:""}${b.log?`<span class="sub">whole build output: <code>${escapeHtml(b.log)}</code></span>`:""}</details>`:""}</div>`
-      +`<span style="display:flex;gap:6px">`+(b.state==="unbuilt"||b.state==="failed"||b.state==="done"||b.state==="slow"||b.state==="off"?`<button data-build="${escapeHtml(b.dir)}" style="flex:1">${b.state==="unbuilt"||b.state==="off"?"Build":b.state==="slow"?"Build here anyway":"Build again"}</button>`:"")
+      +`<span style="display:flex;gap:6px">`
       +(b.state==="building"?"":isH(b)?`<button data-bunhide="${escapeHtml(b.dir)}">Show</button>`:`<button data-bhide="${escapeHtml(b.dir)}">Hide</button>`)+addedBtn(b.dir)+`</span></div></div>`};
   el.innerHTML=here+(show.length?`<div class="sub" style="margin:2px 0 6px">Designer files built on this computer from the runs' results on the share:</div>`:"")+show.map(row).join("")
     +(hid.length?`<details class="archrow" id="hidBuilds"${HIDEBOPEN?" open":""}><summary>Hidden (${hid.length})</summary>${hid.map(row).join("")}</details>`:"");
   const hd=$("hidBuilds");if(hd)hd.ontoggle=()=>{HIDEBOPEN=hd.open};
   el.querySelectorAll("[data-bhide]").forEach(x=>x.onclick=e=>{e.preventDefault();hideBSet(x.dataset.bhide,true)});
   el.querySelectorAll("[data-bunhide]").forEach(x=>x.onclick=e=>{e.preventDefault();hideBSet(x.dataset.bunhide,false)});wireAdded(el);
-  const bh=$("buildHere");if(bh)bh.onchange=async()=>{const r=await fetch("/api/buildhere",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({on:bh.checked})}).then(r=>r.json()).catch(()=>null);if(r)BUILDHERE=r.on;pollBuilds()};
   el.querySelectorAll("details[data-errdir]").forEach(x=>x.ontoggle=()=>{if(x.open)BUILDERR_OPEN.add(x.dataset.errdir);else BUILDERR_OPEN.delete(x.dataset.errdir)});
   el.querySelectorAll("[data-copyerr]").forEach(x=>x.onclick=async e=>{e.preventDefault();const b=BUILDS.find(q=>q.dir===x.dataset.copyerr);if(!b)return;
     try{await navigator.clipboard.writeText(b.detail||"");x.textContent="Copied"}catch(err){const pre=x.parentElement.querySelector("pre");if(pre){const r=document.createRange();r.selectNodeContents(pre);const sl=getSelection();sl.removeAllRanges();sl.addRange(r)}x.textContent="Selected: press ⌘C / Ctrl+C"}});
-  el.querySelectorAll("[data-build]").forEach(x=>x.onclick=async e=>{e.preventDefault();x.disabled=true;
-    await fetch("/api/build",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({dir:x.dataset.build})}).catch(()=>null);pollBuilds()})}
+}
 // (2026-11-04g) the run list: only the runs inside the library's folder (Directory at the top), by name with their
 // three parent folders and when they were started; a Recent runs tab (runs opened lately, in any library)
 // (these three in every library: localStorage without the library in the key)
