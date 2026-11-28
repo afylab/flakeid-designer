@@ -125,3 +125,12 @@ def test_scale_consensus_and_names():
     k = MK.scale_consensus(fits)
     assert k is not None and abs(k / 10.86 - 1) < 0.01
     assert MK.scale_consensus(fits[:2]) is None              # two that disagree: no majority
+
+
+def test_overlay_letters_are_not_marks():
+    # Stream's yellow text (bottom left) and scale bar (bottom right) gave DQD14's 100x four "marks" (2026-11-27)
+    w, h = 1376, 1038
+    cand = [(120, 1022, 8, 0.5, "mark"), (84, 988, 12, 0.5, "mark"), (1300, 1010, 20, 0.9, "square"),
+            (298, 933, 127, 0.2, "mark"), (120, 1000, 128, 0.2, "mark"), (700, 1020, 10, 0.9, "square")]
+    kept = MK.not_overlay(cand, w, h)
+    assert [c[:2] for c in kept] == [(298, 933), (120, 1000), (700, 1020)]

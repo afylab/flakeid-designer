@@ -272,6 +272,14 @@ def candidates(mask, max_frac=0.3):
     return out
 
 
+def not_overlay(cand, w, h, max_px=30):
+    """Candidates without the camera software's overlay: Stream writes "Magnification / Stage Position" in yellow at
+    the bottom left and a scale bar at the bottom right, and their letters were taken for marks (DQD14 100x: four
+    letters fitted as the four crosses, and the 50x match "refined" on letters to 1.4 % off in scale and 0.5 deg off).
+    Only small pieces centred in those corners go; a mark there is larger than a letter at 50x-100x."""
+    return [c for c in cand if not (c[2] <= max_px and c[1] > 0.92 * h and (c[0] < 0.25 * w or c[0] > 0.89 * w))]
+
+
 def to_uv(xy, w, h):
     """File pixel (x right, y down, pixel centres at integers) -> KLayout image pixel (origin at the centre, y up)."""
     xy = np.asarray(xy, float)
@@ -441,7 +449,7 @@ def fit_picture(im, tpl, mirror=False, expect_deg=0.0, smin=0.01, smax=30.0, max
     # guesses come from pairs of the largest pieces (max_cand), but each guess is scored on all of them: flakes in
     # the gold's colour outrank small marks (4 um squares are 4 px at 10x), and a true guess scored without its marks
     # loses to a false one at another scale
-    cand = candidates(mask)[:max(max_cand, 400)]
+    cand = not_overlay(candidates(mask), w, h)[:max(max_cand, 400)]
     if len(cand) < 2:
         return None
     det_xy = np.array([c[:2] for c in cand])
@@ -1064,7 +1072,7 @@ def place_by_match(fit, best, im, tpl, T, mirror):
     sim, n, refname, how0 = best
     h, w = im.shape[:2]
     mask, score, _ = gold_map(im)
-    cand = candidates(mask)
+    cand = not_overlay(candidates(mask), w, h)
     det_uv = to_uv(np.array([c[:2] for c in cand]).reshape(-1, 2), w, h)
     det_size = np.array([c[2] for c in cand], float)
     det_kind = [c[4] for c in cand]
@@ -1077,13 +1085,37 @@ def place_by_match(fit, best, im, tpl, T, mirror):
     nres = int((det_size[assign[sel]] >= 10).sum()) if sel.any() else 0
     if sel.sum() >= 3 or nres >= 2:
         sim2 = fit_sim(det_uv[assign[sel]], T[sel], mirror)
-        if abs(sim2.scale / sim.scale - 1) < 0.05 and abs(((sim2.angle - sim.angle + 180) % 360) - 180) < 2:
+        r2 = np.hypot(*(sim2.fwd(det_uv[assign[sel]]) - T[sel]).T)
+        # (only a refinement that fits its marks well: DQD14 100x was "refined on 3 marks" at rms 1.0 um)
+        if abs(sim2.scale / sim.scale - 1) < 0.05 and abs(((sim2.angle - sim.angle + 180) % 360) - 180) < 2 and \
+                float(np.sqrt(np.mean(r2 ** 2))) < 3 * sim2.scale + 0.5:
             sim = sim2
             how += ", refined on %d marks" % sel.sum()
+        else:
+            assign = match(sim, det_uv, det_size, det_kind, tpl, w, h)[0]
+            sel = assign >= 0
     res = np.hypot(*(sim.fwd(det_uv[assign[sel]]) - T[sel]).T) if sel.any() else np.array([np.nan])
     fit.update(sim=sim, assign=assign, det_uv=det_uv, det_size=det_size, det_kind=det_kind, n=int(sel.sum()),
                rms=float(np.sqrt(np.nanmean(res ** 2))) if sel.any() else float("nan"),
                max=float(np.nanmax(res)) if sel.any() else float("nan"), shape=None, mask=mask, how=how)
+    # the two-L marks it should show, looked for by their outline around the matched placement (a few um off) and
+    # fitted on: matching alone left DQD14's 100x, its four crosses under the stack, off by microns
+    # (every cross, also the ones matched to a gold piece: under a flake a cross often comes out as its two Ls, whose
+    # centres are ~2 um from the cross's)
+    keep = {k: fit[k] for k in ("sim", "assign", "det_uv", "det_size", "det_kind", "n", "rms", "max")}
+    fit["assign"] = np.array([-1 if tpl[ti]["kind"] == "mark" else di for ti, di in enumerate(fit["assign"])])
+    got, _ = find_hidden_marks(im, fit, tpl, T, mirror, srch_um=5.0)
+    if not got:
+        fit.update(keep)
+    if got:
+        s3 = fit["sim"]
+        if fit["n"] >= 2 and fit["rms"] < 3 * s3.scale + 0.5 and abs(s3.scale / sim.scale - 1) < 0.05 and \
+                abs(((s3.angle - sim.angle + 180) % 360) - 180) < 2:
+            sim = s3
+            how += ", refined on %d marks (%d found by their outline)" % (fit["n"], len(got))
+            fit["how"] = how
+        else:
+            fit.update(keep)
     print("%-28s %.4f um/px  rotation %7.2f deg  %s; %d marks agree%s" % (
         fit["name"], sim.scale, sim.angle, how, fit["n"], ", rms %.2f um" % fit["rms"] if fit["n"] else ""))
 
@@ -1200,11 +1232,12 @@ def scale_consensus(fits, tol=0.15):
     return float(np.median(best))
 
 
-def find_hidden_marks(im, f, tpl, T, mirror=False, min_ncc=0.45):
+def find_hidden_marks(im, f, tpl, T, mirror=False, min_ncc=0.45, srch_um=1.5, weak_ncc=0.25):
     """The two-L marks a placed picture should show but whose gold was not found (under a flake, e.g. the stack),
     looked for where the fit puts them by the mark's outline (a flake over gold changes its colour, not its edges:
-    the outline correlates 0.6-0.9 there against below 0.2 elsewhere, DQD15 50x) and added to the fit when found.
-    Returns (layout positions found, layout positions still not seen)."""
+    the outline correlates 0.3-0.95 there against at most 0.22 at 224 empty spots, DQD14/15 50x-100x) and added to the
+    fit when found: at min_ncc or more outright, from weak_ncc only within 3 px (0.3 um) of where the marks found
+    outright put it.  Returns (layout positions found, layout positions still not seen)."""
     h, w = im.shape[:2]
     sim = f["sim"]
     todo = []
@@ -1225,7 +1258,7 @@ def find_hidden_marks(im, f, tpl, T, mirror=False, min_ncc=0.45):
         ps = ft["size"] / sim.scale
         c = from_uv(sim.inv(ft["c"][None]), w, h)[0]
         half = int(ps * 0.75) + 2
-        srch = int(max(3, 1.5 / sim.scale))
+        srch = int(max(3, srch_um / sim.scale))
         cx, cy = int(round(c[0])), int(round(c[1]))
         pad = half + srch
         win = np.zeros((2 * pad + 1, 2 * pad + 1), np.float32)       # (zeros past the picture's edge)
@@ -1242,10 +1275,10 @@ def find_hidden_marks(im, f, tpl, T, mirror=False, min_ncc=0.45):
             px = (from_uv(sim.inv(p), w, h) - off + 0.5) * ss
             cv2.fillPoly(tp, [np.round(px * 4).astype(np.int32)], 1.0, lineType=cv2.LINE_8, shift=2)
         tp = cv2.resize(tp, (2 * half + 1, 2 * half + 1), interpolation=cv2.INTER_AREA)
-        te = cv2.morphologyEx(tp, cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8))
+        te = cv2.GaussianBlur(cv2.morphologyEx(tp, cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8)), (0, 0), 1.0)
         res = cv2.matchTemplate(win, te, cv2.TM_CCOEFF_NORMED)
         _, best, _, (bx, by) = cv2.minMaxLoc(res)
-        if not best >= min_ncc:
+        if not best >= weak_ncc:
             hidden.append(ti)
             continue
 
@@ -1256,21 +1289,34 @@ def find_hidden_marks(im, f, tpl, T, mirror=False, min_ncc=0.45):
         dy = sub(res[by, bx], res[by - 1, bx], res[by + 1, bx]) if 0 < by < res.shape[0] - 1 else 0.0
         xy = c + np.array([bx + dx - srch, by + dy - srch])
         new.append((ti, to_uv(xy[None], w, h)[0], ps, best))
-    if new:
-        assign = f["assign"].copy()
-        det_uv, det_size, det_kind = f["det_uv"], np.asarray(f["det_size"], float), list(f["det_kind"])
-        for ti, uv, ps, best in new:
-            assign[ti] = len(det_uv)
-            det_uv = np.vstack([det_uv, uv[None]])
-            det_size = np.append(det_size, ps)
-            det_kind.append("mark")
-            found.append((ti, best))
+    weak = [x for x in new if x[3] < min_ncc]
+    new = [x for x in new if x[3] >= min_ncc]
+    assign = f["assign"].copy()
+    det_uv, det_size, det_kind = f["det_uv"], np.asarray(f["det_size"], float), list(f["det_kind"])
+
+    def add(x):
+        ti, uv, ps, best = x
+        assign[ti] = len(det_uv)
+        found.append((ti, best))
+        return np.vstack([det_uv, uv[None]]), np.append(det_size, ps), det_kind + ["mark"]
+    for x in new:
+        det_uv, det_size, det_kind = add(x)
+    if weak:
+        sel = assign >= 0
+        ref = fit_sim(det_uv[assign[sel]], T[sel], mirror) if sel.sum() >= 2 else sim
+        for x in weak:
+            d = np.hypot(*(ref.inv(T[x[0]][None])[0] - x[1]))
+            if d <= max(3.0, 0.3 / ref.scale):
+                det_uv, det_size, det_kind = add(x)
+            else:
+                hidden.append(x[0])
+    if found:
         sel = assign >= 0
         sim = fit_sim(det_uv[assign[sel]], T[sel], mirror)
         r = np.hypot(*(sim.fwd(det_uv[assign[sel]]) - T[sel]).T)
         f.update(sim=sim, assign=assign, det_uv=det_uv, det_size=det_size, det_kind=det_kind, n=int(sel.sum()),
-                 n_resolved=int((det_size[assign[sel]] >= 10).sum()), n_l=f.get("n_l", 0) + len(new),
-                 rms=float(np.sqrt(np.mean(r ** 2))), max=float(r.max()), score=f.get("score", 0.0) + 1.25 * len(new))
+                 n_resolved=int((det_size[assign[sel]] >= 10).sum()), n_l=f.get("n_l", 0) + len(found),
+                 rms=float(np.sqrt(np.mean(r ** 2))), max=float(r.max()), score=f.get("score", 0.0) + 1.25 * len(found))
     return [(T[ti], best) for ti, best in found], [T[ti] for ti in hidden]
 
 
