@@ -30,4 +30,7 @@ def test_close_is_x_and_search():
 
 def test_close_button_room():
     # (2026-11-25e) the floating ✕ had no room kept in the chip map's header: View ↻ ran up against it
-    assert "#fmapDlg .dhead,#afmFilesDlg .dhead{padding-right:64px}" in HTML
+    import re
+    rule = re.search(r"([^{}]*)\{padding-right:64px\}", HTML[HTML.index("#fmapDlg .dhead"):])     # (more dialogs may join the rule)
+    assert rule and HTML.index("#fmapDlg .dhead") + rule.start() == HTML.index("#fmapDlg .dhead")
+    assert "#fmapDlg .dhead" in rule.group(1) and "#afmFilesDlg .dhead" in rule.group(1)
