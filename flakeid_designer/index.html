@@ -5423,7 +5423,8 @@ function closeDirMenu(){$("dirMenu").hidden=true;$("bRuns").setAttribute("aria-e
 document.addEventListener("click",e=>{if(!$("dirMenu").hidden&&!e.target.closest(".dirwrap"))closeDirMenu()});
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("dirMenu").hidden)closeDirMenu()});
 // ---- Update… (2026-10-30): the newest designer from GitHub (afylab/flakeid-designer, update.py): what is new, install
-// (download, compile check, backup, files copied over), then the designer restarts and this page reloads
+// (download, compile check, backup, files copied over), then "Close the window and reopen the designer" (2026-11-27:
+// the restart in place did not work; /api/update/restart is no longer asked)
 const UPDS={sha:null,poll:null};
 const sha7=v=>v?String(v).slice(0,7):"unknown";
 function updVer(v){return v&&v.sha?`<b>${sha7(v.sha)}</b> · ${escapeHtml((v.date||"").replace("T"," ").replace("Z",""))} · ${escapeHtml(v.message||"")}`:"<i>not known (before the first update)</i>"}
@@ -5444,7 +5445,7 @@ function updRender(r){const B=$("updBody");
   UPDS.sha=r.latest.sha;
   const nw=r.news==null?`<div class="sub">(the installed version is not known: the newest is installed as a whole)</div>`:r.news.length?`<div class="sub"><b>New since the installed version (${r.news.length}):</b></div><ul style="margin:0;padding-left:20px">${r.news.map(c=>`<li><span class="sub">${sha7(c[0])} · ${escapeHtml(String(c[1]).slice(0,10))}</span> ${escapeHtml(c[2])}</li>`).join("")}</ul>`:"";
   B.innerHTML=`<div>Installed: ${updVer(r.installed)}</div><div>Newest on GitHub: ${updVer(r.latest)}</div>
-    ${r.up_to_date?`<div class="status ok"><b>Up to date.</b></div>`:nw+`<div class="row"><button class="primary" id="updGo">Install the update</button><span class="sub">Your settings, libraries, designs and decisions stay; the code is backed up first. ${r.app?"Then close and open the app again.":"Then the designer restarts and this page reloads."}</span></div>`}
+    ${r.up_to_date?`<div class="status ok"><b>Up to date.</b></div>`:nw+`<div class="row"><button class="primary" id="updGo">Install the update</button><span class="sub">Your settings, libraries, designs and decisions stay; the code is backed up first. Then close the window and reopen the designer.</span></div>`}
     <div class="sub">Token: ${escapeHtml(r.token_from||"none (public repository)")} · designer ${escapeHtml(r.version||"")}</div><pre id="updLog" class="sub" style="white-space:pre-wrap;margin:0" hidden></pre>`;
   if($("updGo"))$("updGo").onclick=updInstall}
 async function updOpen(){$("updDlg").open||$("updDlg").showModal();updRender(null);
@@ -5458,12 +5459,7 @@ async function updInstall(){const g=$("updGo");g.disabled=true;g.textContent="In
     if(st.state==="done"){clearInterval(UPDS.poll);const R=st.result||{};
       $("updBanner").hidden=true;
       L.textContent+=`\nInstalled ${sha7(R.installed&&R.installed.sha)} (${R.files} files; the previous code in ${R.backup}).`+(R.moved_to?`\nMoved to ${R.moved_to}: start it from its shortcut (a taskbar pin: pin it again); ${R.moved_from} can be deleted.`:"")+(R.requirements_changed?"\nrequirements.txt changed: new Python packages may be needed (run \"Install shortcut\" in the flakeid_designer folder again).":"");
-      const z=await fetch("/api/update/restart",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(x=>x.json()).catch(()=>({restart:true}));
-      if(!z.restart){g.textContent="Installed";L.textContent+="\nClose the designer and open it again to use the new version.";return}
-      g.textContent="Restarting…";L.textContent+="\nRestarting the designer…";const old=(window.FLAKEID_LOCAL||{}).version;const t0=Date.now();
-      await new Promise(ok=>setTimeout(ok,1500));
-      const wait=setInterval(async()=>{const p=await fetch("/api/ping",{cache:"no-store"}).then(x=>x.json()).catch(()=>null);
-        if(p&&p.app){clearInterval(wait);location.reload()}else if(Date.now()-t0>60000){clearInterval(wait);L.textContent+="\nThe designer did not come back: start it again by hand."}},1000)}},800)}
+      g.textContent="Installed";L.insertAdjacentHTML("afterend",`<div class="status ok" id="updReopen"><b>Close the window and reopen the designer</b></div>`)}},800)}
 $("updClose").onclick=()=>$("updDlg").close();
 if(LOCAL){$("bUpd").hidden=false;$("bUpd").onclick=updOpen}
 // (2026-11-16) "Update available": asked at each load and every 30 min (GET /api/update/available); a failed check
