@@ -105,7 +105,7 @@ button:disabled{opacity:.45;cursor:default}
 .contacts .pair b{font-weight:600}
 .contacts .pair span{font:12px var(--mono);color:var(--err)}
 .contacts .legend{color:var(--muted);font-size:11.5px}
-.layer.hid{opacity:.45}
+.layer.hid{opacity:.45}.umAsk{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.layer.missing{opacity:.6;cursor:default;border:1px dashed var(--muted)}
 .layer .ic button.role{min-width:22px;font-size:10.5px}
 .layer .ic button.role[data-r="gate"]{color:var(--short)}
 .layer .ic button.role[data-r="sample"]{color:var(--samp)}
@@ -1084,7 +1084,7 @@ function buildCatalog(){const B=BASE;
   if(bad.length)status2(`Could not load ${bad.length} scan run${bad.length>1?"s":""}: ${bad.join(", ")}`);
   const nLoad=runsLoading().length;if(nLoad)$("sub").textContent=nRuns?`Loading ${nLoad} more run${nLoad>1?"s":""}…`:`Loading ${nLoad} scan run${nLoad>1?"s":""}…`;
   if(firstBuild){if(!savedReady()){if($("dlg").open||VIEW==="library")renderResults();renderRuns();return}
-    firstBuild=false;if(!layers.length)restoreLocal();else if(!STACK)STACK=blankStack();renderAll();fit()}else{computeOverlap();computeContacts();renderAll()}
+    firstBuild=false;if(!layers.length)restoreLocal();else if(!STACK)STACK=blankStack();reviveHidden();renderAll();fit()}else{reviveHidden();computeOverlap();computeContacts();renderAll()}
   if($("dlg").open||VIEW==="library")renderResults();renderRuns();offerScreening();cleanSync()}
 
 // ------------------------------------------------------------------ geometry
@@ -1312,8 +1312,27 @@ function select(i){sel=i;renderStack();renderLayerPane();draw();if(typeof LIVE!=
 function saveLocal(){if(firstBuild)return;                // (until the saved stack is restored: it would be overwritten)
   if(LIVE.on)liveSaveSoon();try{storePoses();const st=STACK?Object.assign({},STACK,{legacy:undefined}):null;
   if(st&&VIEW==="finalize")st.final=Object.assign({},st.final,{images:finalImages()});
-  lsSet("current",JSON.stringify({name:$("dname").value,layers,stack_id:curStackId,stack:st,slots:SLOTS,view:VIEW,hidden:HIDDEN_LAYERS,base:STACK_BASE,bsig:STACK_SIG}))}catch(e){}}
+  lsSet("current",JSON.stringify({name:$("dname").value,layers,stack_id:curStackId,stack:st,slots:SLOTS,view:VIEW,hidden:HIDDEN_LAYERS,order:withHidden(layers,HIDDEN_LAYERS).map(L=>L.uid),snap:SAVED_SNAP,base:STACK_BASE,bsig:STACK_SIG}))}catch(e){}}
 function migrate(ls){const leg=(CAT&&CAT.legacy_ids)||{};return (ls||[]).map(L=>(!TR[L.tid]&&leg[L.tid])?{...L,tid:leg[L.tid]}:L).filter(L=>TR[L.tid])}
+// (2026-11-27e) layers whose scan run is not loaded on this computer (HIDDEN_LAYERS) keep their place in the stack: each
+// goes back after the layer that came before it in the stack file (PLAN_ORDER, every layer's uid in the file's order).
+// Before, a save put them at the end of the list (the bottom of the stack), and a stack saved on a computer without one
+// of its runs came back in another order.
+let PLAN_ORDER=[];
+function withHidden(vis,hid){if(!hid||!hid.length)return vis.slice();const out=vis.slice(),ord=PLAN_ORDER||[];
+  hid.forEach(h=>{if(out.some(L=>L.uid===h.uid))return;const i=ord.indexOf(h.uid);let at=out.length-1;   // (not in the order: at the end, as before)
+    if(i>=0){at=-1;for(let j=i-1;j>=0;j--){const k=out.findIndex(L=>L.uid===ord[j]);if(k>=0){at=k;break}}}
+    out.splice(at+1,0,h)});return out}
+const hiddenRun=L=>String(L.tid||"").split(":")[0]||"?";
+// a hidden layer whose run has loaded meanwhile (ticked in Library) comes back in its place, without opening the stack again
+function reviveHidden(){if(!HIDDEN_LAYERS.length||typeof STACK==="undefined"||!STACK)return;const back=migrate(HIDDEN_LAYERS);if(!back.length)return;
+  const bu=new Set(back.map(L=>L.uid)),selL=layers[sel];storePoses();
+  HIDDEN_LAYERS=HIDDEN_LAYERS.filter(L=>!bu.has(L.uid));
+  (STACK.steps||[]).forEach(st=>{if(st.kind!=="pickup"||st.undone||!bu.has(st.layer_uid))return;const L=back.find(L=>L.uid===st.layer_uid);
+    L.picked=L.picked||{at:st.at};(st.photos||[]).forEach(p=>{if(!(L.photos||[]).some(q=>q.url===p.url))L.photos=(L.photos||[]).concat([p])})});
+  back.forEach(L=>{SLOTS.plan[L.uid]=SLOTS.plan[L.uid]||POSE(L)});
+  layers=withHidden(layers,back);sel=selL?layers.indexOf(selL):-1;applyPoses(VIEW);updateArchNeed();
+  status2(`${back.length} layer${back.length>1?"s":""} of this stack shown again: ${[...new Set(back.map(hiddenRun))].join(", ")} loaded.`)}
 // ---- layout: column width, layer-list height and collapsed cards, remembered per browser
 (function layout(){
   const root=document.documentElement, KEY="vdw:layout";
@@ -1342,7 +1361,7 @@ function migrate(ls){const leg=(CAT&&CAT.legacy_ids)||{};return (ls||[]).map(L=>
 })();
 function restoreLocal(){try{const s=JSON.parse(lsGet("current")||"null");if(s&&Array.isArray(s.layers)){
     const ok=migrate(s.layers),okU=new Set(ok.map(L=>L.uid));layers=ok;$("dname").value=s.name||"Untitled stack";
-    HIDDEN_LAYERS=(s.hidden||[]).concat(s.layers.filter(L=>!okU.has(L.uid)));
+    HIDDEN_LAYERS=(s.hidden||[]).concat(s.layers.filter(L=>!okU.has(L.uid)));PLAN_ORDER=Array.isArray(s.order)?s.order:[];SAVED_SNAP=typeof s.snap==="string"?s.snap:null;
     if(s.slots){STACK=s.stack||blankStack(s.name);curStackId=s.stack_id||null;STACK_BASE=s.base||null;STACK_SIG=s.bsig||null;["plan","stack","finalize"].forEach(k=>SLOTS[k]=s.slots[k]||{});
       if(curStackId&&STACKS[curStackId]&&STACKS[curStackId].legacy)STACK.legacy=STACKS[curStackId].legacy}
     else{STACK=blankStack(s.name);layers.forEach(L=>SLOTS.plan[L.uid]=POSE(L));             // (from before stacks: the plan)
@@ -1471,9 +1490,15 @@ function crystalDirs(f,L){const th=((L.mirror?-f.crystal_deg:f.crystal_deg)+L.ro
 function layerName(L){const e=TR[L.tid];if(!e)return "missing flake";const t=layerT(L);const m=e.f.material==="hbn"?"hBN":(t<1.2?"graphene":"graphite");
   const lay=e.f.material==="graphite"&&t<3?` · ${e.t.layers} L`:"";const other=L.tsel!=null&&L.tsel!==e.t.t?` (or ${e.t.t})`:(e.t.alt&&e.f.material==="hbn"?` (or ${e.t.alt.split(";")[0]})`:"");
   return `${m} ${t} nm${other}${lay}`}
-function renderStack(){const s=$("stack");if(!layers.length){s.innerHTML=`<div class="empty">No layers yet. Add one, or describe the stack in the Assistant tab.</div>`;return}
+function renderStack(){const s=$("stack");if(!layers.length&&!HIDDEN_LAYERS.length){s.innerHTML=`<div class="empty">No layers yet. Add one, or describe the stack in the Assistant tab.</div>`;return}
   s.innerHTML="";if(pickMark!=null)pickMark=Math.max(1,Math.min(layers.length,pickMark));
-  for(let i=layers.length-1;i>=0;i--){const L=layers[i],e=TR[L.tid];const d=document.createElement("div");d.className="layer"+(i===sel?" sel":"")+((!showHbn&&isHbn(L))||!shown(i)?" hid":"");const ro=roleOf(L);
+  const all=withHidden(layers,HIDDEN_LAYERS);
+  for(let a=all.length-1;a>=0;a--){const i=layers.indexOf(all[a]);
+    if(i<0){const H=all[a],d=document.createElement("div");d.className="layer missing";const run=escapeHtml(hiddenRun(H));   // (2026-11-27e: a row in its place)
+      d.title=`This layer's flake is in scan run ${run}, which is not loaded on this computer. Tick the run in Library to show it; saving keeps the layer in its place.`;
+      d.innerHTML=`<span class="sw" style="background:${escapeHtml(H.color||"#888")}"></span><div><div class="nm">– run not loaded${H.picked?` <span class="badge pk">picked up</span>`:""}</div><div class="meta">${escapeHtml(String(H.tid||"").replace(/\.[a-z]+$/,""))} · tick ${run} in Library</div></div><div class="ic"></div>`;
+      s.appendChild(d);continue}
+    const L=layers[i],e=TR[L.tid];const d=document.createElement("div");d.className="layer"+(i===sel?" sel":"")+((!showHbn&&isHbn(L))||!shown(i)?" hid":"");const ro=roleOf(L);
     d.innerHTML=`<span class="sw" style="background:${L.color}"></span><div><div class="nm">${num(i)}. ${layerName(L)}${isPicked(L)?` <span class="badge pk">picked up</span>`:""}</div><div class="meta">${e?e.f.id+" · Ø "+e.t.d+" µm":""}</div></div>
     <div class="ic"><button data-a="img" aria-pressed="${L.showImg}" title="Show image">img</button><button data-a="out" aria-pressed="${L.showOutline}" title="Show outline">line</button><button data-a="ov" aria-pressed="${L.inOverlap}" title="Count in overlap">∩</button><button class="role" data-a="role" data-r="${ro}" aria-pressed="true" title="${ROLE_TITLE[ro]} (click to change)">${ROLE_TXT[ro]}</button>${pickMark!=null||isPicked(L)?`<button data-a="pick" aria-pressed="${isPicked(L)}" title="${isPicked(L)?"Picked up (click to undo)":"Mark this layer's flake as picked up"}">✓</button>`:""}</div>`;
     d.onclick=ev=>{const a=ev.target.dataset&&ev.target.dataset.a;if(a){ev.stopPropagation();pushUndo();if(a==="img")L.showImg=!L.showImg;if(a==="out")L.showOutline=!L.showOutline;if(a==="ov")L.inOverlap=!L.inOverlap;if(a==="role")L.role=ROLES[(ROLES.indexOf(roleOf(L))+1)%ROLES.length];if(a==="pick"){undoStack.pop();markPicked([L],!isPicked(L));return}changed();return}select(i===sel?-1:i)};
@@ -1483,12 +1508,25 @@ function renderStack(){const s=$("stack");if(!layers.length){s.innerHTML=`<div c
       m.onclick=ev=>{const v=ev.target.dataset&&ev.target.dataset.m;if(v==null)return;ev.stopPropagation();
         if(v==="p"){markPicked(layers.filter((L,j)=>shown(j)&&!isPicked(L)),true);return}setPick(+v===0?null:pickMark+(+v))};
       s.appendChild(m)}}}
+// (2026-11-27e) this stack's id, or one it had before (a folder stack's id was made from the folder's path as each
+// computer writes it: the "used" decisions made then carry that id; STACK._ids from the server)
+// (2026-11-27e) unsaved changes: the stack as it was last opened or saved (SAVED_SNAP, kept in the browser copy too),
+// compared without what changes by itself (times, revision, the overlap of the view shown, the picture shown)
+let SAVED_SNAP=null;
+function cmpBody(b){const o=JSON.parse(JSON.stringify(b||{}));["updated","_sig","_ids","saved_on","rev","session","by","_base","_base_sig","status"].forEach(k=>delete o[k]);
+  if(o.plan){delete o.plan.overlap_um2;delete o.plan.overlap_d_um}if(o.final)delete o.final.images;
+  const f=o.fab;if(f&&typeof f==="object"&&Object.values(f).every(v=>v==null||(Array.isArray(v)&&!v.length)))delete o.fab;   // (an empty one: made by the Fabrication view)
+  return JSON.stringify(o)}
+function markSaved(b){try{SAVED_SNAP=cmpBody(b||stackBody())}catch(e){SAVED_SNAP=null}}
+function stackUnsaved(){if(!STACK)return false;if(!curStackId)return layers.length+HIDDEN_LAYERS.length>0;
+  if(SAVED_SNAP==null)return false;try{return cmpBody(stackBody())!==SAVED_SNAP}catch(e){return false}}
+function isThisStack(id){return !!id&&(id===curStackId||((STACK&&STACK._ids)||[]).includes(id))}
 function isPicked(L){const e=TR[L.tid];return !!(L.picked||(e&&e.f.terraces.some(t=>REVIEW[t.id]==="used")))}
 async function markPicked(list,on){if(!list.length){status2("Every layer above the marker is already marked picked up.");return}const name=$("dname").value||"Untitled stack";
   list.forEach(L=>{const e=TR[L.tid];if(!e)return;if(on)L.picked={at:Date.now()};else delete L.picked;
     e.f.terraces.forEach(t=>{const prev=REVIEW[t.id]||null;if(on&&prev==="used")return;
       if(on)setDecision(t,"used",{design:name,design_id:curStackId||null,layer:layerName(L),was:prev});
-      else if(prev==="used"&&!usedByHand(t)&&(!PICKINFO[t.id]||!PICKINFO[t.id].design_id||PICKINFO[t.id].design_id===curStackId))setDecision(t,(PICKINFO[t.id]||{}).was||null)})});   // (un-mark: only this stack's "used", never a keep, 2026-11-02j)
+      else if(prev==="used"&&!usedByHand(t)&&(!PICKINFO[t.id]||!PICKINFO[t.id].design_id||isThisStack(PICKINFO[t.id].design_id)))setDecision(t,(PICKINFO[t.id]||{}).was||null)})});   // (un-mark: only this stack's "used", never a keep, 2026-11-02j)
   // stacking: on to the next layer to pick up (the marker one layer further, that layer selected)
   let nxt=null;
   if(on&&pickMark!=null){const nums=list.map(L=>layers.length-layers.indexOf(L)).filter(n=>n>0&&n<=layers.length);
@@ -3402,7 +3440,8 @@ function stackStatus(){if(Object.keys(SLOTS.finalize).length||(STACK&&STACK.fina
 function finalImages(){const S0=STACK||blankStack(),old=((S0.final&&S0.final.images)||[]).slice();if(VIEW!=="finalize")return old;
   const si=simgDoc();if(!si||si.url==="live")return old;const k=old.findIndex(x=>x.url===si.url);if(k>=0)old[k]=Object.assign({},old[k],si);else old.unshift(si);return old}
 function stackBody(){storePoses();const S0=STACK||blankStack();
-  const planLayers=layers.map(L=>{const o=JSON.parse(JSON.stringify(L));delete o.plan;return Object.assign(o,SLOTS.plan[L.uid]||POSE(L))}).concat(HIDDEN_LAYERS);
+  const vis=layers.map(L=>{const o=JSON.parse(JSON.stringify(L));delete o.plan;return Object.assign(o,SLOTS.plan[L.uid]||POSE(L))});
+  const planLayers=withHidden(vis,HIDDEN_LAYERS);PLAN_ORDER=planLayers.map(L=>L.uid);
   const keep=new Set(planLayers.map(L=>L.uid)),only=o=>Object.fromEntries(Object.entries(o).filter(([u])=>keep.has(u)));
   const b=Object.assign({},S0,{format:"vdw-stack/1",name:$("dname").value||"Untitled stack",updated:Date.now(),status:stackStatus(),
     plan:Object.assign({},S0.plan,{layers:planLayers},VIEW==="plan"?{overlap_um2:OV?Math.round(OV.area):0,overlap_d_um:OV?+OV.d.toFixed(1):0}:{}),
@@ -3411,7 +3450,7 @@ function stackBody(){storePoses();const S0=STACK||blankStack();
 // the old design body (Copy design JSON, the assistant)
 function designBody(){return {name:$("dname").value||"Untitled stack",layers:JSON.parse(snapshot()),overlap_um2:OV?Math.round(OV.area):0,overlap_d_um:OV?+OV.d.toFixed(1):0,updated:Date.now()}}
 function loadStack(id,s,quiet){STACK=JSON.parse(JSON.stringify(s));curStackId=id;const raw=(s.plan&&s.plan.layers)||[];
-  const ok=migrate(raw);const okU=new Set(ok.map(L=>L.uid));HIDDEN_LAYERS=raw.filter(L=>!okU.has(L.uid));layers=ok;updateArchNeed();
+  const ok=migrate(raw);const okU=new Set(ok.map(L=>L.uid));HIDDEN_LAYERS=raw.filter(L=>!okU.has(L.uid));PLAN_ORDER=raw.map(L=>L.uid);layers=ok;updateArchNeed();
   // picked-up layers and their pictures from the stacking steps
   (s.steps||[]).forEach(st=>{if(st.kind!=="pickup"||st.undone)return;const L=layers.find(L=>L.uid===st.layer_uid);if(!L)return;L.picked=L.picked||{at:st.at};
     (st.photos||[]).forEach(p=>{if(!(L.photos||[]).some(q=>q.url===p.url))L.photos=(L.photos||[]).concat([p])})});
@@ -3420,12 +3459,13 @@ function loadStack(id,s,quiet){STACK=JSON.parse(JSON.stringify(s));curStackId=id
   SLOTS.stack=JSON.parse(JSON.stringify(cur));SLOTS.finalize=JSON.parse(JSON.stringify((s.final&&s.final.poses)||{}));
   $("dname").value=s.name||"Untitled stack";sel=layers.length?0:-1;undoStack=[];STEPSEL=null;STACK_BASE=s.updated||null;STACK_SIG=s._sig||null;banner("");
   enterView(VIEW==="library"?"plan":VIEW,true);lockBeat();
-  if(!quiet&&HIDDEN_LAYERS.length)status2(`${HIDDEN_LAYERS.length} layer(s) of this stack are not shown: their scan runs are not loaded (tick them in Library). They are kept in the stack file.`);
+  markSaved();
+  if(!quiet&&HIDDEN_LAYERS.length)status2(`${HIDDEN_LAYERS.length} layer${HIDDEN_LAYERS.length>1?"s":""} of this stack not shown: scan run ${[...new Set(HIDDEN_LAYERS.map(hiddenRun))].join(", ")} not loaded on this computer (tick it in Library). They keep their place in the stack file.`);
   changed();fit()}
 function newStack(name){STACK=blankStack(name);curStackId=null;STACK_BASE=null;STACK_SIG=null;STEPSEL=null;banner("");setTimeout(lockBeat,0);HIDDEN_LAYERS=[];layers=[];sel=-1;SLOTS.plan={};SLOTS.stack={};SLOTS.finalize={};
   $("dname").value=name||"Untitled stack";undoStack=[];enterView("plan",true)}
 $("bSave").onclick=async()=>{const body=stackBody();STACK=body;
-  if(!db){try{const all=JSON.parse(localStorage.getItem("vdw:stacks")||"{}");const id=curStackId||("s"+Date.now().toString(36));all[id]=body;localStorage.setItem("vdw:stacks",JSON.stringify(all));curStackId=id;STACKS=all;fillDesigns();saveLocal();status2("Saved in this browser.")}catch(e){status2("Could not save: "+e)}return}
+  if(!db){try{const all=JSON.parse(localStorage.getItem("vdw:stacks")||"{}");const id=curStackId||("s"+Date.now().toString(36));all[id]=body;localStorage.setItem("vdw:stacks",JSON.stringify(all));curStackId=id;STACKS=all;markSaved(body);fillDesigns();saveLocal();status2("Saved in this browser.")}catch(e){status2("Could not save: "+e)}return}
   if(LOCAL&&!curStackId&&OFF.on){saveLocal();status2("Not saved to a stack file: offline, a new stack needs the drive (its folder). It is kept in this browser: save it when the drive is back.");return}
   if(LOCAL&&!curStackId){status2("Choose the stack's folder (the device's folder: make one for it) …");
     const r=await fetch("/api/stackdir/open",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({new:true})}).then(r=>r.json()).catch(e=>({error:String(e)}));
@@ -3433,8 +3473,8 @@ $("bSave").onclick=async()=>{const body=stackBody();STACK=body;
     if(r.exists){status2(`Not saved: ${r.folder} has a stack already (${r.file}): open it (Open…) or choose another folder.`);return}
     curStackId=r.id;loadRecent()}
   const id=curStackId||("s"+Date.now().toString(36)+Math.random().toString(36).slice(2,5));
-  try{if(LOCAL){if(await putStack(id,body)){saveLocal();status2(OFF.on?`Saved “${body.name}” on this computer (offline): uploaded when the drive is back.`:`Saved “${body.name}”.`);lockBeat();if(OFF.on||offInfo(id))setTimeout(pollOffline,300)}}
-    else{await db.collection("stacks").doc(id).set(body);curStackId=id;saveLocal();status2(`Saved “${body.name}”.`)}}
+  try{if(LOCAL){if(await putStack(id,body)){markSaved(body);saveLocal();status2(OFF.on?`Saved “${body.name}” on this computer (offline): uploaded when the drive is back.`:`Saved “${body.name}”.`);lockBeat();if(OFF.on||offInfo(id))setTimeout(pollOffline,300)}}
+    else{await db.collection("stacks").doc(id).set(body);curStackId=id;markSaved(body);saveLocal();status2(`Saved “${body.name}”.`)}}
   catch(e){status2("Could not save: "+(e.message||e.code))}};
 // stacks in folders of their own (docs/stack_workflow.md, Stack folders): <folder>/<name>.stack with 01_stacking/,
 // NN_<step>/ (fabrication steps), final/, klayout/.  Open… (the folder or the .stack file), Open recent, New… (a
@@ -5386,17 +5426,33 @@ function userBtn(){const b=$("bUser");b.hidden=false;b.textContent=LOCAL.person?
 function tickedPaths(){if(!RUNSEL.on)return [];return [...new Set([...RUNSEL.on].map(k=>RUNS[k]&&RUNS[k].path).filter(Boolean))]}
 async function userPost(url,body,wait){const st=$("umMsg");if(st)st.textContent=wait;
   const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(r=>r.json()).catch(e=>({error:String(e)}));
-  if(r&&r.person){try{saveLocal()}catch(e){}location.reload();return}
+  if(r&&(r.person||r.reload)){try{saveLocal()}catch(e){}location.reload();return}
   if(st)st.textContent=r&&r.error?r.error:r&&r.picked===null?"No folder chosen.":"Could not switch."}
 function switchUser(p){return userPost("/api/people/use",{home:p.home},"Opening "+p.name+"…")}
+// (2026-11-27e) Log out (a shared computer): this person's open stack and loaded runs stay in their own browser storage
+// (LSK) for when they come back; the designer starts with nobody chosen
+// (2026-11-27e) unsaved changes to the open stack: asked first (in the menu): save, log out without them, or stay
+function logoutUser(){const st=$("umMsg");if(!stackUnsaved()||!st)return userPost("/api/people/logout",{},"Logging out…");
+  const nm=$("dname").value||"Untitled stack";
+  st.innerHTML=`<div>“${escapeHtml(nm)}” has unsaved changes.</div><div class="umAsk"><button class="primary" id="umSave">Save and log out</button><button id="umDrop">Log out without saving</button><button id="umStay">Cancel</button></div>`;
+  $("umSave").onclick=async ev=>{ev.stopPropagation();st.textContent="Saving…";await $("bSave").onclick();
+    if(stackUnsaved()){st.textContent="Not saved (see the message at the bottom): still logged in.";return}
+    userPost("/api/people/logout",{},"Logging out…")};
+  $("umDrop").onclick=ev=>{ev.stopPropagation();dropUnsaved();userPost("/api/people/logout",{},"Logging out…")};
+  $("umStay").onclick=ev=>{ev.stopPropagation();st.textContent=""};$("umSave").focus()}
+// the changes left out: the stack as its file has it (an unsaved new stack: none), also in this person's browser copy
+function dropUnsaved(){clearTimeout(STEP_AUTOSAVE);
+  if(curStackId&&STACKS&&STACKS[curStackId]){const v=VIEW;loadStack(curStackId,STACKS[curStackId],true);if(VIEW!==v)enterView(v,true)}
+  else if(!curStackId)newStack("Untitled stack");saveLocal()}
 function newUser(){return userPost("/api/people/new",{ticked:LOCAL.person?[]:tickedPaths()},"Choose your folder in Microscope Images in the window that opened (it can be behind the browser)…")}
 async function openUserMenu(){const m=$("userMenu");m.hidden=false;$("bUser").setAttribute("aria-expanded","true");
   const draw=info=>{const cur=LOCAL.person,ppl=(info&&info.people)||LOCAL.people||[];
     m.innerHTML=`<div class="dlab">Who is using the designer</div>${ppl.map((p,i)=>`<button role="menuitem" data-ui="${i}" aria-current="${p.name===cur}" title="${escapeHtml(p.home||"")}"><span>${p.name===cur?"✓ ":""}${escapeHtml(p.name)}</span></button>`).join("")}${ppl.length?"":`<div class="msg">Nobody chosen on this computer yet.</div>`}<hr>
       <button role="menuitem" id="umNew" title="Choose your own folder in Microscope Images (Microscope Images/your name): your file there keeps the runs you list and load, on any computer${cur?"":"; the first time, the runs loaded now become yours"}"><span>New user…</span><span class="sub">your folder</span></button>
+      ${cur?`<button role="menuitem" id="umOut" title="Nobody chosen on this computer (also at the next start): for a shared computer.  Your runs, loaded runs and open stack come back when you choose yourself again"><span>Log out</span><span class="sub">${escapeHtml(cur)}</span></button>`:""}
       <div class="msg" id="umMsg"></div>`;
     m.querySelectorAll("[data-ui]").forEach(b=>b.onclick=()=>{const p=ppl[+b.dataset.ui];if(p.name===cur){closeUserMenu();return}switchUser(p)});
-    $("umNew").onclick=newUser;
+    $("umNew").onclick=newUser;if($("umOut"))$("umOut").onclick=logoutUser;
     m.style.left="0";m.style.right="auto";const rb=m.getBoundingClientRect();if(rb.right>innerWidth-8){m.style.left="auto";m.style.right="0"}};
   draw(null);(m.querySelector("button")||m).focus();
   const info=await fetch("/api/people",{cache:"no-store"}).then(r=>r.json()).catch(()=>null);if(!m.hidden&&info&&!$("umMsg").textContent)draw(info)}

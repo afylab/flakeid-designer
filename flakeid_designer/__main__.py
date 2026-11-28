@@ -612,9 +612,40 @@ def save_config(c):
                 pass                                     # (an unreadable one is kept by load_config, not as .bak)
         tmp = CONFIG.with_name(CONFIG.name + ".part")
         tmp.write_text(json.dumps(c, indent=1), encoding="utf-8")
-        os.replace(str(tmp), str(CONFIG))
-    except OSError:
-        pass
+        # (2026-11-27e) Windows: the virus scanner or the indexer can hold the file for a moment, and the rename fails;
+        # before, the settings were then silently not saved (a lab PC forgot who was chosen)
+        for i in range(CONFIG_TRIES):
+            try:
+                os.replace(str(tmp), str(CONFIG))
+                break
+            except OSError:
+                if i == CONFIG_TRIES - 1:
+                    raise
+                time.sleep(0.1 * (i + 1))
+    except OSError as e:
+        sys.stderr.write(f"{time.strftime('%H:%M:%S')} settings not saved ({CONFIG}): {e}\n")
+
+
+CONFIG_TRIES = 8
+
+
+def logout_person(store):
+    """(2026-11-27e) User ▾ › Log out (a shared computer): nobody chosen, here and at the next start.  The people used
+    here stay listed (choosing one again opens their file); the run list is emptied, so the next person does not start
+    with someone else's runs.  Their file on the share is not touched (its copy here is kept, merged when they come back)."""
+    with LIBRARY_LOCK:
+        cfg = load_config()
+        person_cache(cfg)                                # (their latest list kept here first)
+        with PERSON_LOCK:
+            was = PERSON["name"]
+            PERSON.update(name=None, home=None, doc=None)
+            store.added = []
+        _PWATCH["sig"] = None
+        cfg["person"] = None
+        cfg["added_runs"] = []
+        save_config(cfg)
+    store.refresh_runs()
+    return dict(person=None, was=was, reload=True)
 
 
 def _host():
@@ -5279,7 +5310,7 @@ class Handler(BaseHTTPRequestHandler):
                 cfg = load_config()
                 switch_library(cfg, S.store, p)
             return self._json(dict(picked=p, roots=S.store.roots, data_dir=str(S.store.data), **library_info(cfg, S.store)))
-        if path in ("/api/people/new", "/api/people/use", "/api/people/ticked"):
+        if path in ("/api/people/new", "/api/people/use", "/api/people/ticked", "/api/people/logout"):
             # (2026-11-23e) new: User ▾ › New user…: a folder window (or {path}, JSON only) for the person's folder in
             # Microscope Images, then that person (their file there, made if new; {ticked}: the page's loaded runs);
             # use: a person used on this computer ({name} or {home}); ticked: the person's loaded runs {paths}
@@ -5291,6 +5322,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(dict(error="bad request"), 400)
             if not isinstance(b, dict):
                 b = {}
+            if path == "/api/people/logout":
+                return self._json(logout_person(S.store))
             if path == "/api/people/ticked":
                 ok = set_ticked(S.store, b.get("paths") if isinstance(b.get("paths"), list) else [])
                 return self._json(dict(ok=ok))
