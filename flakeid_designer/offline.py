@@ -1028,7 +1028,7 @@ class Offline:
             body = dict(body)
             bsig, force = body.pop("_base_sig", None), body.pop("_force", False)
             body.pop("_base", None)
-            for k in ("_sig", "_offline"):
+            for k in ("_sig", "_offline", "_ids"):
                 body.pop(k, None)
             if not force and bsig and cur.get("_sig") and bsig != cur.get("_sig") and cur.get("session") != body.get("session"):
                 raise self.D.StackConflict(dict(by=cur.get("by"), at=cur.get("updated"), host=cur.get("saved_on")))

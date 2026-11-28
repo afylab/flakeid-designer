@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import re
 import threading
 import time
@@ -90,8 +91,39 @@ def person_folder(picked, levels=4, mod=os.path):
     return p
 
 
+def _images_split(p):
+    """The folders after the share's Microscope Images folder (a list, [] for that folder itself) in a path written on any kind
+    of computer (/Volumes/..., \\\\NAS\\..., \\\\128.111.16.66\\..., Z:\\...), or None when it has no such folder."""
+    parts = [x for x in re.split(r"[\\/]+", str(p or "")) if x not in ("", ".")]
+    for i in range(len(parts) - 1, -1, -1):           # (the last one: a folder of that name inside a person's own)
+        if parts[i].lower() == IMAGES_DIR:
+            tail = posixpath.normpath("/" + "/".join(parts[i + 1:]))
+            return [x for x in tail.split("/") if x]
+    return None
+
+
+def _on_this_share(p, base, mod=os.path):
+    """(2026-11-27e) A run path on the lab share as `base`'s computer reaches the share: a path written with another way
+    to the share (a Windows \\\\NAS-E6-27-E4\\... or \\\\128.111.16.66\\... path on a Mac, or on a PC that has the share
+    as Z:) is the same folder under `base`'s Microscope Images.  Before, such a run was never found there and the
+    layers of every stack using its flakes were hidden."""
+    a, b = _images_split(p), _images_split(base)
+    if a is None or b is None:
+        return p
+    top = mod.normpath(str(base))
+    for _ in b:
+        top = mod.dirname(top)
+    q = mod.normpath(mod.join(top, *a)) if a else top
+    return p if mod.normcase(mod.normpath(str(p))) == mod.normcase(q) else q
+
+
 def rel_of(path, base, mod=os.path):
-    """`path` relative to `base` with / separators, or None (no base, another drive)."""
+    """`path` relative to `base` with / separators, or None (no base, another drive).  Two paths on the lab share are
+    compared below its Microscope Images folder, however each one reaches the share (2026-11-27e: a \\\\NAS path
+    against Z:\\ gave None, and the run's absolute Windows path was all a Mac had)."""
+    a, b = _images_split(path), _images_split(base)
+    if a is not None and b is not None:
+        return posixpath.relpath("/" + "/".join(a), "/" + "/".join(b))
     if not base or not path or not mod.isabs(str(path)) or not mod.isabs(str(base)):
         return None                                  # (a path from another kind of computer: kept absolute)
     try:
@@ -109,6 +141,8 @@ def resolve(entry, base, mod=os.path):
     else:
         p = entry.get("path") or ""
         p = mod.normpath(p) if p else ""
+    if p and base:
+        p = _on_this_share(p, base, mod)
     return str(Path(p)) if p and mod is os.path else p
 
 
