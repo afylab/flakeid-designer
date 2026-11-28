@@ -17,6 +17,11 @@ import time
 import urllib.parse
 from pathlib import Path
 
+try:
+    from . import people as PP
+except ImportError:                                  # (run as a script)
+    import people as PP                              # type: ignore
+
 PREFIX = "d~"
 REF = "stack:"
 LOCK = ".designer_lock.json"
@@ -34,9 +39,47 @@ def is_folder_id(sid):
     return isinstance(sid, str) and sid.startswith(PREFIX)
 
 
-def folder_id(folder):
-    key = os.path.normcase(os.path.abspath(str(folder))).rstrip("\\/")
+def _hid(key):
     return PREFIX + hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+
+
+def folder_id(folder):
+    """(2026-11-27e) A folder on the lab share: made from its path below Microscope Images (lower case: the share does
+    not tell case apart), so the stack has one id on every computer (Mac /Volumes/..., PC Z:\\ or \\\\NAS-...).  The id
+    goes into the shared pick-up decisions ("used", design_id): before, a stack had another id on each computer, and
+    undoing a pick-up elsewhere left the flake "used".  A folder elsewhere: from its whole path, as before."""
+    tail = PP._images_split(folder)
+    if tail is not None:
+        return _hid("share:" + "/".join(tail).lower())
+    return legacy_folder_id(folder)
+
+
+def legacy_folder_id(folder):
+    """The id before 2026-11-27e: from the folder's path as this computer writes it."""
+    return _hid(os.path.normcase(os.path.abspath(str(folder))).rstrip("\\/"))
+
+
+# the ways the lab computers reached the share before 2026-11-27e (their ids are in older decisions and browser copies)
+LEGACY_SHARES = ([f"{c}:" for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
+                 + [r"\\NAS-E6-27-E4\Documents", r"\\128.111.16.66\Documents"])
+LEGACY_MAC = "/Volumes/Documents"
+
+
+def legacy_ids(folder):
+    """Every id the folder may have had before 2026-11-27e: this computer's, and for a folder on the share the ids
+    of a PC (any drive letter, the share's name or address) and of a Mac."""
+    out = {legacy_folder_id(folder)}
+    tail = PP._images_split(folder)
+    if tail is not None:
+        for r in LEGACY_SHARES:
+            out.add(_hid("\\".join([r, "Microscope Images"] + tail).lower()))
+        out.add(_hid("/".join([LEGACY_MAC, "Microscope Images"] + tail)))
+    out.discard(folder_id(folder))
+    return sorted(out)
+
+
+def same_folder(path, sid):
+    return sid == folder_id(path) or sid in legacy_ids(path)
 
 
 def safe_part(name, fallback="step"):
@@ -67,9 +110,15 @@ def _walk(x, fn):
 
 
 def to_file(body, sid):
-    """Page -> file: /stackfile/<sid>/<path> -> stack:<path>."""
-    pre = f"/stackfile/{sid}/"
-    return _walk(body, lambda s: REF + urllib.parse.unquote(s[len(pre):]) if s.startswith(pre) else s)
+    """Page -> file: /stackfile/<sid>/<path> -> stack:<path> (sid: one id, or a list: the stack's old ids too)."""
+    pres = [f"/stackfile/{x}/" for x in ([sid] if isinstance(sid, str) else sid)]
+
+    def fn(s):
+        for pre in pres:
+            if s.startswith(pre):
+                return REF + urllib.parse.unquote(s[len(pre):])
+        return s
+    return _walk(body, fn)
 
 
 def to_page(body, sid):
@@ -165,14 +214,15 @@ class Folders:
     def remember(self, sid, name=None):
         folder, fname = self.reg[sid]
         cfg = self.load_config()
-        rs = [r for r in cfg.get("recent_stacks") or [] if r.get("path") and folder_id(r["path"]) != sid]
+        rs = [r for r in cfg.get("recent_stacks") or [] if r.get("path") and not same_folder(r["path"], sid)
+              and Path(r["path"]) != Path(folder)]
         rs.insert(0, dict(path=str(folder), file=fname, name=name or Path(fname).stem, at=int(time.time() * 1000)))
         cfg["recent_stacks"] = rs[:MAX_RECENT]
         self.save_config(cfg)
 
     def forget(self, sid):
         cfg = self.load_config()
-        cfg["recent_stacks"] = [r for r in cfg.get("recent_stacks") or [] if r.get("path") and folder_id(r["path"]) != sid]
+        cfg["recent_stacks"] = [r for r in cfg.get("recent_stacks") or [] if r.get("path") and not same_folder(r["path"], sid)]
         self.save_config(cfg)
         self.reg.pop(sid, None)
 
@@ -181,7 +231,7 @@ class Folders:
         if sid in self.reg:
             return self.reg[sid]
         for r in self.recents():
-            if r["id"] == sid:
+            if r["id"] == sid or sid in legacy_ids(r["path"]):       # (an id from before 2026-11-27e: a browser's copy)
                 self.reg[sid] = [Path(r["path"]), r.get("file") or choose_file(r["path"]) or safe_part(Path(r["path"]).name) + ".stack"]
                 return self.reg[sid]
         return None
@@ -242,6 +292,7 @@ class Folders:
         j["fab"] = dict(fab, steps=steps)
         j["_sig"] = f"{j.get('rev', 0)}-{st.st_mtime_ns}-{st.st_size}"
         j["folder"], j["file"] = str(folder), fname
+        j["_ids"] = [x for x in [folder_id(folder)] + legacy_ids(folder) if x != sid]   # (the decisions it made before)
         return j
 
     def listing(self):
@@ -269,7 +320,7 @@ class Folders:
         body = dict(body, by=body.get("by") or self.user_name())
         base, force = body.pop("_base", None), body.pop("_force", False)
         bsig = body.pop("_base_sig", None)
-        for k in ("_sig", "_offline", "folder", "file"):
+        for k in ("_sig", "_offline", "_ids", "folder", "file"):
             body.pop(k, None)
         f = folder / fname
         cur, csig = None, None
@@ -290,7 +341,7 @@ class Folders:
                     self._step_back(folder, s)
             fab = dict(fab, steps=[s for s in fab.get("steps") or [] if not s.get("dir")])
             body["fab"] = fab
-        body = to_file(body, sid)
+        body = to_file(body, [sid, folder_id(folder)] + legacy_ids(folder))
         body["format"] = body.get("format") or "vdw-stack/1"
         body["saved_on"] = host
         body["rev"] = int((cur or {}).get("rev") or 0) + 1

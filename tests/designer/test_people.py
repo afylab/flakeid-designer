@@ -265,3 +265,43 @@ def test_list_saved_on_another_computer_is_left_alone():
     assert d["ticked"]["keys"] == ["../../Ludwig/r2"]
     P.set_run(d, mac + "/r0", True, mac, 1, posixpath)             # (a clock behind: still later than the last change)
     assert d["runs"]["r0"]["on"] and d["runs"]["r0"]["t"] == 6
+
+
+def test_last_person_after_a_restart_and_log_out(lab):
+    """(2026-11-27e) The person chosen comes back at the next start; Log out leaves nobody, here and at the next start,
+    with an empty run list, and the person can come back with everything."""
+    u, store, jl = lab["url"], lab["store"], lab["jl"]
+    st, r = post(u + "/api/people/new", dict(path=str(jl / "20261004_run_5"), ticked=[]))
+    assert st == 200 and r["person"] == "Jordan"
+    wait_sync()
+    cfg = D.load_config()                                       # (a new start: as main() does)
+    s2 = D.Store(store.roots, store.data, store.library, added=cfg.get("added_runs"))
+    assert D.apply_person(s2, cfg, cfg.get("person")) and D.PERSON["name"] == "Jordan" and s2.added == lab["runs"]
+
+    st, r = post(u + "/api/people/logout", {})
+    assert st == 200 and r["person"] is None and r["was"] == "Jordan" and r["reload"]
+    assert D.PERSON["name"] is None and store.added == [] and D.by_name() != "Jordan"
+    cfg = D.load_config()
+    assert cfg["person"] is None and cfg["added_runs"] == [] and "jordan" in cfg["people"]
+    s3 = D.Store(store.roots, store.data, store.library, added=cfg.get("added_runs"))
+    assert not D.apply_person(s3, cfg, cfg.get("person")) and s3.added == []
+    st, _, b = req(u + "/api/people")
+    assert json.loads(b)["person"] is None
+
+    st, r = post(u + "/api/people/use", dict(name="jordan"))   # (back: his list from his file)
+    assert st == 200 and r["person"] == "Jordan" and store.added == lab["runs"]
+
+
+def test_settings_saved_while_windows_holds_the_file(lab, monkeypatch):
+    """(2026-11-27e) A rename refused a few times (a virus scanner holding the file) still saves the settings."""
+    real, n = D.os.replace, dict(k=0)
+
+    def flaky(a, b):
+        n["k"] += 1
+        if n["k"] < 3:
+            raise PermissionError(13, "in use")
+        return real(a, b)
+    monkeypatch.setattr(D.os, "replace", flaky)
+    monkeypatch.setattr(D.time, "sleep", lambda s: None)
+    D.save_config(dict(D.load_config(), person="ludwig"))
+    assert D.load_config()["person"] == "ludwig" and n["k"] >= 3
