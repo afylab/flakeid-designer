@@ -438,7 +438,10 @@ def angdiff(a, b):
 def fit_picture(im, tpl, mirror=False, expect_deg=0.0, smin=0.01, smax=30.0, max_cand=60, log=print, max_rot=45.0):
     h, w = im.shape[:2]
     mask, score, _ = gold_map(im)
-    cand = candidates(mask)[:max_cand]
+    # guesses come from pairs of the largest pieces (max_cand), but each guess is scored on all of them: flakes in
+    # the gold's colour outrank small marks (4 um squares are 4 px at 10x), and a true guess scored without its marks
+    # loses to a false one at another scale
+    cand = candidates(mask)[:max(max_cand, 400)]
     if len(cand) < 2:
         return None
     det_xy = np.array([c[:2] for c in cand])
@@ -460,7 +463,7 @@ def fit_picture(im, tpl, mirror=False, expect_deg=0.0, smin=0.01, smax=30.0, max
         return size_um / (size_px + tol), size_um / max(size_px - tol, 0.7)
 
     hyps = []
-    nd = len(cand)
+    nd = min(len(cand), max_cand)
     for i in range(nd):
         for j in range(i + 1, nd):
             pv = (det_uv[j, 0] * m - det_uv[i, 0] * m) + 1j * (det_uv[j, 1] - det_uv[i, 1])
@@ -479,12 +482,15 @@ def fit_picture(im, tpl, mirror=False, expect_deg=0.0, smin=0.01, smax=30.0, max
                     continue
                 p0 = det_uv[i, 0] * m + 1j * det_uv[i, 1]
                 t = T[ia[k]] @ np.array([1, 1j]) - a * p0
-                hyps.append((a, t))
+                hyps.append((dp, a, t))
     if not hyps:
         return None
-    # score every hypothesis (dedupe near-identical ones first)
+    # score every hypothesis (dedupe near-identical ones first, keeping the one from the longest pair: two marks 80 px
+    # apart give a scale a few % off, which misses the marks far out; DQD15 10x, 2026-11-27, where the guess from two
+    # close crosses shadowed the one from squares 830 px apart and a false fit at 1/3 of the scale won)
+    hyps.sort(key=lambda x: -x[0])
     seen, scored = set(), []
-    for a, t in hyps:
+    for _, a, t in hyps:
         key = (round(math.degrees(np.angle(a)) / 2), round(math.log(abs(a)) * 50), round(t.real / (abs(a) * 4)), round(t.imag / (abs(a) * 4)))
         if key in seen:
             continue
@@ -495,6 +501,18 @@ def fit_picture(im, tpl, mirror=False, expect_deg=0.0, smin=0.01, smax=30.0, max
             scored.append((sc, sim, assign))
     if not scored:
         return None
+    # the best guesses refined on the marks they explain (least squares, re-matched) before they are compared
+    scored.sort(key=lambda x: -x[0])
+    for k in range(min(len(scored), 40)):
+        sc, sim, assign = scored[k]
+        for _ in range(2):
+            sel = assign >= 0
+            sim2 = fit_sim(det_uv[assign[sel]], T[sel], mirror)
+            assign2, sc2, _, _ = match(sim2, det_uv, det_size, det_kind, tpl, w, h, kk)
+            if sc2 <= sc + 1e-9 or (assign2 >= 0).sum() < 2:
+                break
+            sc, sim, assign = sc2, sim2, assign2
+        scored[k] = (sc, sim, assign)
     best = max(s[0] for s in scored)
     # all solutions as good as the best (symmetric layouts give several); refine each by least squares
     sols = []
@@ -539,9 +557,16 @@ def fit_picture(im, tpl, mirror=False, expect_deg=0.0, smin=0.01, smax=30.0, max
             assign, det_uv = assign2, uv
     sel = assign >= 0
     res = np.hypot(*(sim.fwd(det_uv[assign[sel]]) - T[sel]).T)
+    # the best fit at a clearly different scale: a layout whose marks repeat at several scales (squares at 150, 225,
+    # 300, 450 um on the diagonals) fits a few marks at 1/2 or 1/3 of the true scale as well, so a small margin over it
+    # means the scale is not settled by this picture alone
+    alt = [(x[0], x[1].scale / sim.scale) for x in scored if abs(math.log(x[1].scale / sim.scale)) > math.log(1.15)]
+    alt_score, alt_ratio = max(alt) if alt else (None, None)
     return dict(sim=sim, assign=assign, det_uv=det_uv, det_size=det_size, det_kind=det_kind, n=int(sel.sum()),
                 score=sc, shape=shp, rms=float(np.sqrt(np.mean(res ** 2))), max=float(res.max()), mask=mask,
-                n_cand=len(cand), n_resolved=int((det_size[assign[sel]] >= 10).sum()))
+                n_cand=len(cand), n_resolved=int((det_size[assign[sel]] >= 10).sum()), alt_score=alt_score, alt_ratio=alt_ratio,
+                margin=(sc - alt_score) if alt_score is not None else float("inf"),
+                n_l=int(sum(1 for ti in np.nonzero(sel)[0] if tkind[ti] == "mark" and det_size[assign[ti]] >= 10)))
 
 
 # ----------------------------------------------------------------------------------- chaining to a placed picture
@@ -1144,6 +1169,111 @@ def expand_pictures(args, rot0):
     return pics
 
 
+MAG_RE = re.compile(r"(?<![0-9.])(\d+(?:\.\d+)?)\s*[xX](?![A-Za-z0-9])")
+
+
+def name_mag(name):
+    """The objective in a picture's name (DQD15_stack_10x.jpg -> 10.0), or None."""
+    m = MAG_RE.findall(os.path.splitext(os.path.basename(name))[0])
+    return float(m[-1]) if m else None
+
+
+def fit_strong(f):
+    """A marks fit good enough to check the others by: enough resolved marks, or three of the two-L marks (each one
+    names itself by its orientation; a stack over the fourth leaves three), and no other scale that fits nearly as
+    well."""
+    return f.get("margin", float("inf")) >= 1.0 and (
+        f["n_resolved"] >= 4 or f["n"] >= 8 or f.get("n_l", 0) >= 3)
+
+
+def scale_consensus(fits, tol=0.15):
+    """um/px x the objective in the name, as most of the pictures placed by their marks agree on it (one camera: the
+    10x picture has 1/5 of the 2x picture's um/px), or None when fewer than 2 agree or they are not a majority."""
+    pts = [f["sim"].scale * name_mag(f["name"]) for f in fits if f.get("how") == "marks" and name_mag(f["name"])]
+    best = []
+    for p0 in pts:
+        grp = [p for p in pts if abs(p / p0 - 1) <= tol]
+        if len(grp) > len(best):
+            best = grp
+    if len(best) < 2 or 2 * len(best) <= len(pts):
+        return None
+    return float(np.median(best))
+
+
+def find_hidden_marks(im, f, tpl, T, mirror=False, min_ncc=0.45):
+    """The two-L marks a placed picture should show but whose gold was not found (under a flake, e.g. the stack),
+    looked for where the fit puts them by the mark's outline (a flake over gold changes its colour, not its edges:
+    the outline correlates 0.6-0.9 there against below 0.2 elsewhere, DQD15 50x) and added to the fit when found.
+    Returns (layout positions found, layout positions still not seen)."""
+    h, w = im.shape[:2]
+    sim = f["sim"]
+    todo = []
+    for ti, ft in enumerate(tpl):
+        ps = ft["size"] / sim.scale
+        if ft["kind"] != "mark" or f["assign"][ti] >= 0 or ps < 12:
+            continue
+        uv = sim.inv(ft["c"][None])[0]
+        if abs(uv[0]) < w / 2.0 - ps / 2 and abs(uv[1]) < h / 2.0 - ps / 2:
+            todo.append(ti)
+    if not todo:
+        return [], []
+    g = im.astype(np.float32)
+    gm = sum(np.hypot(cv2.Sobel(g[..., c], cv2.CV_32F, 1, 0), cv2.Sobel(g[..., c], cv2.CV_32F, 0, 1)) for c in range(3))
+    found, hidden, new = [], [], []
+    for ti in todo:
+        ft = tpl[ti]
+        ps = ft["size"] / sim.scale
+        c = from_uv(sim.inv(ft["c"][None]), w, h)[0]
+        half = int(ps * 0.75) + 2
+        srch = int(max(3, 1.5 / sim.scale))
+        cx, cy = int(round(c[0])), int(round(c[1]))
+        pad = half + srch
+        win = np.zeros((2 * pad + 1, 2 * pad + 1), np.float32)       # (zeros past the picture's edge)
+        x0, y0 = cx - pad, cy - pad
+        sx0, sy0, sx1, sy1 = max(x0, 0), max(y0, 0), min(cx + pad + 1, w), min(cy + pad + 1, h)
+        if sx1 <= sx0 or sy1 <= sy0:
+            hidden.append(ti)
+            continue
+        win[sy0 - y0:sy1 - y0, sx0 - x0:sx1 - x0] = gm[sy0:sy1, sx0:sx1]
+        ss = 4
+        tp = np.zeros((2 * half * ss + ss, 2 * half * ss + ss), np.float32)
+        off = np.array([cx - half, cy - half], float)
+        for p in ft["polys"]:
+            px = (from_uv(sim.inv(p), w, h) - off + 0.5) * ss
+            cv2.fillPoly(tp, [np.round(px * 4).astype(np.int32)], 1.0, lineType=cv2.LINE_8, shift=2)
+        tp = cv2.resize(tp, (2 * half + 1, 2 * half + 1), interpolation=cv2.INTER_AREA)
+        te = cv2.morphologyEx(tp, cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8))
+        res = cv2.matchTemplate(win, te, cv2.TM_CCOEFF_NORMED)
+        _, best, _, (bx, by) = cv2.minMaxLoc(res)
+        if not best >= min_ncc:
+            hidden.append(ti)
+            continue
+
+        def sub(v0, vm, vp):
+            den = vm - 2 * v0 + vp
+            return 0.0 if den >= 0 else 0.5 * (vm - vp) / den
+        dx = sub(res[by, bx], res[by, bx - 1], res[by, bx + 1]) if 0 < bx < res.shape[1] - 1 else 0.0
+        dy = sub(res[by, bx], res[by - 1, bx], res[by + 1, bx]) if 0 < by < res.shape[0] - 1 else 0.0
+        xy = c + np.array([bx + dx - srch, by + dy - srch])
+        new.append((ti, to_uv(xy[None], w, h)[0], ps, best))
+    if new:
+        assign = f["assign"].copy()
+        det_uv, det_size, det_kind = f["det_uv"], np.asarray(f["det_size"], float), list(f["det_kind"])
+        for ti, uv, ps, best in new:
+            assign[ti] = len(det_uv)
+            det_uv = np.vstack([det_uv, uv[None]])
+            det_size = np.append(det_size, ps)
+            det_kind.append("mark")
+            found.append((ti, best))
+        sel = assign >= 0
+        sim = fit_sim(det_uv[assign[sel]], T[sel], mirror)
+        r = np.hypot(*(sim.fwd(det_uv[assign[sel]]) - T[sel]).T)
+        f.update(sim=sim, assign=assign, det_uv=det_uv, det_size=det_size, det_kind=det_kind, n=int(sel.sum()),
+                 n_resolved=int((det_size[assign[sel]] >= 10).sum()), n_l=f.get("n_l", 0) + len(new),
+                 rms=float(np.sqrt(np.mean(r ** 2))), max=float(r.max()), score=f.get("score", 0.0) + 1.25 * len(new))
+    return [(T[ti], best) for ti, best in found], [T[ti] for ti in hidden]
+
+
 def place_pictures(a, pics, gds_in):
     """The pictures [(path, rotation)] placed on the layout's alignment marks (fit_picture), the weak fits checked and
     the pictures without enough marks matched to placed ones (sift_place / ncc_place).  Returns (lib, top, tpl, T,
@@ -1180,8 +1310,66 @@ def place_pictures(a, pics, gds_in):
             fit = dict(name=name, path=path, rot=rot, how=None, prev=fit)
         fits.append(fit)
 
+    # the scale each objective should have, from the pictures that agree on it (um/px x magnification is one number
+    # per camera): a marks fit far off it is a misreading (DQD15 10x at 1/3 of its scale, 2026-11-27) and is fitted
+    # again near the expected scale, else matched to another picture; the matching is held to these scales too
+    K = scale_consensus(fits)
+    if K:
+        for k, f in enumerate(fits):
+            mag = name_mag(f["name"])
+            if not mag:
+                continue
+            ex = K / mag
+            given = f["name"] in EXPECT_UM                   # (--expect-um: the designer's step photos, kept)
+            EXPECT_UM.setdefault(f["name"], ex)
+            if f["how"] != "marks" or abs(f["sim"].scale / ex - 1) <= 0.15:
+                continue
+            f2 = fit_picture(images[f["path"]], tpl, a.mirror, f["rot"], max_rot=a.max_rot, smin=ex / 1.25,
+                             smax=ex * 1.25, log=lambda *x: None)
+            if fit_good(f) and (f2 is None or f2["score"] <= f["score"]):
+                # its marks fit better at their own scale than near the name's: the name is the wrong one (DQD13's
+                # "20x" picture was taken at 6.3x like the 10x ones: 21 marks at 1.088 um/px against 8 at half that)
+                if not given:
+                    EXPECT_UM.pop(f["name"], None)
+                print("%-28s its marks fit (%.4f um/px) is not the scale its name's objective gives (%.4f, from the "
+                      "other pictures), but they fit far better at their own: kept (is the name right?)" % (
+                          f["name"], f["sim"].scale, ex))
+                f["warning"] = "scale does not match the objective in its name"
+                continue
+            if fit_good(f2):
+                f2.update(name=f["name"], path=f["path"], rot=f["rot"], how="marks")
+                print("%-28s its marks fit (%.4f um/px) is not the scale its objective gives (%.4f, from the other "
+                      "pictures): fitted again near it: %.4f um/px  rotation %.2f deg  %d marks  rms %.2f um" % (
+                          f["name"], f["sim"].scale, ex, f2["sim"].scale, f2["sim"].angle, f2["n"], f2["rms"]))
+                fits[k] = f2
+            else:
+                print("%-28s its marks fit (%.4f um/px) is not the scale its objective gives (%.4f, from the other "
+                      "pictures): will try matching to another picture" % (f["name"], f["sim"].scale, ex))
+                fits[k] = dict(name=f["name"], path=f["path"], rot=f["rot"], how=None, prev=f)
+
+    for f in fits:
+        if f["how"] == "marks" and f.get("margin", float("inf")) < 1.0 and not (
+                K and name_mag(f["name"]) and abs(f["sim"].scale * name_mag(f["name"]) / K - 1) <= 0.15):
+            print("%-28s note: its marks fit nearly as well at %.2f x this scale, and no other pictures confirm the scale "
+                  "(name the pictures by objective, e.g. _10x, and include a 5x-10x one)" % (f["name"], f["alt_ratio"]))
+            f["warning"] = "scale not settled by its marks"
+
+    # two-L marks the fit expects in view but whose gold was not found: looked for by their outline (under a flake)
+    for f in fits:
+        if f["how"] != "marks":
+            continue
+        got, miss = find_hidden_marks(images[f["path"]], f, tpl, T, a.mirror)
+        if got:
+            print("%-28s found under a flake by its outline: mark%s at %s; now %d marks  rms %.2f um  max %.2f um" % (
+                f["name"], "s" if len(got) > 1 else "", ", ".join("(%.0f, %.0f) (correlation %.2f)" % (
+                    t[0], t[1], c) for t, c in got), f["n"], f["rms"], f["max"]))
+        if miss:
+            f["hidden"] = [list(map(float, t)) for t in miss]
+            print("%-28s not seen (under a flake, or out of focus): mark%s at %s" % (
+                f["name"], "s" if len(miss) > 1 else "", ", ".join("(%.0f, %.0f)" % (t[0], t[1]) for t in miss)))
+
     # weak mark fits (few, small marks) are checked against a strong picture by feature matching
-    strong = [f for f in fits if f["how"] == "marks" and (f["n_resolved"] >= 4 or f["n"] >= 8)]
+    strong = [f for f in fits if f["how"] == "marks" and fit_strong(f)]
     for k, f in enumerate(fits):
         if f["how"] != "marks" or f in strong or not strong:
             continue
@@ -1204,6 +1392,16 @@ def place_pictures(a, pics, gds_in):
         d = np.hypot(*(best[0].fwd(np.array([[0.0, 0.0], [w / 2.0, h / 2.0]])) - f["sim"].fwd(np.array([[0.0, 0.0], [w / 2.0, h / 2.0]]))).T).max()
         f["checked"] = True
         if d > max(5.0, 10 * f["sim"].scale):     # e.g. 2 marks taken for the wrong pair of a symmetric set
+            # ... unless it rests on 3 marks or more and the matched placement explains them much worse than its marks
+            # fit does (then the match is the wrong one: DQD15 50x, matched at 1/3 of its scale, "0 marks agree"); 2
+            # marks can be one mark spacing off (DQD6 50x: 90 um), there the matching decides
+            msc = match(best[0], f["det_uv"], np.asarray(f["det_size"], float), f["det_kind"], tpl, w, h)[1]
+            if f["n"] >= 3 and msc < f["score"] - 0.5:
+                print("%-28s matching it to the other pictures puts it %.0f um from its marks fit, but that placement "
+                      "explains its marks far worse (%.2f against %.2f): kept its marks fit; check it in the check "
+                      "picture" % (f["name"], d, msc, f["score"]))
+                f["warning"] = "matching disagrees by %.0f um; kept its marks fit" % d
+                continue
             dang = ((best[0].angle - f["sim"].angle + 180) % 360) - 180
             why = " (turned %.0f deg: its few marks cannot tell 0 from 180)" % dang if abs(abs(dang) - 180) < 5 else ""
             print("%-28s its marks fit disagrees with the other pictures by %.0f um%s: placed by matching instead" % (
