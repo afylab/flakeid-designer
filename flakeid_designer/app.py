@@ -278,7 +278,9 @@ def main():
     webview.settings["ALLOW_DOWNLOADS"] = True
     # window icon: Windows takes only .ico files (a .png stops the window from opening) and already has the .exe's
     # own icon; macOS / Linux get the png
-    icon = None if sys.platform == "win32" else D.HERE / "static" / "designer_256.png"
+    # (2026-11-28) macOS: the Dock icon on Apple's grid (margin and shadow: tools/designer_app/make_mac_icon.py), not
+    # the full-square png, which looked larger than every other app
+    icon = None if sys.platform == "win32" else D.HERE / "static" / ("designer_mac.png" if sys.platform == "darwin" else "designer_256.png")
     webview.start(icon=str(icon) if icon is not None and icon.is_file() else None, private_mode=False, debug=debug,
                   storage_path=str(storage_folder(Path.home() / ".flakeid_designer_app")))
     srv.shutdown()                                   # the window closed: the app quits
