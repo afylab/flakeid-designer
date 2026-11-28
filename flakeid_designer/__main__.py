@@ -96,7 +96,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
 # decode byte 0xba" (2026-11-20, third_2poly_run_1).  The files this program reads itself name their encoding.
 os.environ.setdefault("PYTHONUTF8", "1")
 APP = "flakeid-designer"
-VERSION = "2026-11-27c"
+VERSION = "2026-11-27d"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -4234,6 +4234,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/camera/status":
             st = CAM.LIVE.status() if CAM is not None else dict(available=False, sources=[], running=False)
             return self._json(dict(st, station=load_config().get("station") or {}))
+        if path == "/api/camera/details":
+            # (2026-11-27) the camera's Details window: the steps of the last opening, the error, IC4's own log
+            return self._send(200, (CAM.LIVE.details() if CAM is not None else "No camera support in this build (OpenCV missing).").encode("utf-8"),
+                              "text/plain; charset=utf-8", {"_nocache": 1})
         if path == "/api/camera/calibration.jpg":
             if not CAL.get("check"):
                 return self._send(204, b"", "text/plain", {"_nocache": 1})

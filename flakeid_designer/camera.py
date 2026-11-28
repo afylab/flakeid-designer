@@ -16,8 +16,11 @@ designer then shows no live view.
 from __future__ import annotations
 
 import math
+import sys
 import threading
 import time
+import traceback
+from pathlib import Path
 
 try:
     import numpy as np
@@ -37,6 +40,33 @@ def say(msg):
         sys.stderr.flush()
     except Exception:
         pass
+
+
+IC4_LOG = Path.home() / ".flakeid_ic4_log.txt"         # IC Imaging Control 4's own log (the driver's side of an error)
+
+
+def err_text(e):
+    """An exception as one line: its type, its message and, for IC Imaging Control 4's errors, the error code."""
+    code = getattr(e, "code", None)
+    code = getattr(code, "name", code)
+    return f"{type(e).__name__}: {e}" + (f" (error code {code})" if code is not None and str(code) not in str(e) else "")
+
+
+def env_text():
+    """What this computer runs (for the camera's Details window)."""
+    out = [f"{sys.platform}, Python {sys.version.split()[0]}"]
+    try:
+        import platform
+        out.append(platform.platform())
+    except Exception:
+        pass
+    out.append(f"OpenCV {getattr(cv2, '__version__', None) or 'not installed'}")
+    try:
+        import importlib.metadata as md
+        out.append(f"imagingcontrol4 {md.version('imagingcontrol4')}")
+    except Exception:
+        out.append("imagingcontrol4 not installed")
+    return " | ".join(out)
 
 
 def available():
@@ -249,6 +279,10 @@ class IC4Camera:
             pass                                     # (already initialised)
         step("looking for Imaging Source cameras")
         devs = ic4.DeviceEnum.devices()
+        if not devs:                                 # (2026-11-27: once more, after the USB has had time)
+            step("found none; looking again in 2 s")
+            time.sleep(2)
+            devs = ic4.DeviceEnum.devices()
         step(f"found {len(devs)}: " + ", ".join(f"{d.model_name} ({d.serial})" for d in devs))
         if not devs:
             raise RuntimeError("no Imaging Source camera found by IC Imaging Control 4 (is its USB3 driver installed? "
@@ -257,7 +291,13 @@ class IC4Camera:
         self.ic4 = ic4
         self.grabber = ic4.Grabber()
         step(f"opening {dev.model_name} ({dev.serial})")
-        self.grabber.device_open(dev)
+        try:
+            self.grabber.device_open(dev)
+        except Exception as e:                       # (2026-11-27: often still held for a moment by whoever had it)
+            step(f"could not open it: {err_text(e)}; trying again in 2 s")
+            time.sleep(2)
+            self.grabber = ic4.Grabber()
+            self.grabber.device_open(dev)
         pm = self.grabber.device_property_map
         for prop, val in ((ic4.PropId.TRIGGER_MODE, "Off"), (ic4.PropId.EXPOSURE_AUTO, "Continuous"),
                           (ic4.PropId.BALANCE_WHITE_AUTO, "Continuous")):
@@ -273,7 +313,15 @@ class IC4Camera:
             self.sink = ic4.SnapSink(accepted_pixel_formats=[ic4.PixelFormat.BGR8])
         except Exception:
             self.sink = ic4.SnapSink()
-        self.grabber.stream_setup(self.sink)
+        try:
+            self.grabber.stream_setup(self.sink)
+        except Exception as e:
+            step(f"the stream did not start: {err_text(e)}")
+            try:
+                self.grabber.device_close()
+            except Exception:
+                pass
+            raise
         self.name = f"{dev.model_name} ({dev.serial})"
         step("stream started, waiting for the first picture")
 
@@ -358,6 +406,9 @@ class Live:
         self.last_req = 0.0
         self.gen = 0
         self.want_settings = False
+        self.log = []                                # (2026-11-27) this opening's steps: the page's camera Details window
+        self.detail = None                           # the failure's traceback
+        self.closing = None                          # the previous camera's thread while it closes
 
     def start(self, src="sim", index=0, serial=None):
         """Starts opening `src` in the background and returns at once (status() follows it)."""
@@ -365,20 +416,39 @@ class Live:
         self.gen += 1
         gen = self.gen
         self.error, self.phase, self.src, self.t_start = None, "opening the camera", src, time.time()
+        self.detail, self.log = None, []
+        self._note(f"{time.strftime('%Y-%m-%d %H:%M:%S')}: {src} camera" + (f" {index}" if src == "opencv" else ""))
         self.last_req = time.time()
         self.raw = None
         self.stop_ev = threading.Event()
-        self.thread = threading.Thread(target=self._open_and_run, args=(gen, src, index, serial, self.stop_ev), daemon=True)
+        self.thread = threading.Thread(target=self._open_and_run, args=(gen, src, index, serial, self.stop_ev, self.closing), daemon=True)
         self.thread.start()
         return True
+
+    def _note(self, msg):
+        self.log.append(f"{time.time() - self.t_start:7.1f} s  {msg}")
+        del self.log[:-300]
 
     def _step(self, gen, msg):
         if gen == self.gen:
             self.phase = msg
+            self._note(msg)
         say(msg)
 
-    def _open_and_run(self, gen, src, index, serial, stop_ev):
+    def _fail(self, gen, msg, e):
+        """An error: shown on the page, its traceback kept for the Details window."""
+        if gen == self.gen:
+            self.error, self.phase, self.detail = msg, None, traceback.format_exc()
+            self._note("ERROR " + msg)
+        say(f"{msg}\n{traceback.format_exc()}")
+
+    def _open_and_run(self, gen, src, index, serial, stop_ev, prev=None):
         step = lambda m: self._step(gen, m)          # noqa: E731
+        if prev is not None and prev.is_alive():     # (2026-11-27) the camera reopened at once: let the old view let go
+            step("waiting for the previous camera to close")
+            prev.join(8.0)
+            if prev.is_alive():
+                step("WARNING: the previous camera has not closed after 8 s (a camera call hanging)")
         try:
             if src == "sim":
                 step("starting the simulated camera")
@@ -390,19 +460,22 @@ class Live:
             else:
                 raise RuntimeError(f"unknown camera source {src!r}")
         except Exception as e:
-            if gen == self.gen:
-                self.error, self.phase = f"{type(e).__name__}: {e}" if not str(e).startswith(("no ", "system")) else str(e), None
-            say(f"failed: {e}")
+            self._fail(gen, err_text(e) if not str(e).startswith(("no ", "system")) else str(e), e)
             return
         if gen != self.gen or stop_ev.is_set():      # (stopped / another camera chosen meanwhile)
             _close(cam)
             return
         self.cam = cam
         step("running")
-        self._run(cam, stop_ev)
+        try:
+            self._run(cam, stop_ev, gen)
+        except Exception as e:                       # (before 2026-11-27 this ended the view silently: no picture, no error)
+            self._fail(gen, f"the camera stopped: {err_text(e)}", e)
+        if gen == self.gen:
+            self._note("closing the camera")
         _close(cam)
 
-    def _run(self, cam, stop_ev):
+    def _run(self, cam, stop_ev, gen=None):
         n, t0, errs = 0, time.time(), 0
         while not stop_ev.is_set():
             if time.time() - self.last_req > 30:     # nobody is looking: idle
@@ -420,8 +493,12 @@ class Live:
             except Exception as e:
                 errs += 1
                 if errs in (1, 10) or errs % 100 == 0:
-                    say(f"no picture: {e}")
-                self.error = f"no picture from the camera: {e}"
+                    say(f"no picture: {err_text(e)}")
+                    if gen == self.gen:
+                        self._note(f"no picture ({errs} tries): {err_text(e)}")
+                        if errs == 1:
+                            self.detail = traceback.format_exc()
+                self.error = f"no picture from the camera: {err_text(e)}"
                 time.sleep(0.3)
                 continue
             if f is None:
@@ -435,10 +512,14 @@ class Live:
             ok, buf = cv2.imencode(".jpg", f, [cv2.IMWRITE_JPEG_QUALITY, 80])
             if ok:
                 with self.lock:
+                    if stop_ev.is_set() or (gen is not None and gen != self.gen):
+                        break                        # (2026-11-27: a closed camera's last frame no longer shows as the new one's)
                     first = self.jpeg is None
                     self.jpeg, self.raw, self.shape, self.seq = buf.tobytes(), f, f.shape[:2], self.seq + 1
                 if first:
                     self.grey = is_grey(f)
+                    if gen == self.gen:
+                        self._note(f"first picture {f.shape[1]} x {f.shape[0]}, format {getattr(cam, 'fmt', '?')}" + (" (grey)" if self.grey else ""))
                     say(f"first picture {f.shape[1]} x {f.shape[0]} after {time.time() - self.t_start:.1f} s, format "
                         f"{getattr(cam, 'fmt', '?')}" + (": GREY (the camera sends a monochrome format)" if self.grey else ", colour"))
             n += 1
@@ -476,6 +557,23 @@ class Live:
                     slow=slow, jog=self.src == "sim", settings=bool(getattr(self.cam, "has_settings", False)),
                     fmt=getattr(self.cam, "fmt", None), grey=bool(getattr(self, "grey", False)))
 
+    def details(self):
+        """Everything about the last opening, as text: the Details window (copied and sent when the camera fails)."""
+        st = self.status()
+        out = [f"Camera: {st['source'] or 'none'}" + (f" ({st['name']})" if st.get("name") else ""),
+               f"State: " + ("error: " + st["error"] if st["error"] else "picture " + "x".join(map(str, st["size"])) + f", {st['fps']} fps" if st["size"]
+                             else (st["phase"] or "stopped") + (f" ({st['waiting_s']} s, no picture yet)" if st["source"] else "")),
+               f"Computer: {env_text()}", "", "Steps:"] + (self.log or ["(none: the camera was not started)"])
+        if self.detail:
+            out += ["", "Error (traceback):", self.detail.rstrip()]
+        try:
+            if IC4_LOG.is_file() and IC4_LOG.stat().st_mtime > self.t_start - 5:
+                lines = IC4_LOG.read_text(encoding="utf-8", errors="replace").splitlines()
+                out += ["", f"IC Imaging Control 4 log ({IC4_LOG}, last {min(60, len(lines))} lines):"] + lines[-60:]
+        except Exception as e:
+            out += ["", f"(IC Imaging Control 4 log not readable: {e})"]
+        return "\n".join(out)
+
     def open_settings(self):
         if not getattr(self.cam, "has_settings", False):
             return "this camera has no settings window here"
@@ -492,6 +590,8 @@ class Live:
         """Stops at once; the camera is closed by its own thread (a hung camera must not hang the designer)."""
         self.gen += 1
         self.stop_ev.set()
+        if self.thread is not None:
+            self.closing = self.thread
         with self.lock:
             self.jpeg, self.shape = None, None
         self.cam, self.thread, self.src, self.phase, self.error = None, None, None, None, None

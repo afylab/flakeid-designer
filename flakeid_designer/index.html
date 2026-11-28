@@ -265,7 +265,7 @@ dialog::backdrop{background:rgba(10,14,16,.5)}
 #keysList kbd{min-width:20px;text-align:center}.keysb{white-space:nowrap}
 #imgHdr{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;padding:2px 2px 6px;font:700 17px/1.25 var(--sans);color:var(--ink)}#imgHdrList{font:700 17px/1.25 var(--sans);color:var(--ink);background:var(--panel2);border:1px solid var(--accent);border-radius:6px;padding:1px 6px;cursor:pointer}#imgHdr:empty,#imgHdrRun:empty{display:none}#imgHdrPar{font-weight:500;color:var(--muted)}
 #imgTools{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:center;padding-top:6px;padding-bottom:6px}
-#imgDlg .dlg,#afmDlg .dlg,#afmRunsDlg .dlg,#afm3dDlg .dlg{position:relative}#imgDlg .dhead,#afmDlg .dhead,#afmRunsDlg .dhead,#afm3dDlg .dhead,#fmapDlg .dhead,#afmFilesDlg .dhead{padding-right:64px}
+#imgDlg .dlg,#afmDlg .dlg,#afmRunsDlg .dlg,#afm3dDlg .dlg{position:relative}#imgDlg .dhead,#afmDlg .dhead,#afmRunsDlg .dhead,#afm3dDlg .dhead,#fmapDlg .dhead,#afmFilesDlg .dhead,#camDlg .dhead{padding-right:64px}
 #afm3dDlg{width:min(1180px,calc(100vw - 32px));max-height:calc(100vh - 24px)}#afm3dDlg .dlg{max-height:calc(100vh - 26px);overflow:auto}#afm3dDlg .pane{min-width:0}
 #afm3dCan{position:static;inset:auto;display:block;margin:0 auto;width:min(100%,calc((100vh - 290px) * 1100 / 640));height:auto;aspect-ratio:1100 / 640;background:#05070b;border-radius:8px;cursor:grab;touch-action:none}
 .okbtn{background:#1f9d55;border-color:#1f9d55;color:#fff;font-weight:700;font-size:16px;padding:10px 34px}.okbtn:hover{background:#23b35f}.xclose{position:absolute;top:8px;right:10px;width:34px;height:34px;padding:0;border-radius:50%;font-size:18px;line-height:1;display:grid;place-items:center;z-index:5}
@@ -536,7 +536,7 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
         <span id="liveJog" hidden class="row" style="gap:4px" title="Simulated camera: move the stamp's flake like the micromanipulator"><span class="sub">stamp</span>
           <button data-jog="-10,0,0">←</button><button data-jog="0,-10,0">↑</button><button data-jog="0,10,0">↓</button><button data-jog="10,0,0">→</button><button data-jog="0,0,-1">⟲</button><button data-jog="0,0,1">⟳</button>
           <span class="sub">focus</span><input type="range" id="liveFocus" min="0" max="1" step="0.05" value="0" style="width:60px" title="Focus: chip (left) … stamp (right)"></span>
-        <span class="sub mono" id="liveFps"></span><span class="sub" id="liveWarn" style="color:var(--warn)"></span>
+        <span class="sub mono" id="liveFps"></span><span class="sub" id="liveWarn" style="color:var(--warn)"></span><button id="liveDet" title="The camera's steps, its error and IC Imaging Control's own log: copy them and send them when the camera does not work">Details…</button>
         <button id="liveClose">Close live view</button>
       </div>
       <div class="canvasbox" id="cbox">
@@ -723,6 +723,12 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
     <div class="dhead"><b id="ctxTitle">Where the flake is</b><button id="ctxClose">Close</button></div>
     <div style="padding:10px;overflow:auto;text-align:center"><div id="ctxBox" style="position:relative;display:inline-block;max-width:100%"><img id="ctxImg" alt="Context picture" style="max-width:100%;max-height:72vh;display:block"><span id="ctxMark" class="ctxmark"></span></div>
       <div class="sub" id="ctxInfo"></div></div>
+  </div>
+</dialog>
+<dialog id="camDlg" aria-label="Camera details">
+  <div class="dlg" style="width:min(980px,92vw);display:flex;flex-direction:column">
+    <div class="dhead"><b>Camera</b><div class="row"><button id="camCopy" title="Copy all of it (to paste in a message)">Copy</button><button id="camRetry" title="Close the camera and open it again">Try again</button><button id="camRefresh" title="Read it again">↻</button><button id="camClose" class="xclose" title="Close (Esc)" aria-label="Close">✕</button></div></div>
+    <pre id="camLog" class="mono" style="margin:0 16px 16px;box-sizing:border-box;align-self:stretch;padding:10px;max-height:62vh;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.45;background:var(--panel2,rgba(127,127,127,.08));border:1px solid var(--rule);border-radius:6px;user-select:text"></pre>
   </div>
 </dialog>
 <dialog id="calDlg" aria-label="Calibrate from marks">
@@ -3217,16 +3223,26 @@ $("calSave").onclick=()=>{const r=CAL_RES;if(!r||!r.ok)return;const o=r.objectiv
 function liveUm(){const o=$("liveObj").value;return ((LIVE.station.objectives||{})[o]||{}).um||OBJ_UM[o]||0.5}
 async function liveStart(){const src=$("liveSrc").value;
   const r=await fetch("/api/camera/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({source:src,index:+$("liveIdx").value||0})}).then(r=>r.json()).catch(()=>null);
-  if(!r||!r.ok){status2("The camera could not be started"+(r&&r.error?": "+r.error:"")+".");return false}
+  if(!r||!r.ok){LIVE.startErr="the page could not start the camera"+(r&&r.error?": "+r.error:r?"":" (no answer from the designer)");status2("The camera could not be started"+(r&&r.error?": "+r.error:"")+".");return false}
+  LIVE.startErr=null;
   LIVE.station.source=src;LIVE.station.index=+$("liveIdx").value||0;$("liveJog").hidden=!r.jog;LIVE.got=false;LIVE.checkT=0;
   $("liveFps").textContent="starting the camera…";$("liveFps").style.color="";return true}
+// (2026-11-27) Details…: what the camera did (steps with times, the error and its traceback, IC4's log), to copy and send
+async function camDetails(){const pre=$("camLog");pre.textContent="…";
+  const t=await fetch("/api/camera/details",{cache:"no-store"}).then(r=>r.ok?r.text():"(the designer answered "+r.status+")").catch(e=>"(the designer did not answer: "+e+")");
+  pre.textContent=`Designer ${(window.FLAKEID_LOCAL||{}).version||""} · ${new Date().toLocaleString()} · page: ${LIVE.on?"live view on":"live view off"}${LIVE.got?", pictures arriving":""}${LIVE.startErr?" · "+LIVE.startErr:""}\n`+t}
+$("liveDet").onclick=()=>{camDetails();const d=$("camDlg");if(!d.open)d.showModal()};
+$("camRefresh").onclick=camDetails;$("camClose").onclick=()=>$("camDlg").close();
+$("camCopy").onclick=async()=>{const b=$("camCopy");let ok=true;try{await navigator.clipboard.writeText($("camLog").textContent)}catch(e){ok=false;const r=document.createRange();r.selectNodeContents($("camLog"));const sl=getSelection();sl.removeAllRanges();sl.addRange(r);try{ok=document.execCommand("copy")}catch(_){}}copyDone(b,ok)};
+$("camRetry").onclick=async()=>{if(!LIVE.on){$("camDlg").close();liveOn();return}LIVE.got=false;await liveStart();setTimeout(camDetails,1500)};
 // what the camera is doing while there is no picture (opening can take seconds; it reports each step), errors
 async function liveCheck(){const st=await fetch("/api/camera/status").then(r=>r.json()).catch(()=>null);const el=$("liveFps");if(!st||!LIVE.on)return;
   $("liveJog").hidden=!st.jog;$("liveSet").hidden=!st.settings;
+  $("liveDet").classList.toggle("primary",!!(st.error||st.slow));
   if(st.error){el.textContent="⚠ "+st.error;el.style.color="var(--err)";el.title=st.error}
   else if(st.slow){el.textContent=`⚠ no picture after ${Math.round(st.waiting_s)} s (${st.phase||"…"}). Is IC Capture or another program using the camera? Close it, then choose the camera again; or try System camera.`;el.style.color="var(--warn)"}
   else if(!LIVE.got){el.textContent=`${st.phase||"starting"}…`;el.style.color=""}}
-async function liveOn(){if(LIVE.on)return;if(STEPSEL!=null)leaveStep();if(!await liveStart())return;
+async function liveOn(){if(LIVE.on)return;if(STEPSEL!=null)leaveStep();if(!await liveStart()){$("liveDet").onclick();return}
   LIVE.saved=SIMG;LIVE.savedImg=SIMGIMG;LIVE.vr0=viewRot;LIVE.k=1;LIVE.pan=[0,0];LIVE.on=true;SIMG=null;SIMGIMG=null;alignPts=[];simgMode=null;
   $("liveBar").hidden=false;$("asbar").hidden=true;$("bLive").setAttribute("aria-pressed","true");$("liveOutl").hidden=false;
   showLayerImgs=false;$("bLayerImgs").setAttribute("aria-pressed","false");$("liveImgs").setAttribute("aria-pressed","false");
