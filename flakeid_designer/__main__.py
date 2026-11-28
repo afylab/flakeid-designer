@@ -96,7 +96,7 @@ for _r in (HERE.parent, HERE / "builder"):         # (2026-11-05y) `python flake
 # decode byte 0xba" (2026-11-20, third_2poly_run_1).  The files this program reads itself name their encoding.
 os.environ.setdefault("PYTHONUTF8", "1")
 APP = "flakeid-designer"
-VERSION = "2026-11-27g"
+VERSION = "2026-11-27h"
 CONFIG = Path.home() / ".flakeid_designer.json"
 LOG = Path.home() / ".flakeid_designer_log.txt"
 DEFAULT_PORT = 8765
@@ -2721,8 +2721,12 @@ class Builder:
                         self.state[k] = dict(run=d.name, dir=k, state="off", t=time.time(),
                                              msg="not built here: building new runs is off on this computer")
             return
-        for d in todo:
+        # (2026-11-27) the older runs without designer files (copied before the scan program's copy mark) are built by
+        # themselves too: the files are the same whichever computer builds them (before: a Build button)
+        for d in list(todo) + list(unbuilt):
             self.want(d, auto=True)
+
+    SLOW_WAIT_S = 900                                # a run the share is slow for: left this long to a faster computer
 
     def want(self, d, auto=False, full=False):
         """Queue a build of run folder d.  full: build it all again (Library › Rebuild: the chip picture and every flake),
@@ -2730,11 +2734,15 @@ class Builder:
         k = str(d)
         with self.lock:
             st = self.state.get(k, {})
-            if st.get("state") in ("queued", "building") or (auto and st.get("state") in ("failed", "slow")
-                                                              and time.time() - st.get("t", 0) < 3600):
+            if st.get("state") in ("queued", "building") or (auto and st.get("state") == "failed" and time.time() - st.get("t", 0) < 3600):
+                return
+            # (2026-11-27) slow from here: built here anyway once no other computer has done it in SLOW_WAIT_S (before:
+            # only when asked, "Build here anyway")
+            slow_ok = not auto or (st.get("state") == "slow" and time.time() - st.get("since", st.get("t", 0)) >= self.SLOW_WAIT_S)
+            if auto and st.get("state") == "slow" and not slow_ok:
                 return
             self.state[k] = dict(run=Path(d).name, dir=k, state="queued", msg="waiting", t=time.time())
-            self.queue.append((Path(d), auto, full))
+            self.queue.append((Path(d), auto, full, slow_ok))
             if self.thread is None or not self.thread.is_alive():
                 self.thread = threading.Thread(target=self._loop, daemon=True, name="designer builds")
                 self.thread.start()
@@ -2764,12 +2772,12 @@ class Builder:
             with self.lock:
                 if not self.queue:
                     return
-                d, auto, full = self.queue.pop(0)
+                d, auto, full, slow_ok = self.queue.pop(0)
             try:
-                if auto:                                  # (started by itself: not over a slow connection unasked)
+                if auto and not slow_ok:                  # (started by itself: a faster computer first, SLOW_WAIT_S)
                     slow = self.too_slow(d)
                     if slow:
-                        self._set(d, state="slow", msg=slow)
+                        self._set(d, state="slow", msg=slow, since=time.time())
                         continue
                 self._build(d, full=full)
             except Exception as e:
@@ -2806,8 +2814,8 @@ class Builder:
             return None
         if est <= self.SLOW_MIN * 60:
             return None
-        return (f"not built here: the share is slow from this computer ({rate / 2**20:.1f} MB/s), building would take about "
-                f"{est / 60:.0f} min. A computer on the lab network builds it in minutes; or build it here anyway.")
+        return (f"the share is slow from this computer ({rate / 2**20:.1f} MB/s, about {est / 60:.0f} min to build here): left "
+                f"{self.SLOW_WAIT_S // 60} min to a computer on the lab network (minutes there), then built here")
 
     @staticmethod
     def can_update(d, ddir):
