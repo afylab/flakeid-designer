@@ -2289,7 +2289,8 @@ function cleanRender(){const sv=$("imgSvg");if(!sv)return;const f=IMG.f;offSync(
   // (2026-11-11c, Avram: the pink cross was hard to see, pink on the pink substrate of graphite chips: each cross over a dark
   // outline, the pink one larger and thicker)
   const cross=(c,l)=>`M${c[0]-l} ${c[1]}H${c[0]+l}M${c[0]} ${c[1]-l}V${c[1]+l}`,PL=18*s,halo="rgba(0,0,0,.7)";
-  const used=usedCtrs(f).map(u=>{const c=[u.p[0]/F.k+F.x0,u.p[1]/F.k+F.y0],sd=(+u.scan_um||+AFM.scan_um||20)/(f.px_um*F.k);
+  // (2026-11-27) the orange ones hidden with the red one (AFM center off)
+  const used=(redHidden()?[]:usedCtrs(f)).map(u=>{const c=[u.p[0]/F.k+F.x0,u.p[1]/F.k+F.y0],sd=(+u.scan_um||+AFM.scan_um||20)/(f.px_um*F.k);
     return `<g stroke="#ff9a1f"><rect x="${c[0]-sd/2}" y="${c[1]-sd/2}" width="${sd}" height="${sd}" stroke="${halo}" stroke-width="${3*s}"/><rect x="${c[0]-sd/2}" y="${c[1]-sd/2}" width="${sd}" height="${sd}" stroke-width="${1.4*s}"/><path d="${cross(c,L)}" stroke="${halo}" stroke-width="${3.6*s}"/><path d="${cross(c,L)}" stroke-width="${1.6*s}"/></g>`}).join("");
   sv.insertAdjacentHTML("beforeend",`<g id="cleanG" style="pointer-events:none" fill="none" stroke="#ff2a2a" stroke-width="${1.2*s}">${used}${redHidden()?"":`<rect x="${q[0]-side/2}" y="${q[1]-side/2}" width="${side}" height="${side}"/><path d="${cross(q,L)}" stroke="${halo}" stroke-width="${3.6*s}"/><path d="${cross(q,L)}" stroke-width="${1.6*s}"/>`}${r?`<g stroke="#ff5fd2">${redHidden()?"":`<path d="M${r[0]} ${r[1]}L${q[0]} ${q[1]}" stroke-dasharray="${4*s} ${3*s}" stroke-width="${s}"/>`}<path class="pinkx" d="${cross(r,PL)}" stroke="${halo}" stroke-width="${5*s}"/><path class="pinkx" d="${cross(r,PL)}" stroke-width="${2.6*s}"/></g>`:""}</g>`)}
 // (2026-11-25d) the AFM centers used for AFM files (orange) of flake f: [{p (cut-out px), files, name, at, scan_um}]
@@ -2301,7 +2302,7 @@ function ctrNavSync(f,FZ){const ok=!!(f&&f.frame&&!f.manual);$("imgCtrNav").hidd
   $("imgCtrPrev").disabled=!!FZ||i<=0||!n;$("imgCtrNext").disabled=!!FZ||i>=n-1;
   const at=i<n?`position ${i+1} of ${n}`:n?`the picture's center (${n} position${n===1?"":"s"} before)`:"no positions yet";
   $("imgCtrPrev").title=`The previous AFM center position (now: ${at})`;$("imgCtrNext").title=`The next AFM center position (now: ${at})`;
-  const U=usedCtrs(f);$("imgRedShow").title="Show or hide the red cross and scan square (this computer). Shown: click or drag on the picture to move them. Hidden: a click does not move them"+
+  const U=usedCtrs(f);$("imgRedShow").title="Show or hide the red cross and scan square, and the orange ones (this computer). Shown: click or drag on the picture to move them. Hidden: a click does not move them"+
     (U.length?"\n\nOrange: the AFM center used for "+U.map(u=>`${(u.files||[]).map(x=>String(x).split(/[\\/]/).pop()).join(", ")||"its AFM file"} (${u.name}${u.at?", complete "+fmtT(u.at):""})`).join("; "):"")}
 function ctrStep(d){const f=IMG.f;if(!f||f.manual||!f.frame)return;
   if(afmFrozen(f)){toast("This list is marked AFM scan complete: its AFM centers stay as scanned. Remove the complete mark (Library › AFM runs) to change them.");return}
