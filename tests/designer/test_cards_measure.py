@@ -7,6 +7,7 @@ HTML = (Path(__file__).resolve().parents[2] / "flakeid_designer" / "index.html")
 
 def test_layer_card():
     assert '<div class="lhd"><b class="lfl" title=' in HTML and '<span class="lrun" title=' in HTML
+    assert '<span class="lpar">${escapeHtml(fpar)}</span>' in HTML and '<span class="lrn">${escapeHtml(frun)}</span>' in HTML
     assert ".layer .lhd{display:flex;align-items:baseline;justify-content:space-between;" in HTML
     assert '<span class="lord" title="Pick-up order">${num(i)}</span>' in HTML
 
