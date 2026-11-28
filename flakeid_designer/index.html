@@ -84,6 +84,11 @@ button:disabled{opacity:.45;cursor:default}
 @media (prefers-reduced-motion:reduce){.chead .tog .car{transition:none}}
 .layer{display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;align-items:stretch;padding:7px 9px 6px 7px;margin-bottom:6px;border-radius:9px;border:1px solid var(--rule);background:var(--panel);cursor:pointer}.layer .lbody{min-width:0;display:flex;flex-direction:column;gap:2px}.layer .lhd{display:flex;align-items:baseline;justify-content:space-between;gap:8px;min-width:0}.layer .lfl{font-size:14px;font-weight:700;letter-spacing:.01em}.layer .lrun{font:11px var(--mono);color:var(--muted);white-space:nowrap;min-width:0;display:flex;gap:5px;align-items:baseline}.layer .lrun .lpar{color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0}.layer .lrun .lrn{flex:none}.layer .lord{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 4px;margin-right:5px;border-radius:9px;background:var(--panel2);color:var(--muted);font-size:11px;font-weight:700;box-sizing:border-box}.layer .lft{display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0}
 .layer:hover{background:var(--panel2)}
+.tersec{border-top:1px solid var(--rule);padding-top:8px;margin-top:4px}.sechd{font-size:14px;font-weight:700;color:var(--ink);margin-bottom:6px}
+.tersec button[aria-pressed="true"]{border-color:var(--sel);box-shadow:0 0 0 1px var(--sel) inset}
+#terPrev{position:fixed;z-index:60;pointer-events:none;border-radius:10px;overflow:hidden;background:#000;border:2px solid #ff2fd0;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+#terPrev img,#terPrev canvas,#terPrev svg{position:absolute;inset:0;width:100%;height:100%;display:block}#terPrev img.tpth{inset:auto;max-width:none}
+#terPrev .tpcap{position:absolute;left:8px;bottom:6px;font:600 12px var(--sans);color:#fff;background:rgba(0,0,0,.55);padding:2px 7px;border-radius:6px}
 .layer.sel{border-color:var(--sel);background:var(--panel2)}
 .layer .sw{width:6px;min-height:30px;border-radius:3px;align-self:stretch}
 .layer .nm{font-weight:500;font-size:13px;display:flex;align-items:center;flex-wrap:wrap;gap:2px 0}
@@ -616,7 +621,7 @@ label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
       <label class="sub grdchk" title="Horizontal and vertical lines over the whole picture, one scale-bar length apart (this computer)"><input type="checkbox" id="imgGridOn"> Show grid</label><label class="sub grdchk" title="Long horizontal and vertical lines through the mouse pointer, across the whole picture (this computer)"><input type="checkbox" id="imgCurOn"> Cursor grid</label>
       <button id="imgKeysB" class="keysb" title="All the keyboard shortcuts (key ?)">⌨ Shortcuts</button>
       <a id="imgOpen" href="#" target="_blank" rel="noopener">Open in new tab</a><button id="imgClose" class="xclose" title="Close (Esc)" aria-label="Close">✕</button></div></div>
-    <div class="dfilters imgtools" id="imgTools"><span class="row"><button id="imgRedShow" aria-pressed="false" title="Show or hide the red cross and scan square (this computer). Shown: click or drag on the picture to move them. Hidden: a click does not move them">AFM center</button><span class="row seg" id="imgCtrNav"><button id="imgCtrPrev" aria-label="Previous AFM center position">&lt;</button><button id="imgCtrNext" aria-label="Next AFM center position">&gt;</button></span><label class="sub" id="imgScanBox" title="AFM scan size: the red square (and the scan size of the AFM lists made from now on)"><input type="number" id="imgScanUm" min="1" max="200" step="1" style="width:58px"> µm</label><button id="imgAfmAdd" title="Link an AFM scan (.spm) of this flake, found on the AFM by hand: the file window opens in the run's afm_scans folder. A flake already in an AFM list gets one more file there; else it goes in the chip's list &quot;Added by hand&quot;. Any number of files per flake">＋ AFM scan</button><button id="imgAfmDel" class="dangerbtn" hidden title="Take this flake out of this AFM list (its decision and stars stay)">Remove from AFM scan list</button><button id="imgPtClr" hidden title="Put the AFM center back at the center of the picture">Reset AFM center</button><span id="imgOffBox" class="row" style="gap:6px"><button id="imgOff" aria-pressed="false" style="color:#ff5fd2" title="Where the AFM really was (pink cross). Sent to this flake's red cross, the AFM's crosshair showed another place: press this (it stays on, from flake to flake, until you press it again; Alt + click then sets the red cross) and click that place on the picture (or Alt + click), or type where it is from the red cross (right, up in µm, as the picture is shown here). AFM lists made after it send the AFM the other way by as much, so that it lands on the red cross.">Manual AFM offset</button><label class="sub" title="From the red cross, to the right as the picture is shown">x (µm) <input type="number" id="imgOffX" step="0.5" style="width:72px"></label><label class="sub" title="From the red cross, up as the picture is shown">y (µm) <input type="number" id="imgOffY" step="0.5" style="width:72px"></label><button id="imgOffClr" hidden title="Remove this flake's manual AFM offset (the pink cross): no correction">Clear</button></span><button id="imgOffAll" title="Remove the pink cross (where the AFM really was) of every flake: click twice (the second click within 6 s confirms); Cmd + Z brings them back">Clear all manual AFM offsets…</button><button id="imgOffHide" aria-pressed="false" title="Hide the pink cross (where the AFM really was) on the picture, e.g. to look at the AFM results (key P); it stays hidden from flake to flake until pressed again">Hide manual AFM offset</button></span>
+    <div class="dfilters imgtools" id="imgTools"><span class="row"><button id="imgRedShow" aria-pressed="false" title="Show or hide the red cross and scan square (this computer). Shown: click or drag on the picture to move them. Hidden: a click does not move them">AFM center</button><span class="row seg" id="imgCtrNav"><button id="imgCtrPrev" aria-label="Previous AFM center position">&lt;</button><button id="imgCtrNext" aria-label="Next AFM center position">&gt;</button></span><label class="sub" id="imgScanBox" title="AFM scan size: the red square (and the scan size of the AFM lists made from now on)"><input type="number" id="imgScanUm" min="1" max="200" step="1" style="width:58px"> µm</label><button id="imgAfmAdd" title="Link an AFM scan (.spm) of this flake, found on the AFM by hand: the file window opens in the run's afm_scans folder. A flake already in an AFM list gets one more file there; else it goes in the chip's list &quot;Added by hand&quot;. Any number of files per flake">＋ AFM scan</button><button id="imgAfmDel" class="dangerbtn" hidden title="Take this flake out of this AFM list (its decision and stars stay)">Remove from AFM scan list</button><button id="imgPtClr" hidden title="Put the AFM center back at the center of the picture">Reset AFM center</button><span id="imgOffBox" class="row" style="gap:6px"><button id="imgOff" aria-pressed="false" style="color:#ff5fd2" title="Where the AFM really was (pink cross; key P). On (pink): the pink cross is shown and a click on the picture sets it (it stays on from flake to flake until you press it again; Alt + click then sets the red cross); off: the pink cross is hidden. Sent to this flake's red cross, the AFM's crosshair showed another place: turn this on and click that place on the picture (or Alt + click), or type where it is from the red cross (right, up in µm, as the picture is shown here). AFM lists made after it send the AFM the other way by as much, so that it lands on the red cross.">Manual AFM offset</button><label class="sub" title="From the red cross, to the right as the picture is shown">x (µm) <input type="number" id="imgOffX" step="0.5" style="width:72px"></label><label class="sub" title="From the red cross, up as the picture is shown">y (µm) <input type="number" id="imgOffY" step="0.5" style="width:72px"></label><button id="imgOffClr" hidden title="Remove this flake's manual AFM offset (the pink cross): no correction">Clear</button></span><button id="imgOffAll" title="Remove the pink cross (where the AFM really was) of every flake: click twice (the second click within 6 s confirms); Cmd + Z brings them back">Clear all manual AFM offsets…</button></span>
       <span class="row"><button id="imgThk" aria-pressed="false" title="Thickness (key T): the thickness under the cursor, read live from the 100x colour as the scan program does it (against the bare substrate of the picture, with the run's own calibrated 100x oxide)">Thickness cursor</button><span id="imgThkInfo" class="sub" hidden></span><button id="imgThkSet" aria-pressed="false" title="Manually set the flake's thickness (key Y): a click on the picture sets it to the local thickness under the cursor; or type it in the box (Enter)">Manually set thickness</button><input id="imgThkVal" type="number" step="0.1" min="0" hidden aria-label="Thickness (nm)" placeholder="nm" title="The flake's thickness in nm (Enter sets it)"><button id="imgMeas" aria-pressed="false" title="Measure distances on the picture (key R): press on the first point, drag to the second and release; each line shows its length in µm. Right-click or Backspace removes the last line, Esc stops. The lines stay while you switch views and are cleared at the next flake"><svg width="18" height="12" viewBox="0 0 18 12" aria-hidden="true" style="vertical-align:-1px;margin-right:6px"><rect x="0.75" y="2.75" width="16.5" height="7.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4 3v3M7 3v2M10 3v3M13 3v2" stroke="currentColor" stroke-width="1.2"/></svg>Measure</button><button id="imgMeasClr" class="danger" hidden title="Remove all the measuring lines on this picture">Clear measures</button><button id="imgMap" title="This flake on the chip's 10x scan (the chip map, zoomed in on it; the Library's shown flakes numbered too)">Chip map</button><span id="imgCopyW"><button id="imgCopy" aria-haspopup="true" aria-expanded="false" title="The files of this flake's 100x picture in the run's folder: copy a picture's parent folder, its file path or the image itself">Copy file path or image ▾</button><div id="imgCopyMenu" class="copymenu" hidden></div></span></span></div>
     <div class="dfilters" id="imgInfo"></div>
     <div class="dfilters drawbar" id="drawBar" hidden></div>
@@ -1372,6 +1377,21 @@ function restoreLocal(){try{const s=JSON.parse(lsGet("current")||"null");if(s&&A
 
 // ------------------------------------------------------------------ panels
 function num(i){return layers.length-i}
+// (2026-11-27) Flake info › Terraces: hovering a terrace shows the flake's 100x picture (colour) with only that terrace,
+// in bright pink, about a third of the window across, beside the panel
+function terPrevHide(){const d=$("terPrev");if(d){d.hidden=true;d.dataset.tid=""}}
+function terPrevShow(btn,f,t){if(!f||!t||!f.frame||!t.poly)return;const F=f.frame,ref=f.img_look||f.img||null;
+  // (no 100x picture link: the Library card's picture, cut from the thumbnails sheet; none: the terrace on black)
+  const T=Array.isArray(F.thumb)&&CAT&&CAT.thumbs?F.thumb:null,S=T&&CAT.thumbs[T[0]];
+  let d=$("terPrev");if(!d){d=document.createElement("div");d.id="terPrev";d.hidden=true;document.body.appendChild(d)}
+  const W=Math.round(Math.min(window.innerWidth/3,(window.innerHeight*0.6)*F.w/F.h)),H=Math.round(W*F.h/F.w);
+  const fp=p=>{const o=[];for(let i=0;i<p.length;i+=2)o.push((p[i]/F.k+F.x0).toFixed(1)+","+(p[i+1]/F.k+F.y0).toFixed(1));return o.join(" ")},sw=Math.max(F.w,F.h)/300;
+  d.dataset.tid=t.id;d.style.width=W+"px";d.style.height=H+"px";
+  d.innerHTML=`${typeof ref==="string"?`<img alt="" src="${escapeHtml(picRamUrl(ref))}">`:ref?`<canvas width="${ref.w}" height="${ref.h}"></canvas>`:S?`<img class="tpth" alt="" src="${escapeHtml(S.file)}" style="width:${S.w/T[3]*100}%;height:auto;left:${-T[1]/T[3]*100}%;top:${-T[2]/T[4]*100}%">`:""}<svg viewBox="0 0 ${F.w} ${F.h}" preserveAspectRatio="none"><polygon points="${fp(t.poly)}" fill="rgba(255,47,208,.42)" stroke="#ff2fd0" stroke-width="${2.2*sw}" stroke-linejoin="round"/></svg><span class="tpcap">${t.user&&t.user.note?escapeHtml(t.user.note)+" · ":""}${t.t} nm · Ø ${t.d} µm</span>`;
+  if(ref&&typeof ref!=="string")sheetImg(ref.s).then(sh=>{if(d.dataset.tid!==t.id)return;const cv=d.querySelector("canvas");if(cv)cv.getContext("2d").drawImage(sh,ref.x,ref.y,ref.w,ref.h,0,0,ref.w,ref.h)}).catch(()=>{});
+  const r=btn.getBoundingClientRect(),pane=btn.closest(".pane,section,aside")||btn,pr=pane.getBoundingClientRect();
+  let x=pr.left-W-12;if(x<8)x=Math.min(window.innerWidth-W-8,r.right+12);const y=Math.max(8,Math.min(window.innerHeight-H-8,r.top+r.height/2-H/2));
+  d.style.left=x+"px";d.style.top=y+"px";d.hidden=false}
 function tLabel(t){let s=`${t.t} nm`;if(t.alt)s+=` (alt ${t.alt.split(";")[0]})`;return s}
 // the 10x and 100x thickness of a terrace (2026-11-02): t is the 10x colour fit for a flake's target terrace (or the 10x
 // reading the 100x colour chose); t100x the scan program's 100x colour fit of the same terrace (flakeid.thick100: best
@@ -1548,7 +1568,7 @@ function renderLayerPane(live){const p=$("pLayer");const L=layers[sel];
   if(!L||!TR[L.tid]){p.innerHTML=`<div class="empty">No layer selected. Click a flake on the canvas or a row in the stack list to edit it.</div>`;return}
   const {t,f}=TR[L.tid];
   if(live&&$("lx")){$("lx").value=L.x.toFixed(1);$("ly").value=L.y.toFixed(1);$("lr").value=L.rot.toFixed(1);return}
-  const others=f.terraces.filter(x=>x.id!==t.id);
+  const others=f.terraces.filter(x=>x.id!==t.id),terrs=f.terraces;
   p.innerHTML=`<div class="row" style="justify-content:space-between"><b>${num(sel)}. ${layerName(L)}</b><span class="badge">${f.material==="hbn"?"hBN":"graphite"} on ${f.oxide_nm} nm SiO₂</span></div>
   ${f.img?`<div class="row"><button id="lImg">100x image</button>${f.img_c8?`<button id="lImgC8">High contrast</button>`:""}${f.img_dt?`<button id="lImgDt">Thickness change</button>`:""}</div>`:""}
   <div class="row"><button id="lChip" class="primary">${f.manual?"Context picture":"Show on chip"}</button><span class="sub">${f.scan}${f.rank!=null?` · flake ${f.rank}`:""}${f.score!=null?` · score ${f.score.toFixed(2)}`:""}</span></div>
@@ -1557,7 +1577,7 @@ function renderLayerPane(live){const p=$("pLayer");const L=layers[sel];
   <dt>size</dt><dd>${t.L} × ${t.W} µm · Ø ${t.d} µm · ${Math.round(t.area)} µm²</dd>
   ${f.manual?`<dt>imported</dt><dd>${escapeHtml(f.manual.name||"")}${f.manual.chip?" · chip "+escapeHtml(f.manual.chip):""} · thickness: ${escapeHtml(f.manual.thickness_how||"typed in")}</dd>`:`<dt>on chip</dt><dd>x ${(f.origin_um[0]+t.c[0]*f.px_um).toFixed(0)}, y ${(f.origin_um[1]+t.c[1]*f.px_um).toFixed(0)} µm${f.stage_origin_um?` · stage ${(f.stage_origin_um[0]+t.c[0]*f.px_um).toFixed(0)}, ${(f.stage_origin_um[1]+t.c[1]*f.px_um).toFixed(0)}`:""}</dd>`}
   <dt>flags</dt><dd>${t.quality.replace(/;/g,", ")}</dd>${f.crystal_deg!=null?`<dt>crystal edges</dt><dd title="Straight edges and steps of this flake (100x picture) run along these directions, 30° apart (hBN / graphite lattice); ${Math.round(100*(f.crystal_edge_frac||0))} % of its straight outline is on them">${crystalDirs(f,L)}</dd>`:""}</dl>
-  ${others.length?`<div><div class="lbl">Other terraces (regions of interest) of this flake</div><div class="row">${others.map(o=>`<button data-tid="${o.id}" ${o.user?`title="Drawn by hand${o.user.note?": "+escapeHtml(o.user.note):""}"`:""}>${o.user?"✎ ":""}${o.t} nm · Ø ${o.d}</button>`).join("")}</div></div>`:""}
+  ${terrs.length>1||others.length?`<div class="tersec"><div class="sechd">Terraces</div><div class="row">${terrs.map(o=>`<button data-tid="${o.id}" aria-pressed="${o.id===t.id}" ${o.user?`title="Drawn by hand${o.user.by?" by "+escapeHtml(whoName(o.user.by)):""}"`:""}>${o.user?`✎ ${o.user.note?`<b>${escapeHtml(o.user.note)}</b> · `:""}`:""}${o.t} nm · Ø ${o.d}</button>`).join("")}</div></div>`:""}
   ${L.plan?`<div class="sub">As built: ${Math.hypot(L.x-L.plan.x,L.y-L.plan.y).toFixed(1)} µm from the plan, turned ${(((L.rot-L.plan.rot+540)%360)-180).toFixed(1)}°${!!L.mirror!==!!L.plan.mirror?", mirrored":""} <button id="lPlan" title="Put this layer back where it was planned">Back to plan</button></div>`:""}
   ${VIEW==="finalize"?`<div class="sub">Shape as it really is (folds, tears): <button id="lShOut" aria-pressed="${!!(SHAPE&&SHAPE.uid===L.uid&&SHAPE.which==="outline")}" title="The flake's edge: the KLayout export and the flake's image use it">Edit outline</button> <button id="lShTer" aria-pressed="${!!(SHAPE&&SHAPE.uid===L.uid&&SHAPE.which==="terrace")}" title="The usable region: the overlap uses it">Edit terrace</button>${STACK&&STACK.final&&STACK.final.shapes&&STACK.final.shapes[L.uid]?` <button id="lShReset" title="Back to the shape found in the scan">Reset shape</button>`:""}</div>`:""}
   ${photosOf(L).length?`<div class="sub">Pictures at pick-up: ${photosOf(L).map((p,k)=>`<button data-ph="${k}" title="Show this picture under the stack, placed as it was taken">${new Date(p.at).toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</button>`).join(" ")}</div>`:""}
@@ -1578,7 +1598,9 @@ function renderLayerPane(live){const p=$("pLayer");const L=layers[sel];
   chk("lm","mirror");chk("ll","locked");chk("li","showImg");chk("lu","showOutline");chk("lv","inOverlap");
   $("lo").addEventListener("input",()=>{L.opacity=parseFloat($("lo").value);draw()});$("lo").addEventListener("change",()=>{saveLocal()});
   $("lc").addEventListener("input",()=>{L.color=$("lc").value;draw();renderStack()});$("lc").addEventListener("change",()=>{saveLocal()});
-  p.querySelectorAll("button[data-tid]").forEach(b=>b.onclick=()=>{pushUndo();const old=TR[L.tid].t,nt=TR[b.dataset.tid].t;
+  terPrevHide();   // (the panel drawn again: a preview of its old buttons closed)
+  p.querySelectorAll("button[data-tid]").forEach(b=>{b.onmouseenter=()=>{const e=TR[b.dataset.tid];if(e)terPrevShow(b,e.f,e.t)};b.onmouseleave=terPrevHide});
+  p.querySelectorAll("button[data-tid]").forEach(b=>b.onclick=()=>{terPrevHide();if(b.dataset.tid===L.tid)return;pushUndo();const old=TR[L.tid].t,nt=TR[b.dataset.tid].t;
     // keep the flake where it is: move the anchor to the new terrace's centre
     const w=toWorld(L,nt.c[0],nt.c[1]);L.tid=b.dataset.tid;L.tsel=null;L.x=w[0];L.y=w[1];changed()});
   $("lChip").onclick=()=>openChip(sel);if($("lImg")){const e=TR[layers[sel].tid];$("lImg").onclick=()=>openImg(e.f,e.t,"nat");if($("lImgC8"))$("lImgC8").onclick=()=>openImg(e.f,e.t,"c8");if($("lImgDt"))$("lImgDt").onclick=()=>openImg(e.f,e.t,"dt")}$("lRep").onclick=()=>openDialog(sel);$("lUp").onclick=()=>moveLayer(sel,1);$("lDn").onclick=()=>moveLayer(sel,-1);$("lDel").onclick=()=>removeLayer(sel);
@@ -1854,7 +1876,8 @@ $("imgDlg").addEventListener("close",()=>{if(IMG.nav&&IMG.nav.tfix){IMG.nav=null
 
 // ------------------------------------------------------------------ wrinkles and review of marginal flakes
 let REVIEW={};
-let HIDEPINK=(()=>{try{return localStorage.getItem("hidePink")==="1"}catch(e){return false}})();   // (2026-11-03m) the pink cross hidden (100x window)
+// (2026-11-27) the pink cross is shown only while Manual AFM offset is on (pink); before: always, and a "Hide manual AFM offset" button
+const pinkHidden=()=>!OFFPT.on;
 // star ratings, 1-3 per flake (2026-10-28): saved with the keep / discard decisions (review collection, id "<flake>.stars",
 // body {stars, flake}: shared in the library; the screening's training reads only the decisions), keys 8, 9, 0
 let STARS={};
@@ -2200,7 +2223,7 @@ function drawClose(){if(DRAW.pts.length<3){status2("A terrace needs at least thr
   const b=$("drawBar");b.hidden=false;
   b.innerHTML=`<span class="sub"><b>New terrace</b> · ${Math.round(g.area)} µm² · Ø ${g.d.toFixed(1)} µm · ${g.L.toFixed(0)} × ${g.W.toFixed(0)} µm</span>
     <label class="sub">thickness <input type="number" id="drawT" step="0.1" min="0" value="${IMG.t?IMG.t.t:""}"> nm</label>
-    <label class="sub">note <input type="text" id="drawNote" placeholder="e.g. thinner step, clean region"></label>
+    <label class="sub">name <input type="text" id="drawNote" placeholder="e.g. clean region"></label>
     <button class="primary" id="drawSave">Save terrace</button><button id="drawRedo">Redraw</button><button id="drawCancel">Cancel</button>`;
   $("drawT").focus();$("drawCancel").onclick=drawStop;$("drawRedo").onclick=drawStart;
   $("drawSave").onclick=async()=>{const t=parseFloat($("drawT").value);if(!(t>0)){status2("Enter the terrace's thickness (nm).");$("drawT").focus();return}
@@ -2285,7 +2308,7 @@ function cleanRender(){const sv=$("imgSvg");if(!sv)return;const f=IMG.f;offSync(
   sv.classList.toggle("pointing",!!(f&&f.frame&&!f.manual&&!DRAW.on&&!MEAS.on&&!THK.set));const old=sv.querySelector("#cleanG");if(old)old.remove();
   if(!f||!f.frame)return;const FZ=afmFrozen(f);$("imgPtClr").hidden=!CLEANPT[f.id]||!!FZ||redHidden();
   const C=FZ?{p:FZ.base}:afmCentre(f);if(!C)return;const F=f.frame,q=[C.p[0]/F.k+F.x0,C.p[1]/F.k+F.y0],s=1/(scrPerPx()||1),side=(+AFM.scan_um||20)/(f.px_um*F.k),L=12*s;
-  const T=HIDEPINK?null:FZ?(FZ.off?(d=>[FZ.base[0]-d[0],FZ.base[1]-d[1]])(offPx(f,FZ.off)):null):AFMOFF[f.id]&&afmPink(f),r=T?[T[0]/F.k+F.x0,T[1]/F.k+F.y0]:null;
+  const T=pinkHidden()?null:FZ?(FZ.off?(d=>[FZ.base[0]-d[0],FZ.base[1]-d[1]])(offPx(f,FZ.off)):null):AFMOFF[f.id]&&afmPink(f),r=T?[T[0]/F.k+F.x0,T[1]/F.k+F.y0]:null;
   // (2026-11-11c, Avram: the pink cross was hard to see, pink on the pink substrate of graphite chips: each cross over a dark
   // outline, the pink one larger and thicker)
   const cross=(c,l)=>`M${c[0]-l} ${c[1]}H${c[0]+l}M${c[0]} ${c[1]-l}V${c[1]+l}`,PL=18*s,halo="rgba(0,0,0,.7)";
@@ -2313,14 +2336,14 @@ $("imgCtrPrev").onclick=()=>ctrStep(-1);$("imgCtrNext").onclick=()=>ctrStep(1);
 // the offset's fields (top of the 100x window): (right, up) µm on the screen; typed values saved on change
 function offSync(){const f=IMG.f,ok=!!(f&&f.frame&&!f.manual);$("imgOffBox").hidden=!ok;if(!ok)setTimeout(rimSync,0);
   const FZ=ok?afmFrozen(f):null;imgHdrSync();
-  for(const k of ["imgOff","imgOffX","imgOffY"])$(k).disabled=!!FZ;if(!ok)return;   // (2026-11-03i: "AFM was here" stays on: off only by pressing it again)
-  const w=FZ?FZ.off:AFMOFF[f.id],v=w?offScr(neg(w)):null;$("imgOffClr").hidden=!v||!!FZ;const so=$("scrOff");if(so)so.textContent=v?` · Manual offset ${fmtOff(f)}`:"";$("imgOff").setAttribute("aria-pressed",String(OFFPT.on));$("imgOffHide").setAttribute("aria-pressed",String(HIDEPINK));$("imgOffHide").textContent=HIDEPINK?"Show manual AFM offset":"Hide manual AFM offset";$("imgRedShow").hidden=!ok;$("imgRedShow").setAttribute("aria-pressed",String(SHOWRED));ctrNavSync(f,FZ);$("imgScanBox").hidden=!ok;if(document.activeElement!==$("imgScanUm"))$("imgScanUm").value=+AFM.scan_um||20;
+  for(const k of ["imgOffX","imgOffY"])$(k).disabled=!!FZ;   // (Manual AFM offset still shows / hides the pink cross of a complete list)if(!ok)return;   // (2026-11-03i: "AFM was here" stays on: off only by pressing it again)
+  const w=FZ?FZ.off:AFMOFF[f.id],v=w?offScr(neg(w)):null;$("imgOffClr").hidden=!v||!!FZ;const so=$("scrOff");if(so)so.textContent=v?` · Manual offset ${fmtOff(f)}`:"";$("imgOff").setAttribute("aria-pressed",String(OFFPT.on));$("imgRedShow").hidden=!ok;$("imgRedShow").setAttribute("aria-pressed",String(SHOWRED));ctrNavSync(f,FZ);$("imgScanBox").hidden=!ok;if(document.activeElement!==$("imgScanUm"))$("imgScanUm").value=+AFM.scan_um||20;
   for(const [k,i] of [["imgOffX",0],["imgOffY",1]]){const el=$(k);if(document.activeElement!==el&&!el.dataset.edit)el.value=v?+v[i].toFixed(1):""}rimSync()}
 // (2026-11-03i) a rim round the picture: red = a click moves the red cross (AFM center), pink = the pink cross (where
 // the AFM was); Alt held swaps them, as Alt + click does; none when a click moves neither (a complete list, measuring, drawing)
 let ALTDN=false;
 function rimSync(){const w=$("imgWrap");if(!w)return;const f=IMG.f,red=!!(f&&f.frame&&!f.manual&&!DRAW.on&&!MEAS.on&&!THK.set&&!afmFrozen(f)&&$("imgDlg").open),on=red&&(OFFPT.on!==ALTDN||!redHidden());$("imgSvg").style.cursor=red&&!on?"default":"";
-  const pk=on&&OFFPT.on!==ALTDN;w.style.outline=pk?"3px solid #ff5fd2":"";w.style.outlineOffset=pk?"-3px":"";   // (2026-11-18j: no red outline)
+  w.style.outline="";w.style.outlineOffset="";   // (2026-11-27: no pink outline either; the Manual AFM offset button is pink while on)
   w.title=on?(OFFPT.on!==ALTDN?"A click sets the pink cross (where the AFM was)":"A click sets the red cross (the AFM center)"):""}
 for(const ev of ["keydown","keyup"])document.addEventListener(ev,e=>{const a=ev==="keydown"?(e.altKey||e.key==="Alt"):(e.altKey&&e.key!=="Alt");if(a!==ALTDN){ALTDN=a;rimSync()}});
 window.addEventListener("blur",()=>{if(ALTDN){ALTDN=false;rimSync()}});
@@ -2333,7 +2356,7 @@ $("imgOffAll").onclick=()=>{const b=$("imgOffAll"),ids=Object.keys(AFMOFF).filte
     setTimeout(()=>{if(OFFALL&&Date.now()>=OFFALL){OFFALL=0;reset()}},6100);return}
   OFFALL=0;reset();const prev=ids.map(id=>[FL[id],AFMOFF[id].slice()]);prev.forEach(([f])=>setAfmOff(f,null,true));
   XUNDO.push({kind:"offs",list:prev});status2(`${ids.length} manual AFM offset${ids.length===1?"":"s"} cleared (Cmd + Z brings them back).`);cleanRender();offSync();if(SCREEN.list)showScreen()};
-$("imgOff").onclick=()=>{OFFPT.on=!OFFPT.on;offSync();status2(OFFPT.on?"Manual AFM offset: on. Clicks on the picture set the pink cross (on every flake) until you press it again; Alt + click sets the red cross.":"AFM was here: off. Clicks set the red cross again.")};
+$("imgOff").onclick=()=>{OFFPT.on=!OFFPT.on;offSync();cleanRender()};
 // (2026-11-03i) Cmd / Ctrl + Z in the 100x window: the last change of a red cross (AFM center) or pink cross (where the
 // AFM was) back as it was, also on a flake stepped away from (the most recent first)
 const XUNDO=[];
@@ -2359,6 +2382,7 @@ for(const k of ["imgOffX","imgOffY"])$(k).addEventListener("change",()=>{const f
   sv.addEventListener("pointerdown",e=>{{const ae=document.activeElement;if(ae&&(ae.id==="imgOffX"||ae.id==="imgOffY"))ae.blur()}if(!sv.classList.contains("pointing")||DRAW.on||MEAS.on||THK.set||e.button!==0||e.shiftKey)return;const p=at(e);if(!p)return;if(e.altKey===OFFPT.on&&redHidden())return;
     if(afmFrozen(IMG.f)){toast("This list is marked AFM scan complete: its AFM centers and offsets stay as scanned. Remove the complete mark (Library › AFM runs) to change them.");return}e.preventDefault();e.stopPropagation();
     sv.setPointerCapture(e.pointerId);pdrag=e.altKey!==OFFPT.on?"off":true;   // (Alt: the other cross than the toggle's)
+    if(pdrag==="off"&&!OFFPT.on){OFFPT.on=true;offSync()}   // (2026-11-27: Alt + click sets the pink cross: shown, Manual AFM offset on)
     pprev=pdrag==="off"?(AFMOFF[IMG.f.id]||null):(CLEANPT[IMG.f.id]||null);if(pprev)pprev=pprev.slice();
     if(pdrag==="off")pink(p);else{CLEANPT[IMG.f.id]=p;cleanRender()}});
   sv.addEventListener("pointermove",e=>{if(!pdrag)return;const p=at(e);if(!p)return;if(pdrag==="off")pink(p);else{CLEANPT[IMG.f.id]=p;cleanRender()}});
@@ -2603,7 +2627,7 @@ const KEYS=[["Flakes",[["→  Space  ▶","next flake"],["←  ◀","previous fl
   ["Decide",[["K","keep (AFM screening: AFM screened kept)"],["D","discard (AFM screening: AFM screened discarded)"],["X","clear the decision (screening)"],
     ["U","mark used (again: not used)"],["8","★"],["9","★★"],["0","★★★ (a star key again: no stars)"]]],
   ["Screening",[["N","only the flakes not screened yet: no keep / discard, used or stars (on / off)"],["S","AFM screening: 100x ↔ 100x + AFM"]]],
-  ["Picture",[["1","natural"],["2","black and white green (against the terrace)"],["3","high contrast (colour)"],["C","natural ↔ high contrast"],["4","the flake in the 10x scan"],["5","thickness change"],["P","hide / show the manual AFM offset (pink cross)"],
+  ["Picture",[["1","natural"],["2","black and white green (against the terrace)"],["3","high contrast (colour)"],["C","natural ↔ high contrast"],["4","the flake in the 10x scan"],["5","thickness change"],["P","Manual AFM offset on / off (the pink cross shown / hidden)"],
     ["I","IR domains"],["M","whole terrace (mosaic)"],["−  +","zoom out / in (mosaic, 10x)"],["Home","the whole mosaic"],["O","outlines"],["W","wrinkles"]]],
   ["Mouse",[["click / drag","move the AFM center (red cross)"],["Alt + click / drag","where the AFM really was (pink cross)"],["Shift + drag","move the whole terrace"],
     ["mouse wheel","zoom (mosaic, 10x)"],["drag on the AFM picture","height profile (AFM screening, 100x + AFM)"]]],
@@ -2649,7 +2673,7 @@ $("imgScanUm").addEventListener("input",e=>{if(setScanUm(e.target.value))cleanRe
 $("imgScanUm").addEventListener("keydown",e=>{e.stopPropagation();if(e.key==="Enter"||e.key==="Escape"){e.preventDefault();e.target.blur()}});
 $("imgScanUm").addEventListener("blur",()=>offSync());
 $("imgAfmAdd").onclick=()=>imgAfmAdd();
-$("imgRedShow").onclick=()=>{SHOWRED=!SHOWRED;try{localStorage.setItem("showAfmCenter",SHOWRED?"1":"0")}catch(e){}cleanRender()};$("imgOffHide").onclick=()=>{HIDEPINK=!HIDEPINK;try{localStorage.setItem("hidePink",HIDEPINK?"1":"0")}catch(e){}cleanRender()};$("imgIr").onclick=()=>{if(IMG.mode!=="ir")IMG.noIr=IMG.mode;IMG.mode="ir";IMG.wantIr=true;showImg()};
+$("imgRedShow").onclick=()=>{SHOWRED=!SHOWRED;try{localStorage.setItem("showAfmCenter",SHOWRED?"1":"0")}catch(e){}cleanRender()};$("imgIr").onclick=()=>{if(IMG.mode!=="ir")IMG.noIr=IMG.mode;IMG.mode="ir";IMG.wantIr=true;showImg()};
 $("imgFit").onclick=()=>{IMG.one=false;showImg()};$("imgOne").onclick=()=>{IMG.one=true;showImg()};
 function wrSave(){try{localStorage.setItem("fd_wr",IMG.wr?"1":"0")}catch(e){}}
 $("imgOut").onclick=()=>{IMG.outline=!IMG.outline;showImg()};$("imgWr").onclick=()=>{IMG.wr=!IMG.wr;wrSave();showImg()};
@@ -2998,7 +3022,7 @@ document.addEventListener("keydown",e=>{if(!$("imgDlg").open||e.metaKey||e.ctrlK
   if(k==="?"){e.preventDefault();openKeys();return}
   if(k==="1"){IMG.mode="nat";IMG.wantIr=false;showImg()}else if(k==="2"&&sgCan(IMG.f)){IMG.mode="sg";IMG.wantIr=false;IMG.wantMos=false;showImg()}else if(k==="3"&&IMG.f.img_c8){IMG.mode="c8";IMG.wantIr=false;showImg()}
   else if(k==="4"&&tenxCan(IMG.f)){IMG.mode="tenx";IMG.wantIr=false;IMG.wantMos=false;showImg()}else if(k==="5"&&IMG.f.img_dt){IMG.mode="dt";IMG.wantIr=false;showImg()}
-  else if((k==="p"||k==="P")&&IMG.f&&IMG.f.frame)$("imgOffHide").click()
+  else if((k==="p"||k==="P")&&IMG.f&&IMG.f.frame)$("imgOff").click()
   else if(IMG.mode==="tenx"&&(k==="-"||k==="+"||k==="="))tenxZoom(k==="-"?1/1.25:1.25)
   else if(k==="c"||k==="C"){IMG.wantIr=false;IMG.mode=IMG.mode==="c8"||!IMG.f.img_c8?"nat":"c8";showImg()}
   else if((k==="i"||k==="I")&&(IMG.f.img_ir||IMG.mode==="ir")){if(IMG.mode==="ir"){IMG.mode=IMG.noIr||"nat";IMG.wantIr=false}else{IMG.noIr=IMG.mode;IMG.mode="ir";IMG.wantIr=true}showImg()}
